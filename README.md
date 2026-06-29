@@ -1,4 +1,4 @@
-# crawler
+# stock-crawler-de-course-materials
 
 這是一個「台股資料爬蟲系統」的教學專案，帶你從零學會如何用工業界常見的架構，定期自動抓取股票資料並寫入資料庫。
 
