@@ -171,6 +171,44 @@ docker compose -f docker-compose-local.yml down
 docker compose -f docker-compose-local.yml down -v
 ```
 
+### 🚀 完整端到端流程（從零到驗證）
+
+照著跑一遍即可驗證整個系統能正常運作。
+
+```bash
+# Step 1：啟動所有服務
+docker compose -f docker-compose-local.yml up -d --build rabbitmq flower mysql phpmyadmin worker_twse worker_tpex
+
+# Step 2：等 30 秒，確認服務狀態（全部應該 Up）
+docker compose -f docker-compose-local.yml ps -a
+
+# Step 3：確認 Worker ready
+docker compose -f docker-compose-local.yml logs worker_twse | grep ready
+docker compose -f docker-compose-local.yml logs worker_tpex | grep ready
+
+# Step 4：確認 Web 介面（全部應該 200）
+curl -o /dev/null -w "RabbitMQ: %{http_code}\n" http://localhost:15672
+curl -o /dev/null -w "Flower: %{http_code}\n" http://localhost:5555
+curl -o /dev/null -w "phpMyAdmin: %{http_code}\n" http://localhost:8080
+
+# Step 5：發送任務
+docker compose -f docker-compose-local.yml up producer
+
+# Step 6：查看 Worker log（等 10-20 秒，應該看到 succeeded）
+docker compose -f docker-compose-local.yml logs worker_twse | grep succeeded
+docker compose -f docker-compose-local.yml logs worker_tpex | grep succeeded
+
+# Step 7：驗證 MySQL 資料（應該看到 2330 和 00679B 各 349 筆）
+docker exec mysql mysql -uroot -pppWgnb_mfGe2m_ mydb -e \
+  "SHOW TABLES; SELECT stock_id, COUNT(*) as cnt FROM TaiwanStockPrice GROUP BY stock_id;"
+
+# Step 8：看 Flower 任務狀態
+# 開瀏覽器 http://localhost:5555 → Tasks 頁籤，應該看到 SUCCESS
+
+# Step 9：收工
+docker compose -f docker-compose-local.yml down -v
+```
+
 ### 🔍 Web 介面
 
 | 服務 | 網址 | 帳密 |
