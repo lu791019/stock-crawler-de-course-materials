@@ -237,9 +237,15 @@ uv run crawler/producer.py                       # 最簡單範例（1 個假任
 uv run crawler/producer_crawler_finmind.py       # 批次發送 5 支股票
 uv run crawler/producer_multi_queue.py           # 分流到不同 queue
 
+# 同時監聽多個 queue
+uv run python -m celery -A crawler.worker worker --loglevel=info -Q twse,tpex
+
 # 連遠端（RabbitMQ/MySQL 在雲端）
 uv run --env-file .env python -m celery -A crawler.worker worker --loglevel=info
+uv run --env-file .env python -m celery -A crawler.worker worker --loglevel=info -Q twse,tpex
 uv run --env-file .env crawler/producer.py
+uv run --env-file .env crawler/producer_crawler_finmind.py
+uv run --env-file .env crawler/producer_multi_queue.py
 ```
 
 ### 🗄️ 驗證資料
