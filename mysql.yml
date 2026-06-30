@@ -15,8 +15,8 @@ services:
       environment: # 環境變數, 設置 db, user, password, root_password
           MYSQL_DATABASE: mydb
           MYSQL_USER: user
-          MYSQL_PASSWORD: ppWgnb_mfGe2m_
-          MYSQL_ROOT_PASSWORD: ppWgnb_mfGe2m_
+          MYSQL_PASSWORD: 1234
+          MYSQL_ROOT_PASSWORD: 1234
       restart: always  # 若容器停止或崩潰，自動重新啟動
       volumes:
           - mysql:/var/lib/mysql

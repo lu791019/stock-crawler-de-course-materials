@@ -116,7 +116,7 @@ Web 介面：
 |------|------|------|
 | RabbitMQ 管理 | http://localhost:15672 | worker / worker |
 | Flower 監控 | http://localhost:5555 | （無）|
-| phpMyAdmin | http://localhost:8080 | root / ppWgnb_mfGe2m_ |
+| phpMyAdmin | http://localhost:8080 | root / 1234 |
 
 確認 worker ready：
 
@@ -151,7 +151,7 @@ docker compose -f docker-compose-local.yml logs worker_tpex | grep succeeded
 #    http://localhost:5555 → Tasks
 
 # 3. MySQL 查資料
-docker exec mysql mysql -uroot -pppWgnb_mfGe2m_ -e "USE mydb; SHOW TABLES; SELECT stock_id, COUNT(*) FROM TaiwanStockPrice GROUP BY stock_id;"
+docker exec mysql mysql -uroot -p1234 -e "USE mydb; SHOW TABLES; SELECT stock_id, COUNT(*) FROM TaiwanStockPrice GROUP BY stock_id;"
 ```
 
 預期：
@@ -195,7 +195,7 @@ docker compose -f rabbitmq-network.yml up -d
 docker compose -f mysql.yml up -d
 ```
 
-驗證：http://localhost:8080（root / ppWgnb_mfGe2m_）
+驗證：http://localhost:8080（root / 1234）
 
 ### Step 4：Worker
 
@@ -286,7 +286,7 @@ docker compose -f docker-compose-local.yml logs worker_tpex | grep succeeded
 ### Step 6：DB 驗證
 
 ```bash
-docker exec mysql mysql -uroot -pppWgnb_mfGe2m_ mydb -e \
+docker exec mysql mysql -uroot -p1234 mydb -e \
   "SHOW TABLES; SELECT stock_id, COUNT(*) as cnt FROM TaiwanStockPrice GROUP BY stock_id;"
 ```
 

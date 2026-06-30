@@ -199,7 +199,7 @@ docker compose -f docker-compose-local.yml logs worker_twse | grep succeeded
 docker compose -f docker-compose-local.yml logs worker_tpex | grep succeeded
 
 # Step 7：驗證 MySQL 資料（應該看到 2330 和 00679B 各 349 筆）
-docker exec mysql mysql -uroot -pppWgnb_mfGe2m_ mydb -e \
+docker exec mysql mysql -uroot -p1234 mydb -e \
   "SHOW TABLES; SELECT stock_id, COUNT(*) as cnt FROM TaiwanStockPrice GROUP BY stock_id;"
 
 # Step 8：看 Flower 任務狀態
@@ -215,7 +215,7 @@ docker compose -f docker-compose-local.yml down -v
 |------|------|------|
 | RabbitMQ 管理 | http://localhost:15672 | worker / worker |
 | Flower 監控 | http://localhost:5555 | （無）|
-| phpMyAdmin | http://localhost:8080 | root / ppWgnb_mfGe2m_ |
+| phpMyAdmin | http://localhost:8080 | root / 1234 |
 
 ### 🕷️ 爬蟲與任務執行（本機）
 
@@ -252,7 +252,7 @@ uv run --env-file .env crawler/producer_multi_queue.py
 
 ```bash
 # MySQL 查資料
-docker exec mysql mysql -uroot -pppWgnb_mfGe2m_ mydb -e \
+docker exec mysql mysql -uroot -p1234 mydb -e \
   "SHOW TABLES; SELECT stock_id, COUNT(*) FROM TaiwanStockPrice GROUP BY stock_id;"
 
 # 查看 Worker log
