@@ -6,7 +6,7 @@ services:
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: rabbitmq
-    restart: always
+    restart: unless-stopped
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -15,32 +15,32 @@ services:
       RABBITMQ_DEFAULT_PASS: "worker"
 
   flower:
-    image: mher/flower:2.0
+    image: mher/flower:latest
     container_name: flower
-    command: ["celery", "--broker=amqp://worker:worker@rabbitmq", "flower", "--port=5555"]
-    restart: always
+    restart: unless-stopped
     ports:
       - "5555:5555"
     depends_on:
       - rabbitmq
+    command: ["celery", "--broker=amqp://worker:worker@rabbitmq:5672//", "flower", "--port=5555"]
 
   mysql:
     image: mysql:8.0
     container_name: mysql
-    command: --default-authentication-plugin=mysql_native_password
+    restart: unless-stopped
     ports:
       - "3306:3306"
     environment:
       MYSQL_DATABASE: mydb
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ppWgnb_mfGe2m_}
-    restart: always
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-1234}
     volumes:
       - mysql:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
 
   phpmyadmin:
-    image: phpmyadmin:5.2
+    image: phpmyadmin:latest
     container_name: phpmyadmin
-    restart: always
+    restart: unless-stopped
     ports:
       - "8080:80"
     environment:
@@ -51,24 +51,26 @@ services:
   worker_twse:
     build: .
     container_name: crawler_twse
-    command: uv run celery -A crawler.worker worker --loglevel=info --hostname=twse -Q twse
-    restart: always
+    command: uv run python -m celery -A crawler.worker worker --loglevel=info --hostname=twse@%h -Q twse
+    restart: unless-stopped
     environment:
       - TZ=Asia/Taipei
       - RABBITMQ_HOST=rabbitmq
       - MYSQL_HOST=mysql
+      - PYTHONPATH=/crawler
     depends_on:
       - rabbitmq
 
   worker_tpex:
     build: .
     container_name: crawler_tpex
-    command: uv run celery -A crawler.worker worker --loglevel=info --hostname=tpex -Q tpex
-    restart: always
+    command: uv run python -m celery -A crawler.worker worker --loglevel=info --hostname=tpex@%h -Q tpex
+    restart: unless-stopped
     environment:
       - TZ=Asia/Taipei
       - RABBITMQ_HOST=rabbitmq
       - MYSQL_HOST=mysql
+      - PYTHONPATH=/crawler
     depends_on:
       - rabbitmq
 
@@ -79,6 +81,7 @@ services:
     environment:
       - TZ=Asia/Taipei
       - RABBITMQ_HOST=rabbitmq
+      - PYTHONPATH=/crawler
     depends_on:
       - rabbitmq
 
