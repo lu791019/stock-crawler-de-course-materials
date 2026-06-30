@@ -32,9 +32,9 @@ Producer 發任務 → RabbitMQ 排隊 → Worker 執行爬蟲 → MySQL 儲存
                                  phpMyAdmin 管理 DB
 ```
 
-### 和 de-project-course 的關係
+### 和 hahow-crawler 的關係
 
-| | crawler（本專案） | de-project-course |
+| | crawler（本專案） | hahow-crawler |
 |---|---|---|
 | 資料來源 | FinMind 台股 API | Hahow 線上課程 API |
 | 迴圈維度 | stock_id（2330, 0050...）| category（programming, marketing...）|
@@ -47,22 +47,22 @@ Producer 發任務 → RabbitMQ 排隊 → Worker 執行爬蟲 → MySQL 儲存
 | 服務 | Image | Port | 角色 |
 |------|-------|------|------|
 | rabbitmq | rabbitmq:3.13-management-alpine | 5672 / 15672 | 訊息佇列（派工）|
-| flower | mher/flower:2.0 | 5555 | Celery 任務監控 |
+| flower | mher/flower:latest | 5555 | Celery 任務監控 |
 | mysql | mysql:8.0 | 3306 | 資料庫（存股價資料）|
-| phpmyadmin | phpmyadmin:5.2 | 8080 | 資料庫管理介面 |
+| phpmyadmin | phpmyadmin:latest | 8080 | 資料庫管理介面 |
 | worker_twse | 本地 build | — | 執行爬蟲（監聽 twse queue）|
 | worker_tpex | 本地 build | — | 執行爬蟲（監聽 tpex queue）|
 
-### 和 de-project-course 不能同時跑
+### 和 hahow-crawler 不能同時跑
 
 兩個專案共用 4 個 port（3306、5672、15672、5555），**同時跑會衝突**。
 
 ```bash
 # 先拆一個再起另一個
-cd ~/de-project-course
+cd ~/hahow-crawler
 docker compose -f docker-compose-local.yml down -v
 
-cd ~/crawler
+cd ~/stock-crawler
 docker compose -f docker-compose-local.yml up -d --build
 ```
 
@@ -74,7 +74,7 @@ docker compose -f docker-compose-local.yml up -d --build
 
 ```bash
 cd ~
-git clone https://github.com/TibameSam/crawler.git
+git clone https://github.com/lu791019/stock-crawler-de-course-materials.git
 cd crawler
 ls
 # Dockerfile  docker-compose-local.yml  crawler/  pyproject.toml  uv.lock ...
@@ -96,7 +96,7 @@ docker compose version    # Docker Compose version v2+
 ### Step 1：build + 啟動 infra 和 worker
 
 ```bash
-cd ~/crawler
+cd ~/stock-crawler
 docker compose -f docker-compose-local.yml up -d --build rabbitmq flower mysql phpmyadmin worker_twse worker_tpex
 ```
 
@@ -177,14 +177,14 @@ docker compose -f docker-compose-local.yml down -v    # 含刪 volume
 ### Step 1：建立共用 network
 
 ```bash
-cd ~/crawler
+cd ~/stock-crawler
 docker network create my_network
 ```
 
 ### Step 2：RabbitMQ + Flower
 
 ```bash
-docker compose -f rabbitmq-network.yml up -d
+docker compose -f compose-advanced/rabbitmq-network.yml up -d
 ```
 
 驗證：http://localhost:15672（worker / worker）、http://localhost:5555
@@ -192,7 +192,7 @@ docker compose -f rabbitmq-network.yml up -d
 ### Step 3：MySQL + phpMyAdmin
 
 ```bash
-docker compose -f mysql.yml up -d
+docker compose -f compose-advanced/mysql.yml up -d
 ```
 
 驗證：http://localhost:8080（root / 1234）
@@ -200,7 +200,7 @@ docker compose -f mysql.yml up -d
 ### Step 4：Worker
 
 ```bash
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f docker-compose-worker-network-version.yml up -d
+DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-worker-network-version.yml up -d
 ```
 
 > image `linsamtw/tibame_crawler:0.0.6` 是 amd64，Apple Silicon Mac 用整合版（第二部分）。
@@ -208,7 +208,7 @@ DOCKER_IMAGE_VERSION=0.0.6 docker compose -f docker-compose-worker-network-versi
 確認 worker ready：
 
 ```bash
-docker compose -f docker-compose-worker-network-version.yml logs | grep ready
+docker compose -f compose-advanced/docker-compose-worker-network-version.yml logs | grep ready
 # celery@twse ready.
 # celery@tpex ready.
 ```
@@ -216,7 +216,7 @@ docker compose -f docker-compose-worker-network-version.yml logs | grep ready
 ### Step 5：Producer
 
 ```bash
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f docker-compose-producer-network-version.yml up
+DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-producer-network-version.yml up
 ```
 
 ### Step 6：驗證
@@ -226,10 +226,10 @@ DOCKER_IMAGE_VERSION=0.0.6 docker compose -f docker-compose-producer-network-ver
 ### Step 7：停止所有服務
 
 ```bash
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f docker-compose-worker-network-version.yml down
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f docker-compose-producer-network-version.yml down
-docker compose -f rabbitmq-network.yml down
-docker compose -f mysql.yml down -v
+DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-worker-network-version.yml down
+DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-producer-network-version.yml down
+docker compose -f compose-advanced/rabbitmq-network.yml down
+docker compose -f compose-advanced/mysql.yml down -v
 docker network rm my_network
 ```
 
@@ -326,10 +326,10 @@ Worker 啟動時用 `-Q` 指定要監聽的 queue：
 
 ```bash
 # twse worker 只處理 twse queue
-celery -A crawler.worker worker -Q twse
+python -m celery -A crawler.worker worker -Q twse
 
 # tpex worker 只處理 tpex queue
-celery -A crawler.worker worker -Q tpex
+python -m celery -A crawler.worker worker -Q tpex
 ```
 
 ### 5.2 重複資料處理（Upsert）
@@ -338,7 +338,7 @@ celery -A crawler.worker worker -Q tpex
 
 ```bash
 # 用 duplicate 版 producer
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f docker-compose-producer-duplicate-network-version.yml up
+DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-producer-duplicate-network-version.yml up
 ```
 
 ### 5.3 APScheduler 定時排程
@@ -347,7 +347,7 @@ DOCKER_IMAGE_VERSION=0.0.6 docker compose -f docker-compose-producer-duplicate-n
 
 ```bash
 # 啟動 scheduler（會持續執行）
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f docker-compose-scheduler-network-version.yml up -d
+DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-scheduler-network-version.yml up -d
 ```
 
 ---
@@ -361,7 +361,7 @@ DOCKER_IMAGE_VERSION=0.0.6 docker compose -f docker-compose-scheduler-network-ve
 | producer `Connection refused` exit(1) | RabbitMQ 還沒 ready，等 20-30 秒再跑 producer |
 | worker `exec format error` | DockerHub image 是 amd64，Apple Silicon 用整合版（本地 build）|
 | `network my_network not found` | 分開版要先 `docker network create my_network` |
-| `port already in use` | 確認 de-project-course 已停止：`docker ps` 找佔用的 → `docker stop` |
+| `port already in use` | 確認 hahow-crawler 已停止：`docker ps` 找佔用的 → `docker stop` |
 | phpMyAdmin 頁面空白 | 確認 MySQL 已啟動且 PMA_HOST 設定正確 |
 | worker 爬完但 MySQL 沒資料 | 查 worker log 有無 error；確認 `MYSQL_HOST=mysql` 有設定 |
 
