@@ -2,28 +2,28 @@
 # docker compose -f docker-compose-local.yml up -d --build rabbitmq flower mysql phpmyadmin worker_twse worker_tpex
 # 等 worker ready 後：docker compose -f docker-compose-local.yml up producer
 
-services:
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
+services: # 定義所有要啟動的服務
+  rabbitmq: # RabbitMQ 服務，負責訊息佇列管理
+    image: rabbitmq:3.13-management-alpine # 使用帶有管理介面的 RabbitMQ 映像檔
     container_name: rabbitmq
     restart: unless-stopped
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "5672:5672" # 映射 RabbitMQ 的訊息傳遞連接埠（預設 port）
+      - "15672:15672" # 映射 RabbitMQ 管理網頁的連接埠（用於網頁管理介面）
     environment:
-      RABBITMQ_DEFAULT_USER: "worker"
-      RABBITMQ_DEFAULT_PASS: "worker"
+      RABBITMQ_DEFAULT_USER: "worker" # 設定預設登入使用者名稱
+      RABBITMQ_DEFAULT_PASS: "worker" # 設定預設登入使用者密碼
 
-  flower:
-    image: mher/flower:latest
+  flower: # Flower 服務，用於監控 Celery 任務狀態
+    image: mher/flower:latest # 使用最新版本的 Flower 映像檔
     container_name: flower
     restart: unless-stopped
     ports:
-      - "5555:5555"
+      - "5555:5555" # 映射 Flower 的網頁介面連接埠
     depends_on:
-      - rabbitmq
+      - rabbitmq # 先啟動 rabbitmq 服務，確保 broker 可用
     command: ["celery", "--broker=amqp://worker:worker@rabbitmq:5672//", "flower", "--port=5555"]
-
+    # 啟動 Flower 並指定 RabbitMQ 為 broker
   mysql:
     image: mysql:8.0
     container_name: mysql
@@ -35,6 +35,11 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-1234}
     volumes:
       - mysql:/var/lib/mysql
+      # share volumes of docker container to outside volume, 
+      # let data persist
+      # 將 docker container 的 volumes 跟外部 volumes 做連結, 
+      # 讓資料不會因為 container close or update 而遺失
+    # 設定 mysql 使用原生認證的密碼 hash
     command: --default-authentication-plugin=mysql_native_password
 
   phpmyadmin:

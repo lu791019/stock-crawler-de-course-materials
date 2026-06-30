@@ -223,6 +223,9 @@ docker compose -f docker-compose-local.yml down -v
 # 啟動 Worker（預設 queue）
 uv run python -m celery -A crawler.worker worker --loglevel=info
 
+uv run python -m celery -A crawler.worker worker --loglevel=info --hostname=worker1@%h
+uv run python -m celery -A crawler.worker worker --loglevel=info --hostname=worker2@%h
+
 # 啟動 Worker（指定 queue）
 uv run python -m celery -A crawler.worker worker --loglevel=info -Q twse
 uv run python -m celery -A crawler.worker worker --loglevel=info -Q tpex

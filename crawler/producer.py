@@ -10,4 +10,10 @@ from crawler.tasks import crawler
 # 寫 crawler.delay(x=0) 等同於 crawler.apply_async(kwargs={"x": 0})
 # 呼叫後會立刻回傳, 任務會被丟到 RabbitMQ, 等 worker 拿去執行
 # 如果改成 crawler(x=0) 則會在本地「同步」執行, 失去分散式的意義
-crawler.delay(x=0)
+# msg='task'
+# crawler.delay(x=0)
+# print(msg)
+
+for i in range(100):
+    print(f"sent task{i} to broker")
+    crawler.delay(x=f"task{i}")

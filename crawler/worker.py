@@ -14,6 +14,7 @@ from crawler.config import (
     WORKER_PASSWORD,  # 連線到 RabbitMQ 的密碼
 )
 
+
 # 印出目前讀到的環境變數, 方便除錯確認設定是否正確載入
 logger.info(f"""
     RABBITMQ_HOST: {RABBITMQ_HOST}
@@ -25,6 +26,7 @@ logger.info(f"""
 # 建立 Celery app 實例, "task" 是這個應用程式的名稱
 app = Celery(
     "task",
+    # 載入以下路徑模組註冊的 Celery 任務
     # include: 告訴 Celery 要載入哪些 Python 模組裡的 task
     # 只有列在這裡的模組, 裡面用 @app.task 裝飾的函式才會被註冊為可執行任務
     include=[
@@ -37,3 +39,6 @@ app = Celery(
     # 例如: pyamqp://worker:worker@127.0.0.1:5672/
     broker=f"pyamqp://{WORKER_ACCOUNT}:{WORKER_PASSWORD}@{RABBITMQ_HOST}:{RABBITMQ_PORT}/",
 )
+
+# app.conf.task_acks_late = True   # 預設 False
+# app.conf.task_reject_on_worker_lost = True  # worker 掛掉時拒絕任務，重新排隊
