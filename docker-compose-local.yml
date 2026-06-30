@@ -60,6 +60,8 @@ services:
       - PYTHONPATH=/crawler
     depends_on:
       - rabbitmq
+    volumes:
+      - ./output:/crawler/output
 
   worker_tpex:
     build: .
@@ -73,6 +75,8 @@ services:
       - PYTHONPATH=/crawler
     depends_on:
       - rabbitmq
+    volumes:
+      - ./output:/crawler/output
 
   producer:
     build: .

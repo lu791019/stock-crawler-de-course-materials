@@ -86,6 +86,9 @@ def crawler_finmind(stock_id):
         # print("upload db")
         # 將資料寫入 MySQL
         upload_data_to_mysql(df)
+        # 同時存一份 CSV
+        df.to_csv(f"output/TaiwanStockPrice_{stock_id}.csv", index=False, encoding="utf-8-sig")
+        print(f"TaiwanStockPrice_{stock_id}.csv saved.")
     else:
         # 若 API 失敗, 印出錯誤訊息方便排查
         print(data["msg"])
