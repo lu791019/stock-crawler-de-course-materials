@@ -6,4 +6,4 @@
 *.pyc
 *.egg-info
 .cache
-build/
+build/output/
