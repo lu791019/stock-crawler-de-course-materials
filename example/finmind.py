@@ -14,6 +14,7 @@ def crawler_finmind(stock_id):
    if resp.status_code == 200:
        df = pd.DataFrame(data["data"])
        print(df)
+       df.to_csv(f"finmind_{stock_id}.csv", index=False, encoding='utf-8-sig')
    else:
        print(data["msg"])
 

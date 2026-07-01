@@ -1,0 +1,34 @@
+services:
+  crawler_twse:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    hostname: "twse"
+    command: uv run python -m celery -A crawler.worker worker --loglevel=info --hostname=%h -Q twse
+    restart: always
+    environment:
+      - TZ=Asia/Taipei
+      - RABBITMQ_HOST=rabbitmq
+      - MYSQL_HOST=mysql
+      - PYTHONPATH=/crawler
+    networks:
+      - my_network
+
+  crawler_tpex:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    hostname: "tpex"
+    command: uv run python -m celery -A crawler.worker worker --loglevel=info --hostname=%h -Q tpex
+    restart: always
+    environment:
+      - TZ=Asia/Taipei
+      - RABBITMQ_HOST=rabbitmq
+      - MYSQL_HOST=mysql
+      - PYTHONPATH=/crawler
+    networks:
+      - my_network
+
+networks:
+  my_network:
+    external: true
