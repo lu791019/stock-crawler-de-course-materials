@@ -1,7 +1,6 @@
-version: '3.9'
 
 x-airflow-common: &airflow-common
-  image: ${DOCKER_HUB_USER:-enzochang}/airflow:latest  
+  image: stock-airflow:latest  
   environment:
     # Airflow 核心設定
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
