@@ -6,8 +6,8 @@ def crawler_finmind(stock_id):
    parameter = {
        "dataset": "TaiwanStockPrice",
        "data_id": stock_id,
-       "start_date": "2025-01-01",
-       "end_date": "2025-08-18",
+       "start_date": "2026-06-02",
+       "end_date": "2026-07-02",
    }
    resp = requests.get(url, params=parameter)
    data = resp.json()
@@ -18,4 +18,4 @@ def crawler_finmind(stock_id):
    else:
        print(data["msg"])
 
-crawler_finmind(stock_id="0050")
+crawler_finmind(stock_id="2330")

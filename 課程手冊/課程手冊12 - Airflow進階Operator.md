@@ -1,0 +1,301 @@
+# 第 12 章：Airflow 進階 Operator — 拼出複雜工作流的積木
+
+> 上一章的 DAG 只有 start → end。但實務上的工作流會分岔、會傳資料、會互相觸發、會需要獨立環境。這一章把四塊關鍵積木一次補齊——每一塊都有現成的範例 DAG 讓你跑。
+
+---
+
+## 做完這一章，你會做到
+
+1. 用 `BranchPythonOperator` 做條件分支：「上午走 A、下午走 B」。
+2. 用 XCom 在 task 之間傳資料（return 自動推送、`xcom_pull` 拉取）。
+3. 用 `TriggerDagRunOperator` 讓一個 DAG 觸發另一個 DAG。
+4. 用 `DockerOperator` 把任務丟進獨立的 Docker 容器執行。
+5. 看懂 `DummyOperator` 怎麼把複雜依賴圖整理得清楚。
+
+---
+
+## 先搞懂：這五個範例各補哪一塊
+
+上一章跑過 `example_first_dag`（基礎）和 `example_parallel_dag`（平行）。這一章跑剩下的：
+
+| 檔案 | dag_id（UI 上看到的）| 學什麼 |
+|------|---------------------|--------|
+| `example_branch_operator_dag.py` | `example_branch_operator_dag` | 條件分支 |
+| `example_xcom_dag.py` | `example_xcom_coffee_shop_dag` | task 間傳資料 |
+| `example_trigger_dag_operator_dag.py` | `example_trigger_main_dag` ＋ `example_triggered_data_processing_dag`（一檔兩個 DAG）| DAG 觸發 DAG |
+| `example_docker_operator_dag.py` | `example_docker_operator_dag` | 容器裡跑任務 |
+| `example_dummy_tasks_dag.py` | `example_dummy_tasks_dag` | 複雜依賴結構 |
+
+> 💡 注意：Airflow 列表顯示的是**程式裡定義的 dag_id**，不一定等於檔名（第 11 章練習 3 看過）。
+
+---
+
+## 前置準備
+
+沿用上一章的 Airflow 環境（沒在跑就照第 11 章 Step 2~4 重新啟動）：
+
+```bash
+docker compose -f airflow/docker-compose-airflow.yml up -d
+# 首次啟動記得等 init 完成後 restart webserver/scheduler（第 11 章 Step 4）
+curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health   # 200 = OK
+```
+
+---
+
+## 積木 1：BranchPythonOperator — 條件分支
+
+### 概念
+
+工作流需要「根據條件走不同路」。`BranchPythonOperator` 的函式**回傳一個 task_id 字串**，Airflow 就只走那條路，另一條標成 skipped。
+
+### 看程式碼
+
+```python
+def decide_morning_or_afternoon(**context):
+    current_hour = datetime.now().hour
+    if current_hour < 12:
+        return "morning_task"      # 回傳 task_id（字串）
+    else:
+        return "afternoon_task"
+
+time_branch = BranchPythonOperator(
+    task_id="decide_time_path",
+    python_callable=decide_morning_or_afternoon,
+)
+
+start_task >> time_branch >> [morning_task, afternoon_task]
+```
+
+### 跑起來
+
+```bash
+docker exec airflow-webserver airflow dags unpause example_branch_operator_dag
+docker exec airflow-webserver airflow dags trigger example_branch_operator_dag
+```
+
+### 觀察
+
+UI → `example_branch_operator_dag` → Graph：
+
+> ✅ 根據你觸發的時間，**只有一條**分支是綠色（成功），另一條是**粉紅色（skipped）**。skipped 不是失敗——它是分支語意下的正常狀態。
+
+---
+
+## 積木 2：XCom — task 之間傳資料
+
+### 概念
+
+每個 task 是獨立執行的（可能在不同行程、甚至不同機器），變數不能直接共用。**XCom**（Cross-Communication）是 Airflow 內建的小型資料交換所——task 把值存進去、別的 task 拉出來。
+
+### 看程式碼（兩種推、一種拉）
+
+```python
+# 推送方式 1：return 值自動存入 XCom
+def step1_create_data(**context):
+    data = {"id": 1234, "name": "小明", "value": 50}
+    return data                          # 自動推送
+
+# 推送方式 2：手動 xcom_push
+def step2_process_data(**context):
+    ti = context["task_instance"]
+    data = ti.xcom_pull(task_ids="step1_create_data")        # 拉 step1 的 return 值
+    result = {"processed_value": data["value"] * 2}
+    ti.xcom_push(key="processed_data", value=result)         # 手動推送（自訂 key）
+
+# 拉取：可以指定 task_ids 和 key
+def step3_combine_data(**context):
+    ti = context["task_instance"]
+    original  = ti.xcom_pull(task_ids="step1_create_data")
+    processed = ti.xcom_pull(task_ids="step2_process_data", key="processed_data")
+```
+
+### 跑起來
+
+```bash
+docker exec airflow-webserver airflow dags unpause example_xcom_coffee_shop_dag
+docker exec airflow-webserver airflow dags trigger example_xcom_coffee_shop_dag
+```
+
+### 觀察
+
+UI → 該 DAG → 等全綠 → 點任一 task → **XCom** 分頁。
+
+> ✅ 你會看到每個 task 推送的資料內容。step3 的 log 裡能看到它把前兩步的資料合併起來——資料真的跨 task 流動了。
+>
+> ⚠️ XCom 適合傳**小資料**（參數、狀態、路徑）。大資料（整個 DataFrame）不要塞 XCom——存到 DB 或檔案，XCom 只傳「放在哪」的路徑。
+
+---
+
+## 積木 3：TriggerDagRunOperator — DAG 觸發 DAG
+
+### 概念
+
+大系統常拆成多個 DAG：「爬蟲 DAG」跑完自動觸發「分析 DAG」。這比塞成一個巨型 DAG 更好維護——各自有自己的排程、負責人、重跑策略。
+
+### 看程式碼
+
+這個範例檔案裡定義了**兩個 DAG**（一個檔案可以放多個 DAG，第 11 章練習 3 看過）：
+
+```python
+# 主 DAG 裡的觸發步驟
+trigger_data_processing = TriggerDagRunOperator(
+    task_id="trigger_data_processing_dag",
+    trigger_dag_id="example_triggered_data_processing_dag",  # 要觸發誰
+    wait_for_completion=True,        # 等它跑完才繼續往下
+)
+```
+
+### 跑起來
+
+```bash
+# 注意：被觸發的 DAG 也要 unpause，否則觸發不動
+docker exec airflow-webserver airflow dags unpause example_trigger_main_dag
+docker exec airflow-webserver airflow dags unpause example_triggered_data_processing_dag
+docker exec airflow-webserver airflow dags trigger example_trigger_main_dag
+```
+
+### 觀察
+
+1. 先看 `example_trigger_main_dag`：跑到 trigger 那步會**等待**（wait_for_completion）。
+2. 切到 `example_triggered_data_processing_dag`：多了一個新的 run，正在跑。
+3. 子 DAG 跑完，主 DAG 才繼續走到 end。
+
+> ✅ 兩個 DAG 的 run 一對得上，你就懂「工作流串工作流」了。
+
+---
+
+## 積木 4：DockerOperator — 在容器裡跑任務
+
+### 概念
+
+有些任務需要特定環境（不同 Python 版本、特殊套件、或想跟 Airflow 本體隔離）。`DockerOperator` 幫你**臨時起一個容器跑任務、跑完自動刪掉**。
+
+### 看程式碼
+
+```python
+python_docker_task = DockerOperator(
+    task_id="run_python_script",
+    image="python:3.9-slim",              # 用哪個 image
+    command='python -c "print(...)"',     # 容器裡跑什麼
+    auto_remove=True,                      # 跑完自動刪容器
+)
+```
+
+### 跑起來
+
+```bash
+docker exec airflow-webserver airflow dags unpause example_docker_operator_dag
+docker exec airflow-webserver airflow dags trigger example_docker_operator_dag
+```
+
+### 觀察
+
+Graph 上三個 Docker task 平行跑（分別是 Python、Alpine、Ubuntu 容器）。點 task → Logs 能看到**容器內部**的輸出。
+
+> 💡 這招能成立，靠的是 compose 把 `/var/run/docker.sock` 掛進了 Airflow 容器（第 8 章 Portainer 用過同一招）——Airflow 因此有權力操作宿主機的 Docker。
+>
+> ⚠️ 若這個 DAG 因 docker.sock 權限問題失敗，概念理解到位即可，不影響後面章節。
+
+---
+
+## 積木 5：DummyOperator — 把依賴圖整理清楚
+
+### 概念
+
+`DummyOperator` 什麼都不做，純粹當「集合點」。看 `example_dummy_tasks_dag` 的結構：
+
+```
+start → [prepare_1, prepare_2] → validate → [process_1, process_2] → merge → end
+```
+
+這就是典型 ETL 的骨架：**準備（平行）→ 驗證（匯合）→ 處理（平行）→ 合併**。有了 Dummy 當匯合點，依賴圖一眼就能讀懂。
+
+### 跑起來
+
+```bash
+docker exec airflow-webserver airflow dags unpause example_dummy_tasks_dag
+docker exec airflow-webserver airflow dags trigger example_dummy_tasks_dag
+```
+
+到 Graph 看分岔與匯合的形狀。
+
+---
+
+## Operator 速查表
+
+| Operator | 用途 | 重點 |
+|----------|------|------|
+| `PythonOperator` | 執行 Python 函式 | return 值自動進 XCom |
+| `BashOperator` | 執行 shell 指令 | stdout 最後一行進 XCom |
+| `BranchPythonOperator` | 條件分支 | 函式 return task_id 字串 |
+| `DummyOperator` | 佔位 / 匯合點 | 不做事，整理圖形 |
+| `TriggerDagRunOperator` | 觸發別的 DAG | 被觸發的 DAG 也要 unpause |
+| `DockerOperator` | 容器裡執行 | 需要掛 docker.sock |
+
+---
+
+## 檢查你是不是真的做到了
+
+| # | 你應該看到 | 它證明了什麼 |
+|---|-----------|-------------|
+| 1 | Branch：一條綠、一條粉紅（skipped）| 條件分支只走一邊 |
+| 2 | XCom 分頁看得到傳遞的資料 | task 之間能交換資料 |
+| 3 | 主 DAG 觸發子 DAG、等它完成 | 工作流可以串工作流 |
+| 4 | Docker task 的 log 是容器內輸出 | 任務可以在隔離環境跑 |
+| 5 | Dummy DAG 的分岔匯合圖 | 你能讀懂複雜依賴 |
+
+---
+
+## 想一想（確認你懂了）
+
+**Q1：BranchPythonOperator 的函式跟一般 PythonOperator 的函式，回傳值的意義差在哪？**
+
+一般 PythonOperator 的 return 值只是「結果」（會存進 XCom 給別人用）。BranchPythonOperator 的 return 值是「**路標**」——它必須是某個 task_id 字串，Airflow 依它決定走哪條分支，沒被選中的分支全部 skipped。
+
+**Q2：為什麼大 DataFrame 不該用 XCom 傳？那應該怎麼辦？**
+
+XCom 的值存在 Airflow 的 metadata DB（Postgres）裡，塞大資料會把 metadata DB 撐爆、也拖慢排程。正確做法：大資料寫到外部（MySQL、檔案、S3），XCom 只傳「它在哪」（表名、路徑）。下一章的爬蟲 DAG 就是這樣——資料直接進 MySQL，DAG 只管流程。
+
+**Q3：什麼時候該把流程拆成多個 DAG、用 TriggerDagRunOperator 串，而不是全塞在一個 DAG？**
+
+當兩段流程有**不同的排程週期、不同的負責人、或不同的重跑需求**時就該拆。例如「每天爬資料」和「每週產報表」——排程不同，硬塞一個 DAG 反而彆扭。拆開後用 Trigger 串（或讓下游自己排程），各自獨立演進。
+
+---
+
+## 換你試試看
+
+**練習 1：改分支條件**
+
+把 `example_branch_operator_dag` 的判斷改成「偶數分鐘走 A、奇數分鐘走 B」（`datetime.now().minute % 2`），多觸發幾次，看它兩條路輪流走。這讓你確認分支邏輯完全由你的函式決定。
+
+**練習 2：加一個 XCom 消費者**
+
+在 `example_xcom_dag` 裡加一個 `step4_report` task，拉取 step3 的合併結果並 print 出來，接在 step3 後面。改完存檔等 scheduler 重新掃描（或到 UI 確認 Graph 多了一格），觸發驗證。這讓你練習「改 DAG → 掛載自動生效」的開發循環。
+
+**練習 3：把 wait_for_completion 改成 False**
+
+把 TriggerDagRunOperator 的 `wait_for_completion` 改成 `False` 再觸發一次，觀察主 DAG **不等**子 DAG、直接跑完。想一想：什麼情境要等（下游依賴子 DAG 的產出）、什麼情境不用等（射後不理的通知類流程）？
+
+---
+
+## 卡住了？常見錯誤這樣排
+
+| 你遇到的狀況 | 原因 | 怎麼解 |
+|-------------|------|--------|
+| Trigger 主 DAG 後子 DAG 沒動 | 子 DAG 還是 paused | 兩個都要 unpause |
+| 分支的另一條顯示粉紅色 | 那是 skipped，不是錯誤 | 正常，分支語意如此 |
+| XCom 分頁空白 | task 沒有 return 值 / 沒 push | 確認函式有 return 或 xcom_push |
+| DockerOperator 報權限錯誤 | docker.sock 沒掛載或權限不足 | 確認 compose 掛了 `/var/run/docker.sock`；不行就跳過此範例 |
+| 改了 DAG 但 UI 沒更新 | scheduler 還沒重新掃描 | 等 30~60 秒，或重啟 scheduler |
+
+---
+
+## 這一章你學到了
+
+- Branch（分岔）、XCom（傳資料）、Trigger（串 DAG）、DockerOperator（隔離執行）、Dummy（整理圖形）——五塊積木。
+- XCom 傳小的，大資料走外部儲存。
+- 複雜系統拆多個 DAG 各自獨立，再用 Trigger 串起來。
+
+## 下一章要做什麼
+
+積木都齊了。**下一章把 Airflow 接上你的爬蟲 pipeline：兩種串法（直接呼叫 vs 透過 Celery）、加上 ETL 的完整 DAG——前面所有章節在這裡合體。**

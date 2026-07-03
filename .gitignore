@@ -7,3 +7,7 @@
 *.egg-info
 .cache
 build/output/
+*.csv
+airflow/logs/
+課程手冊/新版備份/
+課程手冊/舊版備份/

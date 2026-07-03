@@ -1,5 +1,8 @@
 # Crawler 實作操作手冊（台股爬蟲系統）
 
+> 📖 這是一份**指令速查手冊**：不講觀念、只給步驟，適合已經學過、要快速重建環境的人。
+> 第一次學習請走 `課程手冊/`（14 章 + 補充 A/B/C），每章有完整的觀念講解、逐行程式解讀與練習。
+
 > 對象：已照《Docker 安裝教學手冊》裝好 Docker 的學員
 > 涵蓋：專案介紹 → 整合版（一鍵啟動）→ 分開版（逐步啟動）→ 驗證閉環
 > 所有指令都在 Docker 29.6.1 / Compose v5.2.0 / Ubuntu 22.04 實測通過
@@ -348,6 +351,56 @@ DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-pro
 ```bash
 # 啟動 scheduler（會持續執行）
 DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-scheduler-network-version.yml up -d
+```
+
+---
+
+## 第六部分：延伸服務速查（Airflow / Metabase / API / 測試）
+
+### Airflow（課程手冊 11-13）
+
+```bash
+docker build -f airflow/Dockerfile -t stock-airflow:latest .   # 首次 build
+cp .env.example .env
+docker compose -f airflow/docker-compose-airflow.yml up -d
+docker logs airflow-airflow-init-1 2>&1 | tail -3              # 等 init 完成
+docker restart airflow-webserver airflow-scheduler             # 首次啟動後重啟
+# UI: http://localhost:8080 (admin/admin)；注意與 phpMyAdmin 8080 衝突，擇一啟動
+
+docker exec airflow-webserver airflow dags unpause stock_crawler_dag
+docker exec airflow-webserver airflow dags trigger stock_crawler_dag
+```
+
+### Metabase（課程手冊 09）
+
+```bash
+docker network create my_network
+docker compose -f metabase/docker-compose-metabase.yml up -d
+docker network connect my_network mysql    # 若 mysql 來自 docker-compose-local.yml
+# UI: http://localhost:3000（JVM 慢，等 30-60 秒）；資料來源 Host 填 mysql
+```
+
+### FastAPI（補充 B）
+
+```bash
+uv run uvicorn api.main:app --reload --port 8000
+# 文件: http://localhost:8000/docs
+curl http://localhost:8000/stocks/2330/latest
+```
+
+### 測試（補充 C）
+
+```bash
+uv run pytest -m "not integration" -v      # 單元測試（免服務）
+uv run pytest -m integration -v            # 整合測試（需 mysql）
+uv run pytest -v                           # 全部
+```
+
+### 全服務一鍵啟動（課程手冊 14）
+
+```bash
+docker compose -f docker-compose-all.yml up -d     # 11 容器；Airflow 在 8081
+docker compose -f docker-compose-all.yml down
 ```
 
 ---

@@ -1,0 +1,364 @@
+# 第 4 章：把資料存下來 — 寫入 MySQL
+
+> 前面資料都只是印在畫面上，程式一關就沒了。這一章你會第一次把爬回來的股價「存下來」——拿掉 `_print`，改用會寫進 MySQL 的 `crawler_finmind`。
+
+---
+
+## 做完這一章，你會做到
+
+1. 看懂怎麼用 SQLAlchemy 把一個 DataFrame 寫進 MySQL。
+2. 讓爬蟲任務做完後，資料真的進到 MySQL、還另存一份 CSV。
+3. 用三種方式驗證資料入庫：phpMyAdmin、docker exec 下 SQL、Python 查詢。
+4. 發現一個問題：重跑就會產生重複資料（這是下一章要解決的）。
+
+---
+
+## 先搞懂：從「看過就忘」到「存起來」
+
+前面的 print 版，資料印在畫面上，程式一結束就消失。真正的資料工程一定要**落地（持久化）**——把資料寫進資料庫，之後才能查詢、分析、視覺化。
+
+這一章用的是 `crawler_finmind`（沒有 `_print`）。它比第 2 章那版多做兩件事：**寫進 MySQL** 和 **另存一份 CSV**。而前半段（呼叫 API、解析 JSON）跟第 2 章一模一樣——再一次，只換落地方式，前面不動。
+
+---
+
+## 這一章會用到的檔案
+
+| 檔案 | 角色 | 說明 |
+|------|------|------|
+| `crawler/tasks_crawler_finmind.py` | 任務定義 | `crawler_finmind` + `upload_data_to_mysql` |
+| `crawler/producer_crawler_finmind.py` | 生產者 | 派送 5 支股票的正式版任務 |
+| `crawler/config.py` | 設定 | 提供 MySQL 連線資訊 |
+
+`config.py` 裡的 MySQL 設定（第 1 章看過）：
+
+```python
+MYSQL_HOST     = os.environ.get("MYSQL_HOST", "127.0.0.1")
+MYSQL_PORT     = int(os.environ.get("MYSQL_PORT", 3306))
+MYSQL_ACCOUNT  = os.environ.get("MYSQL_ACCOUNT", "root")
+MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "1234")
+```
+
+> MySQL 容器的設定來自 `docker-compose-local.yml`：資料庫 `mydb`、root 密碼 `1234`、port `3306`。
+
+---
+
+## 一行一行讀懂「寫入 MySQL」的函式
+
+```python
+from sqlalchemy import create_engine
+from crawler.config import MYSQL_ACCOUNT, MYSQL_HOST, MYSQL_PASSWORD, MYSQL_PORT
+
+def upload_data_to_mysql(df: pd.DataFrame):
+    # ① 組出連線字串：mysql+pymysql://帳號:密碼@主機:埠/資料庫
+    address = f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/mydb"
+
+    # ② 建立一個可重用的連線引擎
+    engine = create_engine(address)
+
+    # ③ 把整個 DataFrame 附加到 TaiwanStockPrice 表；表不存在會自動建立
+    try:
+        df.to_sql("TaiwanStockPrice", con=engine, if_exists="append", index=False)
+    except Exception:
+        df.to_sql("TaiwanStockPrice", con=engine, if_exists="append", index=False)
+```
+
+一段一段看：
+
+- **① 連線字串**：格式是 `mysql+pymysql://帳號:密碼@主機:埠/資料庫`。`mysql+pymysql` 是「用 pymysql 這個驅動連 MySQL」的意思；最後的 `mydb` 是資料庫名稱。
+- **② `create_engine`**：建立一個引擎物件，代表「怎麼連到這個資料庫」。它可以重複使用。
+- **③ `df.to_sql(...)`**：這是 pandas 的神奇一行——把整個 DataFrame 直接寫進資料表。三個參數要懂：
+  - `"TaiwanStockPrice"`：要寫入的資料表名稱。
+  - `if_exists="append"`：如果表已存在，就**把資料附加上去**（表不存在會自動建立）。**注意這個字：append 是「一直往後加」**，這就是為什麼重跑會產生重複，本章結尾會回來講。
+  - `index=False`：不要把 DataFrame 的列索引也寫進去。
+- **那個 `try/except` 為什麼在？** 想像一下第 1 章的情境：如果你**同時開了好幾個 worker、而且是第一次寫入、表還不存在**，可能會有兩個 worker 同時想建表而撞在一起。第一次失敗後重試一次通常就成功（因為表已被另一個 worker 建好了）。這是併發帶來的小狀況，作者用最簡單的重試化解。
+
+### 補充：資料表到底是誰建的？（兩種方式）
+
+**方式 A：讓程式自動建（這個專案用的）。** `to_sql` 在表不存在時，會看 DataFrame 的欄位名稱和型別自動建表。方便，但型別是「推斷」出來的。
+
+**方式 B：自己用 SQL 手動建。** 到 phpMyAdmin → 選 `mydb` → **SQL** 頁籤，貼上：
+
+```sql
+CREATE TABLE IF NOT EXISTS TaiwanStockPrice (
+    date VARCHAR(10),
+    stock_id VARCHAR(10),
+    Trading_Volume BIGINT,
+    Trading_money BIGINT,
+    open FLOAT,
+    max FLOAT,
+    min FLOAT,
+    close FLOAT,
+    spread FLOAT,
+    Trading_turnover BIGINT
+);
+```
+
+手動建的價值是**看懂表結構**：每個欄位叫什麼、什麼型別。就算你手動建過，`if_exists="append"` 也會直接往裡面塞資料，兩種方式不衝突。
+
+> 這裡埋一個伏筆：注意這張表**沒有主鍵**——資料庫根本不知道哪兩筆算「同一筆」。這正是重複資料的根源，第 5 章會回來解決。
+
+---
+
+## 一行一行讀懂 `crawler_finmind` 任務
+
+```python
+@app.task()
+def crawler_finmind(stock_id):
+    url = "https://api.finmindtrade.com/api/v4/data"
+    parameter = {
+        "dataset": "TaiwanStockPrice",
+        "data_id": stock_id,
+        "start_date": "2024-01-01",
+        "end_date": "2025-06-17",
+    }
+    resp = requests.get(url, params=parameter)
+    data = resp.json()
+    if resp.status_code == 200:
+        df = pd.DataFrame(data["data"])
+        print(df)
+        upload_data_to_mysql(df)                                    # ← 比第 2 章多這行：寫進 MySQL
+        df.to_csv(f"output/TaiwanStockPrice_{stock_id}.csv",        # ← 也多這行：另存 CSV
+                  index=False, encoding="utf-8-sig")
+        print(f"TaiwanStockPrice_{stock_id}.csv saved.")
+    else:
+        print(data["msg"])
+```
+
+跟第 2 章的 `crawler_finmind_print` 對照，你會發現前面完全一樣，只多了兩行：`upload_data_to_mysql(df)` 和 `df.to_csv(...)`。這再次印證整套課的主線——**改的永遠只是最後「怎麼處理資料」那一小段**。（`utf-8-sig` 是為了讓 Excel 打開 CSV 時中文不亂碼。）
+
+---
+
+## 一步一步跟著做
+
+### Step 1：確認 MySQL 有起來
+
+```bash
+docker compose -f docker-compose-local.yml up -d rabbitmq flower mysql phpmyadmin
+docker compose -f docker-compose-local.yml ps
+curl -o /dev/null -s -w "phpMyAdmin: %{http_code}\n" http://localhost:8080
+```
+
+> ✅ mysql 要是 `Up (healthy)`、curl 回 200。MySQL 第一次啟動要初始化，可能要等 30 秒以上，不 healthy 就再等一下。
+
+### Step 2：先認識 phpMyAdmin
+
+瀏覽器開 http://localhost:8080 ，帳密 `root / 1234`。這是 MySQL 的 Web 管理介面，四個常用動作：
+
+| 動作 | 位置 |
+|------|------|
+| 選資料庫 | 左側點 `mydb` |
+| 看資料表 | 選 `mydb` 後中間會列出所有 table |
+| 下 SQL | 上方 **SQL** 頁籤 |
+| 看資料 | 點 table → **Browse** 頁籤 |
+
+> ✅ 登入成功、左側看到 `mydb`（此時裡面可能還沒有資料表）就過關。
+
+### Step 3：快速測試 Python 連得到 MySQL
+
+在真正跑 pipeline 之前，先用一小段程式確認連線沒問題（問題切小塊，好排查）：
+
+```bash
+uv run python -c "
+from sqlalchemy import create_engine, text
+engine = create_engine('mysql+pymysql://root:1234@127.0.0.1:3306/mydb')
+with engine.connect() as conn:
+    r = conn.execute(text('SELECT DATABASE();'))
+    print('connected to:', r.scalar())
+"
+```
+
+> ✅ 印出 `connected to: mydb` 就過關。這裡失敗的話，先解決連線問題再往下（見排錯表）。
+
+### Step 4：建好 output 資料夾（給 CSV 用）
+
+```bash
+mkdir -p output
+```
+
+> ✅ 沒這個資料夾，`to_csv` 會失敗。先建好。
+
+### Step 5：啟動 worker（一樣不用改）
+
+```bash
+uv run python -m celery -A crawler.worker worker --loglevel=info
+```
+
+### Step 6：派送正式版任務
+
+```bash
+uv run crawler/producer_crawler_finmind.py
+```
+
+**worker 你會看到**：印出 5 張股價表，每張後面多一行：
+
+```
+TaiwanStockPrice_2330.csv saved.
+TaiwanStockPrice_0050.csv saved.
+...
+```
+
+> ✅ 看到 `... .csv saved.` 就代表寫 DB 和存 CSV 這兩步都做完了。
+
+### Step 7：驗證資料真的入庫（三種方式，都試試）
+
+**方式 A：phpMyAdmin 用眼睛看**
+
+http://localhost:8080 → 左邊選 `mydb` → 點 `TaiwanStockPrice` → Browse，看到 5 支股票的每日股價。回專案資料夾看 `output/`，也會有對應的 CSV。
+
+**方式 B：docker exec 直接下 SQL**
+
+```bash
+docker exec mysql mysql -uroot -p1234 mydb -e \
+  "SHOW TABLES; SELECT stock_id, COUNT(*) AS cnt FROM TaiwanStockPrice GROUP BY stock_id;"
+```
+
+✅ **預期**：
+
+```
+Tables_in_mydb
+TaiwanStockPrice
+
+stock_id    cnt
+0050        349
+2330        349
+...
+```
+
+**方式 C：Python 查回來變 DataFrame**
+
+```bash
+uv run python -c "
+import pandas as pd
+from sqlalchemy import create_engine
+engine = create_engine('mysql+pymysql://root:1234@127.0.0.1:3306/mydb')
+df = pd.read_sql('SELECT stock_id, COUNT(*) c FROM TaiwanStockPrice GROUP BY stock_id', engine)
+print(df)
+"
+```
+
+> 💡 `to_sql` 是「DataFrame → 資料表」，`read_sql` 就是反方向「查詢結果 → DataFrame」。之後第 10 章把 MySQL 資料搬去 BigQuery，用的正是 `read_sql` 這一招。
+
+### Step 8：故意重跑一次，觀察「重複」
+
+再跑一次 `producer_crawler_finmind.py`，用方式 B 再查一次筆數——**你會發現筆數翻倍了**。同一支股票、同一天的資料出現兩次。記住這個現象，這就是下一章要解決的問題。
+
+---
+
+## 換一種跑法：全部用 Docker 容器（可選）
+
+上面 worker 跑在本機。也可以整套都進容器（第 3 章方式 B 的延伸）：
+
+```bash
+docker compose -f docker-compose-local.yml up -d --build rabbitmq flower mysql phpmyadmin worker_twse worker_tpex
+docker compose -f docker-compose-local.yml up producer     # 發 multi_queue 任務（2330 + 00679B）
+docker compose -f docker-compose-local.yml logs worker_twse | grep -E "saved|succeeded"
+```
+
+> 注意 compose 裡 worker 的環境變數是 `MYSQL_HOST=mysql`、`RABBITMQ_HOST=rabbitmq`（容器名，不是 127.0.0.1）——這就是第 1 章 config.py 那張「本機 vs Docker」對照表的實際應用。
+
+---
+
+## 檢查你是不是真的做到了
+
+| # | 你應該看到 | 它證明了什麼 |
+|---|-----------|-------------|
+| 1 | `connected to: mydb` | Python 連得到 MySQL |
+| 2 | worker 印出 `... .csv saved.` | 寫 DB + 存 CSV 成功 |
+| 3 | phpMyAdmin 有 `TaiwanStockPrice` 表且有資料 | 資料真的落地 MySQL |
+| 4 | SQL / Python 查得到各股筆數 | 你會用三種方式驗證資料 |
+| 5 | `output/` 有 CSV 檔 | 另存備份成功 |
+| 6 | 重跑後筆數翻倍 | `if_exists="append"` 會一直疊加 |
+
+---
+
+## 想再深入一點
+
+- **`to_sql` 幫你做了什麼「隱形」的事？** 你沒有寫任何 `CREATE TABLE`，表卻自動出現了——因為 `to_sql` 會看 DataFrame 的欄位名稱和型別，自動幫你推斷出一張表的結構並建立。方便，但也有代價：它推斷的型別不一定是你要的（例如日期可能被存成文字），欄位也沒有主鍵。第 5 章之所以改成自己用 `Table(...)` 明確定義結構，就是為了拿回這個控制權（尤其是要設主鍵）。
+- **`engine` 為什麼可以重複使用？** `create_engine` 建立的不是「一條連線」，而是一個「連線池」的管理者。它內部會維護一組連線、需要時借出、用完還回，所以你不用每寫一筆就開關一次連線。這也是為什麼把 `engine` 建好放著重用，比每次都 `create_engine` 更有效率。
+- **`if_exists` 還有別的選項。** 除了 `"append"`（附加），還有 `"replace"`（先刪表重建，會清掉舊資料）和 `"fail"`（表已存在就報錯）。這個專案用 `append` 是因為要持續累積歷史股價；但 `append` 不看重複，所以才會有下一章的問題。
+- **為什麼要「同時」寫 DB 又存 CSV？** 兩者角色不同：MySQL 是給程式查詢、之後接 Metabase / BigQuery 用的「正式儲存」；CSV 則是一份人可以直接打開、方便備份或臨時檢查的快照。真實專案常常這樣「雙寫」，一份給機器、一份給人。
+
+---
+
+## 卡住了？常見錯誤這樣排
+
+| 你遇到的狀況 | 原因 | 怎麼解 |
+|-------------|------|--------|
+| `Access denied for user` | 帳密或 host 不符 | 本機預設 root / 1234；確認 MySQL 容器在跑 |
+| `Unknown database 'mydb'` | 資料庫還沒建好 | 等 MySQL 初始化完成，或到 phpMyAdmin 手動建 `mydb` |
+| `Connection refused`（連 MySQL）| MySQL 還沒 healthy | `docker compose ps` 等它變 healthy 再試 |
+| `to_csv` 報找不到資料夾 | 沒有 `output/` | 先 `mkdir -p output` |
+| CSV 中文亂碼 | 編碼問題 | 已用 `utf-8-sig`，用支援的軟體開啟 |
+| Docker worker 連不到 DB | 容器裡還在用 127.0.0.1 | 確認 compose 的 environment 有 `MYSQL_HOST=mysql` |
+
+---
+
+## 想一想（確認你懂了）
+
+先自己想過再看答案。
+
+**Q1：這一章跟第 2 章的爬蟲任務，前半段有差嗎？差在哪一行之後？**
+
+前半段（組參數、`requests.get`、`resp.json()`、轉 DataFrame）完全一樣。差別從 `print(df)` **之後**才開始：這一章多了 `upload_data_to_mysql(df)` 和 `df.to_csv(...)`。這讓你再次確認：換功能只動「處理資料」那一段。
+
+**Q2：`if_exists="append"` 是什麼意思？為什麼會造成重複？**
+
+`append` 是「表已存在就把新資料附加到後面」。它完全不檢查「這筆是不是已經有了」，所以你每跑一次，就無條件把同一批資料再加一遍。跑三次就有三份，資料越來越髒。
+
+**Q3：那個 `try/except` 重試建表，跟第 1 章哪個觀念有關？**
+
+跟「併發 / 多個 worker 同時做事」有關。多個 worker 第一次同時寫入、表還不存在時，可能同時想建表而衝突；重試一次就好，因為表已被別人建好。這是併發系統常見的小競態。
+
+**Q4：`to_sql` 和 `read_sql` 各是什麼方向？**
+
+`to_sql` 是把 DataFrame **寫進**資料表（爬蟲入庫用）；`read_sql` 是把 SQL 查詢結果**讀出來**變 DataFrame（分析、搬資料用）。一進一出，配起來就是 pandas 跟資料庫互通的完整迴路。
+
+---
+
+## 換你試試看
+
+**練習 1：親眼數出「重複」**
+
+跑 producer 前先用 Step 7 方式 B 記下 `TaiwanStockPrice` 的筆數，跑完再看一次，然後**再跑第三次**。把三次的筆數記下來，你會看到它以固定幅度一直增加。用自己的話解釋為什麼——這會讓你對「不冪等」的痛有很直接的感受，正好接到第 5 章。
+
+**練習 2：用 SQL 看重複到什麼程度**
+
+在 phpMyAdmin 的 SQL 分頁執行：
+
+```sql
+SELECT stock_id, date, COUNT(*)
+FROM TaiwanStockPrice
+GROUP BY stock_id, date
+HAVING COUNT(*) > 1
+LIMIT 20;
+```
+
+你會看到同一支股票、同一天出現不只一次。這條 SQL 讓你學會怎麼「抓出重複資料」，也預告了下一章要用 `stock_id + date` 當唯一身分的想法。
+
+**練習 3：改抓不同股票並確認寫入**
+
+把 producer 清單改成別的股票，跑一次，到 phpMyAdmin 確認新股票的資料也進來了。這讓你確認整條「爬取 → 寫入」的路對任何股票都通。
+
+---
+
+## 收工
+
+```bash
+docker compose -f docker-compose-local.yml down       # 保留資料（下一章還要用）
+# docker compose -f docker-compose-local.yml down -v  # 連 MySQL 資料一起清掉重來
+```
+
+> 💡 下一章要用到這一章寫進去的（含重複的）資料當對照組，**建議先別 `-v`**。
+
+---
+
+## 這一章你學到了
+
+- 用 SQLAlchemy 的 `to_sql` 就能把 DataFrame 落地 MySQL；`read_sql` 則是反向查回來。
+- 三種驗證入庫的方式：phpMyAdmin、docker exec 下 SQL、Python 查詢。
+- 落地方式改變，但爬蟲前半段完全沿用。
+- `if_exists="append"` 會造成重複資料——這是下一章的引子。
+
+## 下一章要做什麼
+
+重跑就重複，這在「每天定期更新」時是大災難。**下一章你會學「冪等」：用主鍵 + upsert，讓同一支任務跑幾次，資料庫結果都一致。**
