@@ -175,7 +175,7 @@ docker compose -f docker-compose-local.yml down -v    # 含刪 volume
 
 ## 第三部分：分開版（逐步啟動）
 
-每個服務一個 compose file，適合教學逐步展示。
+每個服務一個 compose file，適合教學逐步展示。Worker 走本地 build，Apple Silicon / amd64 都能跑。與課程手冊03 的 `--scale` 段落用同一組檔案。
 
 ### Step 1：建立共用 network
 
@@ -187,7 +187,7 @@ docker network create my_network
 ### Step 2：RabbitMQ + Flower
 
 ```bash
-docker compose -f compose-advanced/rabbitmq-network.yml up -d
+docker compose -f compose-advanced/rabbitmq.yml up -d
 ```
 
 驗證：http://localhost:15672（worker / worker）、http://localhost:5555
@@ -200,26 +200,23 @@ docker compose -f compose-advanced/mysql.yml up -d
 
 驗證：http://localhost:8080（root / 1234）
 
-### Step 4：Worker
+### Step 4：Worker（本地 build）
 
 ```bash
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-worker-network-version.yml up -d
+docker compose -f compose-advanced/docker-compose-worker-network.yml up -d --build
 ```
-
-> image `linsamtw/tibame_crawler:0.0.6` 是 amd64，Apple Silicon Mac 用整合版（第二部分）。
 
 確認 worker ready：
 
 ```bash
-docker compose -f compose-advanced/docker-compose-worker-network-version.yml logs | grep ready
-# celery@twse ready.
-# celery@tpex ready.
+docker compose -f compose-advanced/docker-compose-worker-network.yml logs | grep ready
+# twse / tpex 各出現一行 celery@... ready.
 ```
 
-### Step 5：Producer
+### Step 5：Producer（本機發任務）
 
 ```bash
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-producer-network-version.yml up
+uv run crawler/producer_multi_queue.py
 ```
 
 ### Step 6：驗證
@@ -229,9 +226,8 @@ DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-pro
 ### Step 7：停止所有服務
 
 ```bash
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-worker-network-version.yml down
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-producer-network-version.yml down
-docker compose -f compose-advanced/rabbitmq-network.yml down
+docker compose -f compose-advanced/docker-compose-worker-network.yml down
+docker compose -f compose-advanced/rabbitmq.yml down
 docker compose -f compose-advanced/mysql.yml down -v
 docker network rm my_network
 ```
@@ -340,8 +336,8 @@ python -m celery -A crawler.worker worker -Q tpex
 `tasks_crawler_finmind_duplicate.py` 使用 `ON DUPLICATE KEY UPDATE`，同一筆資料重複寫入時會更新而非報錯：
 
 ```bash
-# 用 duplicate 版 producer
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-producer-duplicate-network-version.yml up
+# 用 duplicate 版 producer（詳見課程手冊05）
+uv run crawler/producer_crawler_finmind_duplicate.py
 ```
 
 ### 5.3 APScheduler 定時排程
@@ -349,8 +345,8 @@ DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-pro
 `scheduler.py` 使用 APScheduler 每 12 小時自動觸發爬蟲：
 
 ```bash
-# 啟動 scheduler（會持續執行）
-DOCKER_IMAGE_VERSION=0.0.6 docker compose -f compose-advanced/docker-compose-scheduler-network-version.yml up -d
+# 啟動 scheduler（會持續執行，詳見課程手冊06；正式排程建議用 Airflow，見課程手冊11-13）
+uv run crawler/scheduler.py
 ```
 
 ---

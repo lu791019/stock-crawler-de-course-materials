@@ -455,18 +455,15 @@ FROM ubuntu:22.04               ← 從乾淨的 Ubuntu 開始
 
 ### compose-advanced/（拆開版）
 
+課堂實際只用這三份（課程手冊03、13 與速查手冊第三部分）：
+
 | 檔案 | 啟動什麼 | 說明 |
 | --- | --- | --- |
 | `rabbitmq.yml` | RabbitMQ + Flower | 掛外部 `my_network`，與其他 compose 互通 |
-| `rabbitmq-network.yml` | RabbitMQ + Flower | 同上（network 版命名保留）|
 | `mysql.yml` | MySQL 8.0 + phpMyAdmin | MySQL 3306、phpMyAdmin 8080 |
-| `docker-compose-worker.yml` | 單一 worker | 最簡單版本 |
 | `docker-compose-worker-network.yml` | twse + tpex 雙 worker | 本地 build、**支援 `--scale`**（沒寫死 container_name）|
-| `docker-compose-worker-network-version.yml` | 雙 worker | image 版本用 `DOCKER_IMAGE_VERSION` 指定（DockerHub 版）|
-| `docker-compose-producer-network.yml` | producer | 跑 `producer_multi_queue.py` |
-| `docker-compose-producer-network-version.yml` | producer | 版本化 image |
-| `docker-compose-producer-duplicate-network-version.yml` | producer | 去重 upsert 版 |
-| `docker-compose-scheduler-network-version.yml` | scheduler | APScheduler 定時派送 |
+
+其餘舊版檔案（原課程的 DockerHub image 路線等）已移至 `compose-advanced/legacy/`，說明見 `compose-advanced/README.md`。
 
 ### airflow/ 與 metabase/
 
