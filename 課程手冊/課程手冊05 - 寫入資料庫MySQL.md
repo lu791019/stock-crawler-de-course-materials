@@ -21,6 +21,76 @@
 
 ---
 
+## 先看大局：為什麼「資料儲存」是資料工程的核心
+
+動手寫 MySQL 之前，先把視野拉高——你正在做的事，在資料工程的世界裡有名字、有座標。
+
+### 為何「資料儲存」重要？
+
+- **基礎角色**：資料工程的目標是讓資料能被收集、轉換、分析並產生價值，而「儲存」是整個流程的核心樞紐
+- **可靠性**：沒有合適的資料儲存，資料可能遺失、錯誤或無法被有效存取
+- **效能與成本**：不同的儲存技術會直接影響查詢速度、擴展能力與成本控管
+- **下游應用**：BI 報表、機器學習模型、即時數據系統等都依賴資料儲存的設計品質
+- **AI 世代**：AI 需要龐大的資料基礎，沒有合適的儲存架構，資料無法被有效整合、清理與提供給模型
+
+### 關聯式資料庫（RDBMS）vs NoSQL
+
+| | RDBMS 關聯式資料庫 | NoSQL 資料庫 |
+|---|---|---|
+| 特點 | 遵循固定的 Schema，使用 SQL 語言 | 類型多元：Key-Value、Document、Columnar、Graph |
+| 適合 | 結構化資料、交易系統、需要複雜查詢或關聯的場景 | 非結構化或半結構化資料、大規模分散式系統 |
+| 優點 | 資料一致性強（ACID）、成熟穩定 | 彈性高、容易水平擴展、支援海量資料 |
+| 缺點 | 擴展性較差，水平擴展成本高 | 一致性通常採 CAP 理論的「最終一致性」，交易支持較弱 |
+| 代表 | MySQL、PostgreSQL、SQLite | MongoDB（Document）、Redis（Key-Value）、Cassandra（Columnar）、Neo4j（Graph）|
+
+股價資料欄位固定（date、open、close…）、要精準查詢 → RDBMS 是自然選擇，本課程用 MySQL。
+
+### OLTP vs OLAP
+
+| | OLTP 線上交易處理 | OLAP 線上分析處理 |
+|---|---|---|
+| 特點 | 針對大量、小型、即時的交易操作（新增、修改、刪除）| 針對大量歷史資料做聚合、分析、查詢 |
+| 重點 | 速度快、一致性高 | 支援複雜查詢與大規模運算，偏重讀取性能 |
+| 常見系統 | 電商訂單系統、銀行交易系統 | 商業智慧報表、數據倉庫、趨勢分析 |
+| 常見工具 | MySQL、PostgreSQL、SQL Server | BigQuery、Snowflake、Redshift |
+
+這一章做的是 OLTP——爬蟲一筆一筆把資料寫進 MySQL；到第 14 章會把資料搬進 BigQuery 做 OLAP 分析，兩邊你都會摸到。
+
+### 資料的三種型態、熱與冷
+
+- **結構化**：表格型態（交易、會員資料）→ 存關聯式資料庫
+- **半結構化**：JSON、XML、Log → 我們從 FinMind API 拿回的原始回應就是 JSON，轉成 DataFrame 後才變結構化
+- **非結構化**：影像、語音、影片 → 需要物件儲存（如 GCS、S3）
+
+儲存技術必須能對應不同型態，否則資料難以被分析與利用。另一個維度是**熱資料 vs 冷資料（Storage Tiering）**：
+
+- **熱資料**：常用、需快速存取 → 放高效能儲存（OLTP、快取系統）
+- **冷資料**：不常用但需保留 → 放低成本的 Data Lake 或歸檔系統
+
+平衡「效能」與「成本」，是資料工程的核心考量。
+
+### Data Warehouse、Data Lake、Lakehouse（先認識名字就好）
+
+- **Data Warehouse（數據倉庫）**：適合結構化資料與分析（OLAP）
+- **Data Lake（數據湖）**：能儲存原始格式的海量資料，支援多種型態
+- **Lakehouse**：融合 Warehouse 與 Lake 優點，既能存原始資料、又能做分析——現代資料平台的趨勢（Databricks、BigQuery、Snowflake）
+
+還有一組常見對比：**批次處理（Batch）**定期匯入大批資料，適合報表、歷史分析；**即時處理（Streaming）**毫秒/秒級反應，適合風控、推薦系統。我們的爬蟲 pipeline 屬於批次；現代資料儲存必須能同時支援兩種工作負載。
+
+### 為什麼選 MySQL？（+ phpMyAdmin 是什麼）
+
+**MySQL** 是一套開源的關聯式資料庫管理系統（RDBMS）：
+
+- 使用 SQL（Structured Query Language）來管理資料
+- 開源且免費：社群版可自由使用，也有商業授權版本
+- 跨平台：支援 Windows、Linux、macOS
+- 成熟穩定：廣泛應用在 Web 應用、企業系統，社群活躍
+- 相容性高：有大量周邊工具與生態系支援（如 phpMyAdmin、各種 ORM 框架）
+
+**phpMyAdmin** 是一個基於 PHP 開發的開源工具，提供 Web 介面來管理 MySQL / MariaDB 資料庫。它的目標是讓不熟悉命令列的使用者也能方便操作資料庫——透過網頁就能完成幾乎所有 SQL 指令的功能。等一下 Step 2 你就會用到它。
+
+---
+
 ## 這一章會用到的檔案
 
 | 檔案 | 角色 | 說明 |
@@ -28,6 +98,10 @@
 | `crawler/tasks_crawler_finmind.py` | 任務定義 | `crawler_finmind` + `upload_data_to_mysql` |
 | `crawler/producer_crawler_finmind.py` | 生產者 | 派送 5 支股票的正式版任務 |
 | `crawler/config.py` | 設定 | 提供 MySQL 連線資訊 |
+| `example/mock_stock_price_data.sql` | 練習素材 | 模擬台股歷史股價，可在 phpMyAdmin 執行、填充資料練查詢（練習 4 用）|
+| `example/vw_stock_price_daily.sql` | 預告 | 日線 View，第 8 章 Metabase 做圖表時會用到 |
+
+> `example/backup/` 裡是原課程（hahow）留下的通用練習檔（employees、students、ecommerce 等），本課程不使用，留作參考。
 
 `config.py` 裡的 MySQL 設定（第 1 章看過）：
 
@@ -155,7 +229,18 @@ curl -o /dev/null -s -w "phpMyAdmin: %{http_code}\n" http://localhost:8080
 
 ### Step 3：快速測試 Python 連得到 MySQL
 
-在真正跑 pipeline 之前，先用一小段程式確認連線沒問題（問題切小塊，好排查）：
+Python 要連 MySQL，靠兩個套件：`pymysql`（驅動，負責實際通訊）和 `sqlalchemy`（上層介面，管理連線）。本專案的 `pyproject.toml` 已經宣告好了，之前 `uv sync` 過就已裝好；若是在自己的新專案，要先手動安裝：
+
+```bash
+# 自己的專案手動安裝
+uv add pymysql
+uv add sqlalchemy
+
+# 本專案：同步安裝即可
+uv sync
+```
+
+接著在真正跑 pipeline 之前，先用一小段程式確認連線沒問題（問題切小塊，好排查）：
 
 ```bash
 uv run python -c "
@@ -338,6 +423,22 @@ LIMIT 20;
 **練習 3：改抓不同股票並確認寫入**
 
 把 producer 清單改成別的股票，跑一次，到 phpMyAdmin 確認新股票的資料也進來了。這讓你確認整條「爬取 → 寫入」的路對任何股票都通。
+
+**練習 4：用模擬資料把表「填厚」，練真正的查詢**
+
+FinMind 免費額度抓回的天數有限。打開 `example/mock_stock_price_data.sql`，把內容貼到 phpMyAdmin 的 **SQL** 頁籤執行——它會往回填充一段模擬歷史股價。然後練幾條查詢：
+
+```sql
+-- 某支股票最近 20 天的收盤價
+SELECT date, close FROM TaiwanStockPrice
+WHERE stock_id = '2330' ORDER BY date DESC LIMIT 20;
+
+-- 每支股票的資料筆數與日期範圍
+SELECT stock_id, COUNT(*) AS cnt, MIN(date) AS first_day, MAX(date) AS last_day
+FROM TaiwanStockPrice GROUP BY stock_id;
+```
+
+資料厚一點，之後第 8 章 Metabase 畫出來的走勢圖也會好看得多。
 
 ---
 
