@@ -85,26 +85,26 @@ stock-crawler/
 │   ├── tasks_crawler_finmind.py              ← 真實爬蟲 task：print 版 + 寫 DB 版（第 2、4 章）
 │   ├── producer_crawler_finmind_print.py     ← 批次發爬蟲（print 版）（第 2 章）
 │   ├── producer_multi_queue_print.py         ← 多佇列分流（print 版）（第 3 章）
-│   ├── producer_crawler_finmind.py           ← 批次發爬蟲（寫 DB 版）（第 4 章）
-│   ├── producer_multi_queue.py               ← 多佇列分流（寫 DB 版）（第 4 章）
-│   ├── upload_data_to_mysql.py               ← MySQL 上傳小工具（第 4 章）
-│   ├── tasks_crawler_finmind_duplicate.py    ← 去重 upsert 版 task（第 5 章）
-│   ├── producer_crawler_finmind_duplicate.py ← 去重版 producer（第 5 章）
-│   ├── scheduler_print.py                    ← 定時排程 print 版（第 6 章）
-│   ├── scheduler.py                          ← 定時排程正式版（第 6 章）
-│   ├── scheduler_blocking.py                 ← BlockingScheduler 對照版（第 6 章）
-│   ├── worker_demo.py                        ← 失敗情境專用 Celery app（第 7 章）
-│   ├── tasks_demo_fail.py                    ← 4 種失敗情境 task（第 7 章）
-│   ├── producer_demo_fail.py                 ← 發失敗情境任務（第 7 章）
-│   ├── mysql.py                              ← MySQL 工具模組：View、查詢（第 13 章）
-│   ├── bigquery.py                           ← BigQuery 工具模組（第 10 章）
-│   ├── stock_sync_mysql_to_bigquery.py       ← MySQL → BigQuery 同步（第 10 章）
-│   └── stock_bigquery_data_transform.py      ← BigQuery 分析表建立（第 10 章）
+│   ├── producer_crawler_finmind.py           ← 批次發爬蟲（寫 DB 版）（第 5 章）
+│   ├── producer_multi_queue.py               ← 多佇列分流（寫 DB 版）（第 5 章）
+│   ├── upload_data_to_mysql.py               ← MySQL 上傳小工具（第 5 章）
+│   ├── tasks_crawler_finmind_duplicate.py    ← 去重 upsert 版 task（第 6 章）
+│   ├── producer_crawler_finmind_duplicate.py ← 去重版 producer（第 6 章）
+│   ├── scheduler_print.py                    ← 定時排程 print 版（第 9 章）
+│   ├── scheduler.py                          ← 定時排程正式版（第 9 章）
+│   ├── scheduler_blocking.py                 ← BlockingScheduler 對照版（第 9 章）
+│   ├── worker_demo.py                        ← 失敗情境專用 Celery app（第 4 章）
+│   ├── tasks_demo_fail.py                    ← 4 種失敗情境 task（第 4 章）
+│   ├── producer_demo_fail.py                 ← 發失敗情境任務（第 4 章）
+│   ├── mysql.py                              ← MySQL 工具模組：View、查詢（第 12 章）
+│   ├── bigquery.py                           ← BigQuery 工具模組（第 14 章）
+│   ├── stock_sync_mysql_to_bigquery.py       ← MySQL → BigQuery 同步（第 14 章）
+│   └── stock_bigquery_data_transform.py      ← BigQuery 分析表建立（第 14 章）
 ├── docker-compose-local.yml                  ← 一鍵啟動基礎服務（第 1 章就會用）
 ├── compose-advanced/                         ← 進階：拆開的 compose + 多 worker 網路版（第 3 章）
-├── docker-compose-all.yml                    ← 全服務整合版（第 14 章壓軸）
-├── airflow/                                  ← Airflow：Dockerfile、compose、DAGs（第 11-13 章）
-├── metabase/                                 ← Metabase compose（第 9 章）
+├── docker-compose-all.yml                    ← 全服務整合版（第 13 章壓軸）
+├── airflow/                                  ← Airflow：Dockerfile、compose、DAGs（第 10-12 章）
+├── metabase/                                 ← Metabase compose（第 8 章）
 ├── example/                                  ← SQL 範例、pandas 練習、獨立爬蟲範例（隨堂補充）
 ├── Dockerfile                                ← Worker 容器化（第 3 章）
 ├── pyproject.toml / uv.lock                  ← Python 依賴管理
@@ -291,7 +291,7 @@ def crawler(x):
 
 > 一句話記法：**`@app.task` 把「函式」升級成「任務」，而「註冊、`.delay()`、`.apply_async()`、`.s()`」是任務才有的能力。** 這也是為什麼整個 Celery 世界裡，所有要派送的東西都一定要先戴上這個裝飾器。
 >
-> 補充：裝飾器括號裡還能放選項，例如 `@app.task(bind=True, max_retries=3)`。`bind=True` 會讓函式的第一個參數變成 `self`（指向這個 Task 物件本身），這樣就能在任務裡用 `self.retry()` 重試——第 7 章失敗處理會用到。
+> 補充：裝飾器括號裡還能放選項，例如 `@app.task(bind=True, max_retries=3)`。`bind=True` 會讓函式的第一個參數變成 `self`（指向這個 Task 物件本身），這樣就能在任務裡用 `self.retry()` 重試——第 4 章失敗處理會用到。
 
 ### ④ `producer.py`：把任務丟出去
 
@@ -445,7 +445,7 @@ task0 done.
 | **Tasks** | 每個任務的名稱、狀態（PENDING / STARTED / SUCCESS / FAILURE）、耗時、參數 |
 | **Workers** | 點進單一 worker，看它監聽哪些佇列、concurrency 是多少 |
 
-> 💡 把 Flower 記成「排錯時第一個打開的地方」：任務有沒有送到、有沒有失敗、跑了多久，一目了然。第 8 章會再帶你把 RabbitMQ UI、Flower、phpMyAdmin 三個介面串起來看。
+> 💡 把 Flower 記成「排錯時第一個打開的地方」：任務有沒有送到、有沒有失敗、跑了多久，一目了然。第 7 章會再帶你把 RabbitMQ UI、Flower、phpMyAdmin 三個介面串起來看。
 
 ### Step 7：體驗分散式（最有感的一步）
 
@@ -499,7 +499,7 @@ docker compose -f docker-compose-local.yml down
 
 - **`.delay()`、`.apply_async()`、直接呼叫，三者差在哪？** `.delay(x=1)` 是 `.apply_async(kwargs={"x":1})` 的簡寫。想指定佇列、延遲執行、設定重試，就得用 `apply_async`（第 3 章會用到）。而直接 `crawler(x=1)` 是在本地同步執行，不經過 broker。
 - **為什麼 producer 秒回？** 因為 `.delay()` 只做「打包訊息 + 丟進 RabbitMQ」兩件事，不等執行。真正耗時的 `sleep` 是發生在 worker 那邊。
-- **`concurrency: 8` 哪來的？** Celery 預設用 prefork（多行程），數量預設等於 CPU 核心數。這對「一直在算」的任務合理，但我們之後的爬蟲是「一直在等網路」，第 6 章會教你怎麼調。
+- **`concurrency: 8` 哪來的？** Celery 預設用 prefork（多行程），數量預設等於 CPU 核心數。這對「一直在算」的任務合理，但我們之後的爬蟲是「一直在等網路」，第 9 章會教你怎麼調。
 
 ---
 
@@ -536,7 +536,7 @@ docker compose -f docker-compose-local.yml down
 
 因為任務清單是由 `worker.py` 的 `include` 決定的，不是由 producer 決定的。`include` 一開始就掛了三個任務模組，worker 啟動時就把裡面所有 `@app.task` 都註冊好了。producer 只是「決定這次要送哪一個」，不影響 worker 認得幾個。
 
-那為什麼是「三個模組」卻列出「四個任務」？因為 `[tasks]` 數的是**任務（函式）數，不是模組（檔案）數**——一個檔案裡可以放很多個 `@app.task`。關鍵在第二個模組 `crawler.tasks_crawler_finmind`，它一支檔案裡就放了兩個任務：`crawler_finmind_print`（第 2 章的只印出版）和 `crawler_finmind`（第 4 章的寫入 DB 版）。所以：
+那為什麼是「三個模組」卻列出「四個任務」？因為 `[tasks]` 數的是**任務（函式）數，不是模組（檔案）數**——一個檔案裡可以放很多個 `@app.task`。關鍵在第二個模組 `crawler.tasks_crawler_finmind`，它一支檔案裡就放了兩個任務：`crawler_finmind_print`（第 2 章的只印出版）和 `crawler_finmind`（第 5 章的寫入 DB 版）。所以：
 
 | 模組（檔案）| 裡面的 `@app.task` | 任務數 |
 |------|-------------------|--------|

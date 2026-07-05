@@ -6,7 +6,7 @@
     uv run pytest -m integration -v
 
 沒開 MySQL 時會自動 skip，不會讓整個測試suite 紅掉。
-驗證第 5 章的核心主張：同一批資料寫幾次，資料庫筆數都不變。
+驗證第 6 章的核心主張：同一批資料寫幾次，資料庫筆數都不變。
 """
 import pandas as pd
 import pytest

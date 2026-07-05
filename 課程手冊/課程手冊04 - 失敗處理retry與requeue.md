@@ -1,6 +1,6 @@
-# 第 7 章：任務失敗、Worker 掛掉怎麼辦 — retry、requeue 與訊息的命運
+# 第 4 章：任務失敗、Worker 掛掉怎麼辦 — retry、requeue 與訊息的命運
 
-> 這是整個 Celery 階段的壓軸，也是「會用」和「懂原理」差最多的一章。前面都在讓任務成功，這一章你要故意讓它失敗、故意把 worker 殺掉，親眼看訊息在 RabbitMQ 裡到底發生什麼事。
+> 這是「會用」和「懂原理」差最多的一章。前面都在讓任務成功，這一章你要故意讓它失敗、故意把 worker 殺掉，親眼看訊息在 RabbitMQ 裡到底發生什麼事。
 
 ---
 
@@ -242,37 +242,7 @@ task_slow.delay(stock_id="SLOW_TEST", seconds=30)
 
 ---
 
-## Phase A 收尾：完整跑一次 Celery pipeline
-
-第 1~7 章的 Celery 階段到此完成。收尾前，把所有服務一起跑、走一次完整正式流程，確認整條鏈是通的：
-
-```bash
-# 1. 全開（六個服務）
-docker compose -f docker-compose-local.yml up -d --build rabbitmq flower mysql phpmyadmin worker_twse worker_tpex
-
-# 2. 三個 Web 介面都活著
-curl -o /dev/null -s -w "RabbitMQ:   %{http_code}\n" http://localhost:15672
-curl -o /dev/null -s -w "Flower:     %{http_code}\n" http://localhost:5555
-curl -o /dev/null -s -w "phpMyAdmin: %{http_code}\n" http://localhost:8080
-
-# 3. worker ready
-docker compose -f docker-compose-local.yml logs worker_twse | grep ready
-docker compose -f docker-compose-local.yml logs worker_tpex | grep ready
-
-# 4. 發任務（multi_queue：2330 → twse、00679B → tpex）
-docker compose -f docker-compose-local.yml up producer
-
-# 5. 驗證閉環：worker 成功 + DB 有資料
-docker compose -f docker-compose-local.yml logs worker_twse | grep succeeded
-docker exec mysql mysql -uroot -p1234 mydb -e \
-  "SELECT stock_id, COUNT(*) AS cnt FROM TaiwanStockPrice GROUP BY stock_id;"
-```
-
-✅ **預期**：六服務 Up、三個 200、worker succeeded、MySQL 有 2330 / 00679B 的資料，Flower Tasks 頁全 SUCCESS。
-
-> 這五步就是之後第 14 章「完整系統整合」七步驟驗證的雛形——到時會再加上 Airflow 和 Metabase。
-
-收工：
+## 收工
 
 ```bash
 docker compose -f docker-compose-local.yml down     # 保留資料
@@ -285,7 +255,7 @@ docker compose -f docker-compose-local.yml down     # 保留資料
 - **為什麼要用一個獨立的 `worker_demo` app？** 因為這一章要全域開啟 `acks_late` 和 `task_reject_on_worker_lost` 這些「危險」設定來做實驗，作者不想污染你平常在用的 `worker.py`。這也示範了一個好習慣：做破壞性實驗時，開一個獨立環境。
 - **`Reject` 的效果依賴 `acks_late`。** `Reject(requeue=True)` 之所以能把訊息放回佇列，前提是 `acks_late=True`（訊息還沒被確認）。如果用預設的 `worker.py`（沒開 acks_late），你看不到一樣的效果。
 - **情境 2 是一個「毒訊息（poison message）」的教學陷阱。** 一則永遠處理失敗、又一直被放回的訊息，會卡住 worker、佔用資源。正式系統要防這個：設定「重試上限」或「死信佇列（DLQ）」——超過幾次就把它移到另一條佇列冷處理，而不是無限循環。
-- **`acks_late` 是可靠性的雙面刃。** 它保證「worker 掛掉不遺失任務」，但代價是任務可能被**執行兩次**（做到一半掛掉、重跑一次）。所以搭配 `acks_late` 的任務最好是**冪等的**（還記得第 5 章嗎？）——重跑也不會出問題。你看，前面學的冪等在這裡派上用場了。
+- **`acks_late` 是可靠性的雙面刃。** 它保證「worker 掛掉不遺失任務」，但代價是任務可能被**執行兩次**（做到一半掛掉、重跑一次）。所以搭配 `acks_late` 的任務最好是**冪等的**——重跑也不會出問題。什麼是冪等、怎麼做到，第 6 章會完整教。
 
 ---
 
@@ -342,9 +312,9 @@ docker compose -f docker-compose-local.yml down     # 保留資料
 - 環境變數覆蓋讓同一份程式在本機（127.0.0.1）和 Docker（服務名）都能跑。
 - ack 是訊息生命的開關；`acks_late` 決定「何時確認」。
 - retry 是發新訊息、有上限；requeue 是放回原訊息、無上限。
-- `acks_late` 保證不遺失任務，但可能重跑，所以任務最好冪等（呼應第 5 章）。
+- `acks_late` 保證不遺失任務，但可能重跑，所以任務最好冪等（第 6 章會教）。
 - 分散式系統要為失敗而設計。
 
 ## 下一章要做什麼
 
-到這裡，整個 Celery 任務系統（Phase A，第 1~7 章）完成了。**下一章把你一路用到的三個 Web 管理介面（RabbitMQ、Flower、phpMyAdmin）做個總整理，建立一套「出事了先看哪裡」的排錯 SOP。**
+訊息的可靠性有了保障，但資料到目前都只是印出來、看過就忘。**下一章你會正式把資料存下來——拿掉 `_print`，改用會寫進 MySQL 的 `crawler_finmind`，讓爬回來的股價真正落地。**

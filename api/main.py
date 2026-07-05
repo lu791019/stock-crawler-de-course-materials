@@ -21,7 +21,7 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# create_engine 建的是「連線池管理者」（第 4 章講過），app 存活期間重複使用
+# create_engine 建的是「連線池管理者」（第 5 章講過），app 存活期間重複使用
 engine = create_engine(
     f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
 )

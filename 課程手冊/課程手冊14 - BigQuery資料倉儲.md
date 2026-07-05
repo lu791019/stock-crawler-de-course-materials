@@ -1,4 +1,4 @@
-# 第 10 章：把資料搬進雲端倉儲 — MySQL → BigQuery（OLTP → OLAP）
+# 第 14 章：把資料搬進雲端倉儲 — MySQL → BigQuery（OLTP → OLAP）
 
 > 這一章教「為什麼 MySQL 不夠」。你會把股價同步進雲端資料倉儲 BigQuery，並在上面做真正的分析（算移動平均、每日漲跌統計）。
 
@@ -73,7 +73,7 @@ def upload_data_to_bigquery(table_name, df, dataset_id=DATASET_ID, mode="replace
 重點：
 
 - `table_id` 是 BigQuery 的三段式命名：`專案.資料集.表`。
-- `WRITE_TRUNCATE`（覆蓋）vs `WRITE_APPEND`（附加）：對應你在第 4 章學過的 `if_exists`，概念一樣。
+- `WRITE_TRUNCATE`（覆蓋）vs `WRITE_APPEND`（附加）：對應你在第 5 章學過的 `if_exists`，概念一樣。
 - `load_table_from_dataframe`：用「批次載入 job」把 DataFrame 匯進 BigQuery。專案註解特別提到一個實務重點——**這種批次 load job 是免費的**（只算儲存費），而另一種 streaming insert（逐筆即時寫入）會依寫入量計費。所以「每日整批股價」這種場景用批次 load 最划算。
 - `job.result()`：因為 load 是**非同步**的，這行是「等它做完」（是不是想到第 1 章的 `.delay()` + 之後 `.get()`？概念相通）。
 
@@ -167,7 +167,7 @@ uv run crawler/stock_bigquery_data_transform.py
 - **load job vs streaming insert（費用差很大）。** 批次 load job（本專案用的）免費、只算儲存；streaming insert 逐筆即時寫入要依量計費。每日整批股價這種場景，批次 load 又便宜又適合。這是實務上很重要的成本觀念。
 - **分區（partition）為什麼能省錢？** BigQuery 依「掃描的資料量」收費。把表依日期分區後，查「某個月」只掃那個月的分區，不用掃整張三年的表。所以查得少 = 便宜 + 快。
 - **View vs Table 差在哪？** View 是「一段存起來的查詢」，每次查它才即時算；Table 是把結果實體存下來。專案兩者都建：View 保持即時、Table 加速重複查詢。
-- **這裡的「去重」跟第 5 章不一樣。** 第 5 章是在寫入時用主鍵 upsert 去重；這裡是在查詢時用 `ROW_NUMBER() ... WHERE rn = 1` 只留每組第一筆。兩種都是去重，但一個發生在「寫入端」、一個發生在「分析端」，適用情境不同。
+- **這裡的「去重」跟第 6 章不一樣。** 第 6 章是在寫入時用主鍵 upsert 去重；這裡是在查詢時用 `ROW_NUMBER() ... WHERE rn = 1` 只留每組第一筆。兩種都是去重，但一個發生在「寫入端」、一個發生在「分析端」，適用情境不同。
 
 ---
 
@@ -222,6 +222,6 @@ OLTP 擅長「即時、頻繁的小筆讀寫」（例如爬蟲每天寫入股價
 - 用批次 load + 分區省錢，用視窗函數在倉儲裡算技術指標。
 - ELT：先搬進倉儲，再用倉儲算力轉換。
 
-## 下一章要做什麼
+## 課程總結
 
-到這裡，「抓取 → 落地 → 視覺化 → 倉儲」每一段你都會了，但它們還是各跑各的、靠 APScheduler 鬆散地觸發。**接下來三章進入 Airflow：先架起來跑第一個 DAG（第 11 章）、學進階 Operator（第 12 章），最後把整條爬蟲 pipeline 用 DAG 編排起來（第 13 章），變成真正的生產級工作流。**
+到這裡，整套課程走完了：**抓取（Celery + 分流 + 失敗處理）→ 落地（MySQL + 冪等）→ 視覺化（Metabase）→ 排程（APScheduler → Airflow）→ 一鍵整合，最後把資料送進雲端倉儲 BigQuery。**「爬蟲 → 佇列 → 落地 → 編排 → 倉儲」這條路，就是資料工程的基本功。接下來的雲端段課程，會把這整套系統搬上 GCP。

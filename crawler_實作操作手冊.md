@@ -341,7 +341,7 @@ python -m celery -A crawler.worker worker -Q tpex
 `tasks_crawler_finmind_duplicate.py` 使用 `ON DUPLICATE KEY UPDATE`，同一筆資料重複寫入時會更新而非報錯：
 
 ```bash
-# 用 duplicate 版 producer（詳見課程手冊05）
+# 用 duplicate 版 producer（詳見課程手冊06）
 uv run crawler/producer_crawler_finmind_duplicate.py
 ```
 
@@ -350,7 +350,7 @@ uv run crawler/producer_crawler_finmind_duplicate.py
 `scheduler.py` 使用 APScheduler 每 12 小時自動觸發爬蟲：
 
 ```bash
-# 啟動 scheduler（會持續執行，詳見課程手冊06；正式排程建議用 Airflow，見課程手冊11-13）
+# 啟動 scheduler（會持續執行，詳見課程手冊09；正式排程建議用 Airflow，見課程手冊10-12）
 uv run crawler/scheduler.py
 ```
 
@@ -358,7 +358,7 @@ uv run crawler/scheduler.py
 
 ## 第六部分：延伸服務速查（Airflow / Metabase / API / 測試）
 
-### Airflow（課程手冊 11-13）
+### Airflow（課程手冊 10-12）
 
 ```bash
 docker build -f airflow/Dockerfile -t stock-airflow:latest .   # 首次 build
@@ -372,7 +372,7 @@ docker exec airflow-webserver airflow dags unpause stock_crawler_dag
 docker exec airflow-webserver airflow dags trigger stock_crawler_dag
 ```
 
-### Metabase（課程手冊 09）
+### Metabase（課程手冊 08）
 
 ```bash
 docker network create my_network
@@ -397,7 +397,7 @@ uv run pytest -m integration -v            # 整合測試（需 mysql）
 uv run pytest -v                           # 全部
 ```
 
-### 全服務一鍵啟動（課程手冊 14）
+### 全服務一鍵啟動（課程手冊 13）
 
 ```bash
 docker compose -f docker-compose-all.yml up -d     # 11 容器；Airflow 在 8081

@@ -1,4 +1,4 @@
-# 第 9 章：把資料變成看得到的圖表 — Metabase BI 視覺化
+# 第 8 章：把資料變成看得到的圖表 — Metabase BI 視覺化
 
 > 這是 Phase B 的第一章，也是整套課的「回報時刻」。你前面辛苦爬下來、寫進 MySQL 的股價，到這裡第一次變成一張你點得動的走勢圖。
 
@@ -20,7 +20,7 @@
 
 Metabase 是一套開源 BI 工具，特點是設定簡單、網頁介面友善，很適合入門和中小型團隊。
 
-**為什麼排在這裡？** 因為到第 7 章為止，你的資料已經穩定地在 MySQL 裡了。這時把它變成圖表，你會第一次「看到自己做的東西有用」——這種成就感是最好的學習動力。
+**為什麼排在這裡？** 因為到第 4 章為止，你的資料已經穩定地在 MySQL 裡了。這時把它變成圖表，你會第一次「看到自己做的東西有用」——這種成就感是最好的學習動力。
 
 ---
 
@@ -50,7 +50,7 @@ Metabase 是一套開源 BI 工具，特點是設定簡單、網頁介面友善�
 
 ### Step 1：確認 MySQL 裡有資料
 
-先確保前面幾章已經把股價寫進 `mydb`（第 4 章跑過 producer；注意第 5 章寫的是另一張表 `TaiwanStockPrice_duplicate`，不算數）。
+先確保前面幾章已經把股價寫進 `mydb`（第 5 章跑過 producer；注意第 6 章寫的是另一張表 `TaiwanStockPrice_duplicate`，不算數）。
 
 ```bash
 docker compose -f docker-compose-local.yml up -d mysql phpmyadmin
@@ -94,7 +94,7 @@ docker compose -f metabase/docker-compose-metabase.yml up -d
 docker network connect my_network mysql
 ```
 
-> 已經接過會顯示 `already exists`，無妨。想一次到位的話，`docker-compose-all.yml`（第 14 章）把所有服務放在同一網路，就不需要這一步。
+> 已經接過會顯示 `already exists`，無妨。想一次到位的話，`docker-compose-all.yml`（第 13 章）把所有服務放在同一網路，就不需要這一步。
 
 ### Step 3：首次設定，建立管理員帳號
 
@@ -194,7 +194,7 @@ ORDER BY trade_date;
 
 ✅ **預期**：三支股票的收盤價走勢疊在同一張圖上。
 
-> 💡 這個 VIEW 用 `ROW_NUMBER()` 對「同股票同日期」去重——如果你的表裡有第 4 章重跑造成的重複資料，VIEW 查出來的仍是乾淨的。這是「不動原始資料、用查詢層清理」的實務手法，第 10 章 BigQuery 會再用一次。
+> 💡 這個 VIEW 用 `ROW_NUMBER()` 對「同股票同日期」去重——如果你的表裡有第 5 章重跑造成的重複資料，VIEW 查出來的仍是乾淨的。這是「不動原始資料、用查詢層清理」的實務手法，第 14 章 BigQuery 會再用一次。
 
 ---
 
@@ -290,4 +290,4 @@ docker compose -f metabase/docker-compose-metabase.yml down    # 設定保留在
 
 ## 下一章要做什麼
 
-Metabase 直接查 MySQL，小資料量很順。但當歷史資料越積越多、要做大規模分析時，MySQL 會吃力。**下一章把資料同步進雲端資料倉儲 BigQuery（OLTP → OLAP），讓分析不拖累營運資料庫。**
+Dashboard 有了，但資料要新鮮，還得**有人**每天手動跑 producer。**下一章裝上「鬧鐘」——用 APScheduler 定時觸發爬蟲，讓整條 pipeline 自己動起來。**

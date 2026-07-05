@@ -1,4 +1,4 @@
-# 第 12 章：Airflow 進階 Operator — 拼出複雜工作流的積木
+# 第 11 章：Airflow 進階 Operator — 拼出複雜工作流的積木
 
 > 上一章的 DAG 只有 start → end。但實務上的工作流會分岔、會傳資料、會互相觸發、會需要獨立環境。這一章把四塊關鍵積木一次補齊——每一塊都有現成的範例 DAG 讓你跑。
 
@@ -26,17 +26,17 @@
 | `example_docker_operator_dag.py` | `example_docker_operator_dag` | 容器裡跑任務 |
 | `example_dummy_tasks_dag.py` | `example_dummy_tasks_dag` | 複雜依賴結構 |
 
-> 💡 注意：Airflow 列表顯示的是**程式裡定義的 dag_id**，不一定等於檔名（第 11 章練習 3 看過）。
+> 💡 注意：Airflow 列表顯示的是**程式裡定義的 dag_id**，不一定等於檔名（第 10 章練習 3 看過）。
 
 ---
 
 ## 前置準備
 
-沿用上一章的 Airflow 環境（沒在跑就照第 11 章 Step 2~4 重新啟動）：
+沿用上一章的 Airflow 環境（沒在跑就照第 10 章 Step 2~4 重新啟動）：
 
 ```bash
 docker compose -f airflow/docker-compose-airflow.yml up -d
-# 首次啟動記得等 init 完成後 restart webserver/scheduler（第 11 章 Step 4）
+# 首次啟動記得等 init 完成後 restart webserver/scheduler（第 10 章 Step 4）
 curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health   # 200 = OK
 ```
 
@@ -134,7 +134,7 @@ UI → 該 DAG → 等全綠 → 點任一 task → **XCom** 分頁。
 
 ### 看程式碼
 
-這個範例檔案裡定義了**兩個 DAG**（一個檔案可以放多個 DAG，第 11 章練習 3 看過）：
+這個範例檔案裡定義了**兩個 DAG**（一個檔案可以放多個 DAG，第 10 章練習 3 看過）：
 
 ```python
 # 主 DAG 裡的觸發步驟
@@ -192,7 +192,7 @@ docker exec airflow-webserver airflow dags trigger example_docker_operator_dag
 
 Graph 上三個 Docker task 平行跑（分別是 Python、Alpine、Ubuntu 容器）。點 task → Logs 能看到**容器內部**的輸出。
 
-> 💡 這招能成立，靠的是 compose 把 `/var/run/docker.sock` 掛進了 Airflow 容器（第 8 章 Portainer 用過同一招）——Airflow 因此有權力操作宿主機的 Docker。
+> 💡 這招能成立，靠的是 compose 把 `/var/run/docker.sock` 掛進了 Airflow 容器（第 7 章 Portainer 用過同一招）——Airflow 因此有權力操作宿主機的 Docker。
 >
 > ⚠️ 若這個 DAG 因 docker.sock 權限問題失敗，概念理解到位即可，不影響後面章節。
 

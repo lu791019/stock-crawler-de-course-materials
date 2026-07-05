@@ -1,4 +1,4 @@
-# 第 6 章：讓 pipeline 自己動起來 — 用 APScheduler 定時排程
+# 第 9 章：讓 pipeline 自己動起來 — 用 APScheduler 定時排程
 
 > 前面每次要抓資料，你都得自己下 producer 指令。真實系統不會有人半夜守著按按鈕。這一章你會裝上一個「鬧鐘」，讓任務時間到就自動派送。
 
@@ -213,7 +213,7 @@ trigger="cron", minute="*/1", second="0", coalesce=True,
 | 你遇到的狀況 | 原因 | 怎麼解 |
 |-------------|------|--------|
 | 排程時間跑掉、對不上 | 沒設時區 | 加 `timezone="Asia/Taipei"` |
-| 關掉終端機排程就停 | APScheduler 跟著程式生命週期 | 正式環境要用容器 / systemd 常駐（這也是第 11 章 Airflow 的動機之一）|
+| 關掉終端機排程就停 | APScheduler 跟著程式生命週期 | 正式環境要用容器 / systemd 常駐（這也是第 10 章 Airflow 的動機之一）|
 | 錯過排程被瘋狂補跑 | 沒設 coalesce | 加 `coalesce=True` |
 | Background 版一啟動就結束 | 少了保活迴圈 | 結尾加 `while True: time.sleep(...)` |
 
@@ -227,4 +227,4 @@ trigger="cron", minute="*/1", second="0", coalesce=True,
 
 ## 下一章要做什麼
 
-自動化之後，任務會在你沒盯著的時候跑。**萬一失敗了、或 worker 中途掛掉怎麼辦？下一章專門帶你實測失敗處理與可靠性——這是全 Celery 階段的壓軸。**
+APScheduler 是輕量鬧鐘：時間到就觸發，但它看不到任務之間的依賴、失敗了也只能自己寫補償邏輯。**接下來三章進入工業級的工作流引擎 Airflow：先架起來跑通第一個 DAG（第 10 章）、學進階 Operator（第 11 章），最後把整條爬蟲 pipeline 編排成生產級工作流（第 12 章）。**

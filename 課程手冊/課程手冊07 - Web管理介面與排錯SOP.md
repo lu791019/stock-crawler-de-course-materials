@@ -1,6 +1,6 @@
-# 第 8 章：看清系統的每一層 — Web 管理介面與排錯 SOP
+# 第 7 章：看清系統的每一層 — Web 管理介面與排錯 SOP
 
-> 第 1~7 章你已經零散用過 RabbitMQ UI、Flower、phpMyAdmin。這一章把它們做個總整理：每個介面到底負責看什麼、出事的時候先看哪一個。這一章不長，但這套「排錯順序」你之後每次系統出問題都會用到。
+> 第 1~6 章你已經零散用過 RabbitMQ UI、Flower、phpMyAdmin。這一章把它們做個總整理：每個介面到底負責看什麼、出事的時候先看哪一個。這一章不長，但這套「排錯順序」你之後每次系統出問題都會用到。
 
 ---
 
@@ -64,7 +64,7 @@ curl -o /dev/null -s -w "phpMyAdmin: %{http_code}\n" http://localhost:8080
 | **Total** | Ready + Unacked | — |
 
 - Ready 一直堆高不降 → 沒有 worker 在消費（沒開、掛了、或 `-Q` 訂錯佇列）——第 3 章的對照實驗你已經親眼看過。
-- Unacked 卡住不動 → worker 拿了任務但卡住沒做完——第 7 章的 requeue 實驗你也看過它跳動。
+- Unacked 卡住不動 → worker 拿了任務但卡住沒做完——第 4 章的 requeue 實驗你也看過它跳動。
 
 ### Step 3：Flower — 看「任務」
 
@@ -85,7 +85,7 @@ curl -o /dev/null -s -w "phpMyAdmin: %{http_code}\n" http://localhost:8080
 
 ### Step 4：phpMyAdmin — 看「資料」
 
-開 http://localhost:8080（root / 1234）→ 左側 `mydb` → `TaiwanStockPrice`（第 4 章寫進去的）→ Browse。
+開 http://localhost:8080（root / 1234）→ 左側 `mydb` → `TaiwanStockPrice`（第 5 章寫進去的）→ Browse。
 
 這是驗證「資料真的落地」的最後一關。任務 SUCCESS 不代表資料寫對了——最終還是要來這裡（或下 SQL）眼見為憑。
 
@@ -109,7 +109,7 @@ docker run -d \
 
 **Containers** 頁會列出所有容器，點進去可以直接看 log、restart——排錯時特別方便。
 
-> 💡 `-v /var/run/docker.sock:...` 是讓 Portainer 能操作 Docker 的關鍵（掛載 Docker socket）。第 12 章 Airflow 的 DockerOperator 也用同一招。
+> 💡 `-v /var/run/docker.sock:...` 是讓 Portainer 能操作 Docker 的關鍵（掛載 Docker socket）。第 11 章 Airflow 的 DockerOperator 也用同一招。
 
 ### Step 6：發一批任務，四個介面同步觀察
 
@@ -198,6 +198,42 @@ Ready 堆高 = 訊息在排隊但**沒人領**——worker 沒開、掛了、或
 - 三大介面分工：RabbitMQ 看訊息、Flower 看任務、phpMyAdmin 看資料；Portainer 看容器。
 - Ready / Unacked 是佇列健康的兩個關鍵訊號。
 - 排錯 SOP：Flower → RabbitMQ → Portainer → phpMyAdmin → docker logs，由外而內。
+
+## Phase A 收尾：完整跑一次 Celery pipeline
+
+第 1~7 章的 Celery 階段到此完成。收尾前，把所有服務一起跑、走一次完整正式流程，確認整條鏈是通的：
+
+```bash
+# 1. 全開（六個服務）
+docker compose -f docker-compose-local.yml up -d --build rabbitmq flower mysql phpmyadmin worker_twse worker_tpex
+
+# 2. 三個 Web 介面都活著
+curl -o /dev/null -s -w "RabbitMQ:   %{http_code}\n" http://localhost:15672
+curl -o /dev/null -s -w "Flower:     %{http_code}\n" http://localhost:5555
+curl -o /dev/null -s -w "phpMyAdmin: %{http_code}\n" http://localhost:8080
+
+# 3. worker ready
+docker compose -f docker-compose-local.yml logs worker_twse | grep ready
+docker compose -f docker-compose-local.yml logs worker_tpex | grep ready
+
+# 4. 發任務（multi_queue：2330 → twse、00679B → tpex）
+docker compose -f docker-compose-local.yml up producer
+
+# 5. 驗證閉環：worker 成功 + DB 有資料
+docker compose -f docker-compose-local.yml logs worker_twse | grep succeeded
+docker exec mysql mysql -uroot -p1234 mydb -e \
+  "SELECT stock_id, COUNT(*) AS cnt FROM TaiwanStockPrice GROUP BY stock_id;"
+```
+
+✅ **預期**：六服務 Up、三個 200、worker succeeded、MySQL 有 2330 / 00679B 的資料，Flower Tasks 頁全 SUCCESS。
+
+> 這五步就是之後第 13 章「完整系統整合」七步驟驗證的雛形——到時會再加上 Airflow 和 Metabase。
+
+收工：
+
+```bash
+docker compose -f docker-compose-local.yml down     # 保留資料
+```
 
 ## 下一章要做什麼
 

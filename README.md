@@ -94,34 +94,39 @@ stock-crawler/
 
 `課程手冊/` 資料夾有一套完整的實作教材，每一章都是「觀念 → 逐行讀懂程式 → 動手跑 → 驗證 → 練習」的結構。第一次接觸這個專案，照著順序走就對了：
 
-### Phase A：Celery 任務系統（第 1~8 章）
+### Phase A：Celery 任務系統（第 1~7 章）
 
 | 章 | 主題 | 用到的關鍵檔案 |
 |----|------|---------------|
 | 01 | Celery 基礎：Producer / Broker / Worker | `tasks.py`、`producer.py`、`worker.py`、`config.py` |
 | 02 | 真實爬蟲（只印出）：FinMind API | `tasks_crawler_finmind.py`、`producer_crawler_finmind_print.py` |
 | 03 | 多佇列分流 + `--scale` 水平擴充 | `producer_multi_queue_print.py`、`compose-advanced/` |
-| 04 | 寫入 MySQL | `producer_crawler_finmind.py`、phpMyAdmin |
-| 05 | 去重與冪等（upsert）| `tasks_crawler_finmind_duplicate.py` |
-| 06 | 定時排程 APScheduler | `scheduler_print.py`、`scheduler.py` |
-| 07 | 失敗處理：retry / requeue / acks_late | `worker_demo.py`、`tasks_demo_fail.py` |
-| 08 | Web 管理介面與排錯 SOP | RabbitMQ UI、Flower、phpMyAdmin、Portainer |
+| 04 | 失敗處理：retry / requeue / acks_late | `worker_demo.py`、`tasks_demo_fail.py` |
+| 05 | 寫入 MySQL | `producer_crawler_finmind.py`、phpMyAdmin |
+| 06 | 去重與冪等（upsert）| `tasks_crawler_finmind_duplicate.py` |
+| 07 | Web 管理介面與排錯 SOP | RabbitMQ UI、Flower、phpMyAdmin、Portainer |
 
-### Phase B：資料出口（第 9~10 章）
-
-| 章 | 主題 | 用到的關鍵檔案 |
-|----|------|---------------|
-| 09 | Metabase BI 視覺化 | `metabase/`、`example/vw_stock_price_daily.sql` |
-| 10 | BigQuery 資料倉儲（OLTP → OLAP）| `crawler/bigquery.py`、`stock_sync_mysql_to_bigquery.py` |
-
-### Phase C：工作流編排與整合（第 11~14 章）
+### Phase B：資料出口與自動化（第 8~9 章）
 
 | 章 | 主題 | 用到的關鍵檔案 |
 |----|------|---------------|
-| 11 | Airflow 基礎 | `airflow/Dockerfile`、`docker-compose-airflow.yml`、`dags/example_*` |
-| 12 | Airflow 進階 Operator | Branch / XCom / Trigger / DockerOperator 範例 DAG |
-| 13 | Airflow 接上爬蟲 pipeline | `dags/stock_crawler_*.py`、`crawler/mysql.py` |
-| 14 | 完整系統整合（一鍵啟動 + 七步驟驗證）| `docker-compose-all.yml` |
+| 08 | Metabase BI 視覺化 | `metabase/`、`example/vw_stock_price_daily.sql` |
+| 09 | 定時排程 APScheduler | `scheduler_print.py`、`scheduler.py` |
+
+### Phase C：工作流編排與整合（第 10~13 章）
+
+| 章 | 主題 | 用到的關鍵檔案 |
+|----|------|---------------|
+| 10 | Airflow 基礎 | `airflow/Dockerfile`、`docker-compose-airflow.yml`、`dags/example_*` |
+| 11 | Airflow 進階 Operator | Branch / XCom / Trigger / DockerOperator 範例 DAG |
+| 12 | Airflow 接上爬蟲 pipeline | `dags/stock_crawler_*.py`、`crawler/mysql.py` |
+| 13 | 完整系統整合（一鍵啟動 + 七步驟驗證）| `docker-compose-all.yml` |
+
+### 延伸：雲端資料倉儲（第 14 章）
+
+| 章 | 主題 | 用到的關鍵檔案 |
+|----|------|---------------|
+| 14 | BigQuery 資料倉儲（OLTP → OLAP）| `crawler/bigquery.py`、`stock_sync_mysql_to_bigquery.py` |
 
 ### 補充教材
 
@@ -250,7 +255,7 @@ docker compose -f compose-advanced/mysql.yml down
 docker network rm my_network
 ```
 
-### 方式三：docker-compose-all.yml（全服務整合，課程手冊 14）
+### 方式三：docker-compose-all.yml（全服務整合，課程手冊 13）
 
 11 個容器一次啟動：基礎服務 + Celery Worker + **Airflow**（Postgres/init/webserver/scheduler）+ **Metabase**。
 
@@ -266,7 +271,7 @@ docker compose -f docker-compose-all.yml up -d
 docker compose -f docker-compose-all.yml down
 ```
 
-完整的七步驟端到端驗證流程，見 `課程手冊/課程手冊14 - 完整系統整合.md`。
+完整的七步驟端到端驗證流程，見 `課程手冊/課程手冊13 - 完整系統整合.md`。
 
 ---
 
@@ -303,7 +308,7 @@ uv run python -m celery -A crawler.worker worker --loglevel=info -Q twse,tpex
 uv run python -m celery -A crawler.worker worker --loglevel=info --concurrency=1
 uv run python -m celery -A crawler.worker worker --loglevel=info --pool=gevent --concurrency=100
 
-# 失敗情境教學專用 app（課程手冊 07）
+# 失敗情境教學專用 app（課程手冊 04）
 uv run python -m celery -A crawler.worker_demo worker --loglevel=info --concurrency=1
 
 # Producer 發送任務
@@ -347,7 +352,7 @@ docker logs crawler_twse
 ## 📊 Airflow 與 Metabase
 
 ```bash
-# Airflow（詳見 airflow/README.md 與課程手冊 11-13）
+# Airflow（詳見 airflow/README.md 與課程手冊 10-12）
 docker build -f airflow/Dockerfile -t stock-airflow:latest .   # 先 build image
 cp .env.example .env
 docker compose -f airflow/docker-compose-airflow.yml up -d
@@ -360,7 +365,7 @@ docker exec airflow-webserver airflow dags unpause stock_crawler_dag
 docker exec airflow-webserver airflow dags trigger stock_crawler_dag
 docker exec airflow-webserver airflow dags list-runs --dag-id stock_crawler_dag
 
-# Metabase（詳見 metabase/README.md 與課程手冊 09）
+# Metabase（詳見 metabase/README.md 與課程手冊 08）
 docker network create my_network
 docker compose -f metabase/docker-compose-metabase.yml up -d
 # UI: http://localhost:3000（JVM 啟動慢，等 30-60 秒）
@@ -451,7 +456,7 @@ FROM ubuntu:22.04               ← 從乾淨的 Ubuntu 開始
 | 檔案 | 說明 |
 | --- | --- |
 | `docker-compose-local.yml` | **推薦**。本地 build，一個檔案包含基礎服務 + worker + producer |
-| `docker-compose-all.yml` | 全服務版：再加上 Airflow 四件套 + Metabase，共 11 容器（課程手冊 14）|
+| `docker-compose-all.yml` | 全服務版：再加上 Airflow 四件套 + Metabase，共 11 容器（課程手冊 13）|
 
 ### compose-advanced/（拆開版）
 
@@ -498,7 +503,7 @@ docker buildx build -f with.env.Dockerfile --platform linux/arm64 -t your-docker
 docker push your-dockerhub-user/stock_crawler:latest
 ```
 
-## 進階：BigQuery / GCP（課程手冊 10）
+## 進階：BigQuery / GCP（課程手冊 14）
 
 ```bash
 # GCP 登入

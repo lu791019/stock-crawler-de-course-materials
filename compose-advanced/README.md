@@ -34,8 +34,8 @@ docker compose -f compose-advanced/docker-compose-worker-network.yml up -d --bui
 | `docker-compose-producer-network.yml` | 容器化 producer | 本機 `uv run crawler/producer_multi_queue.py` |
 | `docker-compose-worker-network-version.yml` | 雙 worker（DockerHub image）| `docker-compose-worker-network.yml`（本地 build）|
 | `docker-compose-producer-network-version.yml` | producer（DockerHub image）| 本機 `uv run` |
-| `docker-compose-producer-duplicate-network-version.yml` | 去重 upsert 版 producer | 本機 `uv run crawler/producer_crawler_finmind_duplicate.py`（課程手冊05）|
-| `docker-compose-scheduler-network-version.yml` | 容器化 APScheduler | 本機 `uv run crawler/scheduler.py`（課程手冊06）；正式排程用 Airflow（課程手冊11-13）|
+| `docker-compose-producer-duplicate-network-version.yml` | 去重 upsert 版 producer | 本機 `uv run crawler/producer_crawler_finmind_duplicate.py`（課程手冊06）|
+| `docker-compose-scheduler-network-version.yml` | 容器化 APScheduler | 本機 `uv run crawler/scheduler.py`（課程手冊09）；正式排程用 Airflow（課程手冊10-12）|
 
 ### `-version` 檔案在教什麼？
 

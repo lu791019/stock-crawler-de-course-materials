@@ -58,7 +58,7 @@ engine = create_engine(
 ```
 
 - `FastAPI(...)` 建立整個 API 應用，`title` / `description` 會直接出現在自動生成的文件頁上。
-- `create_engine` 放在**模組層級**（不在函式裡）——app 存活期間共用同一個連線池（第 4 章講過 engine 是連線池管理者）。
+- `create_engine` 放在**模組層級**（不在函式裡）——app 存活期間共用同一個連線池（第 5 章講過 engine 是連線池管理者）。
 - 注意 import 的是 `crawler.config`——**API 和爬蟲共用同一個設定中心**。第 1 章的設計在這裡又賺到一次。
 
 ### ② 健康檢查端點
@@ -76,7 +76,7 @@ def health():
 
 - `@app.get("/")` 是 FastAPI 的路由裝飾器：「GET 方法打 `/` 這個路徑時，執行這個函式」。**像不像 `@app.task`？** 同一個模式——裝飾器把普通函式註冊進框架。
 - 函式 return dict，FastAPI 自動轉成 JSON 回給呼叫者。
-- 健康檢查是每個正式服務的標配（第 14 章 compose 的 healthcheck 打的就是這種端點）。
+- 健康檢查是每個正式服務的標配（第 13 章 compose 的 healthcheck 打的就是這種端點）。
 
 ### ③ 股票清單
 
@@ -94,7 +94,7 @@ def list_stocks():
     return df.to_dict(orient="records")
 ```
 
-- `pd.read_sql` 第 4 章用過（查詢 → DataFrame）；`to_dict(orient="records")` 把 DataFrame 變成 list of dict，FastAPI 再變成 JSON。
+- `pd.read_sql` 第 5 章用過（查詢 → DataFrame）；`to_dict(orient="records")` 把 DataFrame 變成 list of dict，FastAPI 再變成 JSON。
 - 一條熟悉的路：**SQL → DataFrame → JSON**。
 
 ### ④ 歷史價格（重點：參數化查詢）
@@ -130,7 +130,7 @@ def get_prices(
 ```python
 @app.get("/stocks/{stock_id}/latest")
 def get_latest(stock_id: str):
-    # ORDER BY date DESC LIMIT 1 —— 跟第 9 章 Metabase 數字卡片同一招
+    # ORDER BY date DESC LIMIT 1 —— 跟第 8 章 Metabase 數字卡片同一招
 ```
 
 ---
@@ -219,7 +219,7 @@ docker compose -f docker-compose-local.yml down
 
 ## 想再深入一點
 
-- **三個出口的分工，現在完整了**：Metabase 給人看（第 9 章）、BigQuery 給大規模分析（第 10 章）、API 給程式呼叫（本篇）。三者都只是「讀取 MySQL 的不同姿勢」——上游的爬蟲 pipeline 一行都不用改。這就是分層架構的威力。
+- **三個出口的分工，現在完整了**：Metabase 給人看（第 8 章）、BigQuery 給大規模分析（第 14 章）、API 給程式呼叫（本篇）。三者都只是「讀取 MySQL 的不同姿勢」——上游的爬蟲 pipeline 一行都不用改。這就是分層架構的威力。
 - **為什麼 API 不直接讓外界下任意 SQL？** 因為 API 的價值就在「限制」：只開放安全的、設計過的查詢。權限控制、流量限制、輸入驗證都在這層做。
 - **正式部署還缺什麼？** 本篇是教學版。上線前至少還要：認證（API key / OAuth）、rate limiting、CORS 設定、用 gunicorn+uvicorn workers 跑多行程。這些是後端工程的下一步。
 - **FastAPI 和 Flask 的差別？** Flask 更老牌、生態大；FastAPI 靠型別註記自動做驗證和文件、原生支援 async。新專案多半選 FastAPI。
@@ -254,7 +254,7 @@ docker compose -f docker-compose-local.yml down
 
 **練習 3：讓 API 查 VIEW**
 
-把 `/stocks/{stock_id}/prices` 的表名換成第 9 章建的 `vw_stock_price_daily`（欄位名要對應調整）。這讓你體會：API 查「清理過的 VIEW」而不是原始表，是實務上常見的組合——髒資料在 DB 層就擋掉了。
+把 `/stocks/{stock_id}/prices` 的表名換成第 8 章建的 `vw_stock_price_daily`（欄位名要對應調整）。這讓你體會：API 查「清理過的 VIEW」而不是原始表，是實務上常見的組合——髒資料在 DB 層就擋掉了。
 
 ---
 

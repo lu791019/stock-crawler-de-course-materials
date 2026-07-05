@@ -1,4 +1,4 @@
-# 第 13 章：Airflow 接上爬蟲 pipeline — 兩種串法與完整 ETL
+# 第 12 章：Airflow 接上爬蟲 pipeline — 兩種串法與完整 ETL
 
 > 積木都齊了，這一章合體：讓 Airflow 指揮你的台股爬蟲。你會跑兩種串法——「Airflow 自己做」和「Airflow 指揮 Celery 做」——並理解它們各自適合什麼場景。前面所有章節在這裡會合。
 
@@ -35,7 +35,7 @@
 | `airflow/dags/stock_crawler_dag.py` | 串法一 | 直接呼叫 `crawler_finmind` 爬 10 支股票 |
 | `airflow/dags/stock_crawler_producer_dag.py` | 串法二 | 透過 `.delay()` 發任務給 Celery |
 | `airflow/dags/stock_crawler_etl_dag.py` | 完整 ETL | 爬蟲 + `crawler/mysql.py` 建 VIEW / 實體表 |
-| `airflow/dags/stock_crawler_etl_bigquery_dag.py` | 雲端 ETL | MySQL → BigQuery（需第 10 章 GCP 憑證）|
+| `airflow/dags/stock_crawler_etl_bigquery_dag.py` | 雲端 ETL | MySQL → BigQuery（需第 14 章 GCP 憑證）|
 | `crawler/mysql.py` | 工具模組 | `create_view` / `create_table_from_view` |
 
 ---
@@ -78,10 +78,10 @@ with DAG(
 
 逐段白話：
 
-- `schedule_interval="0 18 * * 1-5"`：**週一到週五下午 6 點**（台股收盤後）自動跑。這正是取代第 6 章 APScheduler 的位置，但多了歷史、依賴、補跑、UI。
+- `schedule_interval="0 18 * * 1-5"`：**週一到週五下午 6 點**（台股收盤後）自動跑。這正是取代第 9 章 APScheduler 的位置，但多了歷史、依賴、補跑、UI。
 - `max_active_runs=1`：同時最多一個 run 在跑，避免上一輪還沒完下一輪又開。
 - **用 for 迴圈生 task**：10 支股票 = 10 個 `PythonOperator`，跟第 1 章 producer 的 for 迴圈異曲同工——只是這次生的是「DAG 的步驟」而不是「佇列訊息」。
-- `python_callable=crawler_finmind`：直接掛你第 4 章寫的函式。**注意掛的是函式本身**（沒有括號、沒有 .delay）——Airflow 的 worker 到時會自己呼叫它。
+- `python_callable=crawler_finmind`：直接掛你第 5 章寫的函式。**注意掛的是函式本身**（沒有括號、沒有 .delay）——Airflow 的 worker 到時會自己呼叫它。
 - `trigger_rule="all_success"`：end 要等**全部**爬取成功才跑。
 - 依賴鏈 `start >> branch >> [10 個平行] >> end`：Graph 上就是一張扇形圖。
 
@@ -105,7 +105,7 @@ docker compose -f compose-advanced/rabbitmq.yml up -d
 
 # Airflow
 docker compose -f airflow/docker-compose-airflow.yml up -d
-# 首次啟動照第 11 章 Step 4：等 init 完成 → restart webserver/scheduler
+# 首次啟動照第 10 章 Step 4：等 init 完成 → restart webserver/scheduler
 ```
 
 確認 MySQL 有 `mydb`：
@@ -127,7 +127,7 @@ docker exec airflow-webserver airflow dags trigger stock_crawler_dag
 
 1. UI → `stock_crawler_dag` → Graph：`start → stock_branch → 10 個爬取 task 平行 → end`，方格逐一變綠。
 2. 每個 task 約 1~2 秒（打 FinMind API + 寫 MySQL）。
-3. 點任一 `crawl_stock_XXXX` → Logs，能看到 DataFrame 輸出——跟你第 4 章在 worker log 看到的一模一樣，只是換了執行的地方。
+3. 點任一 `crawl_stock_XXXX` → Logs，能看到 DataFrame 輸出——跟你第 5 章在 worker log 看到的一模一樣，只是換了執行的地方。
 
 **驗證資料入庫：**
 
@@ -188,7 +188,7 @@ docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
   "SELECT stock_id, COUNT(*) FROM stock_price_daily GROUP BY stock_id"
 ```
 
-> ✅ 看到 `vw_stock_price_daily` 這個 VIEW 和 `stock_price_daily` 實體表，代表「爬取 → 清理 → 產出分析表」一條 DAG 全包了。這個 VIEW 正是第 9 章你在 Metabase 用過的那個——現在它由 Airflow 自動維護。
+> ✅ 看到 `vw_stock_price_daily` 這個 VIEW 和 `stock_price_daily` 實體表，代表「爬取 → 清理 → 產出分析表」一條 DAG 全包了。這個 VIEW 正是第 8 章你在 Metabase 用過的那個——現在它由 Airflow 自動維護。
 
 ### （選做）CeleryExecutor 版 Airflow
 
@@ -203,7 +203,7 @@ docker compose -f airflow/docker-compose-airflow-celery.yml up -d
 | | LocalExecutor | CeleryExecutor |
 |---|---|---|
 | task 在哪跑 | Airflow 主機的子行程 | Celery worker（可跨機器）|
-| 類比 | 第 6 章單機排程 | 第 1 章分散式 |
+| 類比 | 第 9 章單機排程 | 第 1 章分散式 |
 | 適合 | 開發、小量 | 生產、大量、要水平擴充 |
 
 ---
@@ -250,7 +250,7 @@ docker compose -f airflow/docker-compose-airflow-celery.yml up -d
 
 **Q3：LocalExecutor 和 CeleryExecutor 的關係，像你前面學過的哪兩章？**
 
-LocalExecutor 像第 6 章：單機、自己的行程做事。CeleryExecutor 像第 1 章：把工作丟進 broker、由一群 worker 分散消化。Airflow 只是把你學過的東西「換一層再用一次」——編排層的執行引擎本身就可以是 Celery。
+LocalExecutor 像第 9 章：單機、自己的行程做事。CeleryExecutor 像第 1 章：把工作丟進 broker、由一群 worker 分散消化。Airflow 只是把你學過的東西「換一層再用一次」——編排層的執行引擎本身就可以是 Celery。
 
 ---
 
@@ -266,7 +266,7 @@ LocalExecutor 像第 6 章：單機、自己的行程做事。CeleryExecutor 像
 
 **練習 3：對照 APScheduler 和 Airflow**
 
-把你第 6 章寫的 APScheduler 排程，和這章的 `stock_crawler_dag` 放在一起，列出三件「Airflow 做得到、APScheduler 做不到」的事。這個對照會讓你真正理解為什麼生產環境要用 Airflow。
+把你第 9 章寫的 APScheduler 排程，和這章的 `stock_crawler_dag` 放在一起，列出三件「Airflow 做得到、APScheduler 做不到」的事。這個對照會讓你真正理解為什麼生產環境要用 Airflow。
 
 ---
 
@@ -278,7 +278,7 @@ LocalExecutor 像第 6 章：單機、自己的行程做事。CeleryExecutor 像
 | producer_dag 發了但沒人做 | Celery worker 沒開 | `docker compose -f compose-advanced/docker-compose-worker-network.yml up -d` |
 | worker 連不上 rabbitmq | 不在同一個 my_network | 確認 rabbitmq / worker compose 都掛 my_network |
 | ETL 的 create_view 失敗 | MySQL host 不對 | Airflow 容器內要用 `MYSQL_HOST=mysql`（compose 已設）|
-| BigQuery DAG 跑不動 | 需要 GCP 憑證 | 接第 10 章的 GCP 設定，沒帳號先跳過 |
+| BigQuery DAG 跑不動 | 需要 GCP 憑證 | 接第 14 章的 GCP 設定，沒帳號先跳過 |
 
 ---
 
@@ -302,4 +302,4 @@ docker compose -f compose-advanced/mysql.yml down
 
 ## 下一章要做什麼
 
-每個部件都會了、也串起來了。**最後一章把全部服務用一個 compose 一鍵啟動，跑一次七步驟端到端驗證——看見整套系統的全貌。**
+每個部件都會了、也串起來了。**下一章把全部服務用一個 compose 一鍵啟動，跑一次七步驟端到端驗證——看見整套系統的全貌。**

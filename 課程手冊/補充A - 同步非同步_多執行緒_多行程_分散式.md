@@ -205,7 +205,7 @@ uv run python -m celery -A crawler.worker worker -l info -n w2@%h
 | **CPU 密集** | 大部分時間在算（運算、壓縮、模型）| 多行程 prefork，貼齊核心數 | GIL 讓執行緒沒用，要用多行程才能真的用滿多核 |
 | **量超大、單機不夠** | 不管哪種，就是量太大 | 分散式，加機器 / 加 worker | 突破單機極限，水平擴充 |
 
-**我們的爬蟲屬於哪種？** I/O 密集（一直在等 FinMind 回應）。所以最有效率的做法是 `--pool=gevent` 開高併發，或多開幾個 worker 分散式處理；**不需要**為了單機 CPU 拼命。這也解釋了第 6 章為什麼建議爬蟲用 gevent。
+**我們的爬蟲屬於哪種？** I/O 密集（一直在等 FinMind 回應）。所以最有效率的做法是 `--pool=gevent` 開高併發，或多開幾個 worker 分散式處理；**不需要**為了單機 CPU 拼命。這也解釋了第 9 章為什麼建議爬蟲用 gevent。
 
 ---
 
@@ -286,7 +286,7 @@ GIL 讓同一時間只有一條執行緒能跑 Python 程式碼。所以多執�
 
 ---
 
-# 附錄：第 1~7 章術語速查表
+# 附錄：術語速查表
 
 這裡把前面各章出現過的技術名詞集中整理，看不懂哪個詞就翻到這裡查。「詳見」欄標出哪一章有完整說明。
 
@@ -307,12 +307,12 @@ GIL 讓同一時間只有一條執行緒能跑 Python 程式碼。所以多執�
 | `.s()`（signature 簽章）| 把「任務 + 參數」綁成物件（還沒送出），方便再加 queue 等設定 | 第 3 章 |
 | AsyncResult | `.delay()` 回傳的物件，像一張「取件單」，可查狀態 / 取結果（需 result backend）| 第 1 章 |
 | concurrency 併發數 | 一個 worker 同時能跑幾個任務 | 第 1、6 章 |
-| pool 執行池 | worker 用哪種方式開併發：prefork / gevent / threads | 第 6 章、補充上半 |
+| pool 執行池 | worker 用哪種方式開併發：prefork / gevent / threads | 第 9 章、補充上半 |
 | prefork | 預設 pool，開多個子行程（多行程），適合 CPU 密集 | 第 1、6 章 |
-| gevent | 協程 pool，單行程開大量並發，適合 I/O 密集 | 第 6 章、補充上半 |
+| gevent | 協程 pool，單行程開大量並發，適合 I/O 密集 | 第 9 章、補充上半 |
 | `-Q` | 啟動 worker 時指定「只消費哪一條佇列」 | 第 3 章 |
 | `-n` / `--hostname` | 幫 worker 取名字，多 worker 時好辨識（`%h` 會換成主機名）| 第 1、3 章 |
-| ack（確認）| worker 處理完回報 broker、broker 才刪掉訊息；`acks_late` 的細節在第 7 章 | 第 3 → 7 章 |
+| ack（確認）| worker 處理完回報 broker、broker 才刪掉訊息；`acks_late` 的細節在第 4 章 | 第 3 → 7 章 |
 
 ## 訊息佇列 / RabbitMQ
 
@@ -328,19 +328,19 @@ GIL 讓同一時間只有一條執行緒能跑 Python 程式碼。所以多執�
 
 | 名詞 | 白話說明 | 詳見 |
 |------|---------|------|
-| MySQL | 本專案存股價的關聯式資料庫，在 :3306 | 第 4 章 |
-| mydb | 本專案使用的資料庫名稱 | 第 4 章 |
-| phpMyAdmin | MySQL 的網頁管理介面，:8080，帳密 root/1234 | 第 4 章 |
-| SQLAlchemy | Python 連資料庫、操作資料庫的工具庫 | 第 4 章 |
-| engine / `create_engine` | SQLAlchemy 的連線引擎，代表「怎麼連到這個資料庫」 | 第 4 章 |
-| `to_sql` | pandas 把整個 DataFrame 直接寫進資料表的方法 | 第 4 章 |
-| `if_exists="append"` | 表已存在就把資料附加上去（會一直疊加、造成重複）| 第 4 章 |
-| 主鍵 primary key | 唯一辨識一筆資料的欄位 | 第 5 章 |
-| 複合主鍵 composite key | 用多個欄位組合當主鍵，本專案用 `stock_id + date` | 第 5 章 |
-| upsert | update + insert：主鍵有就更新、沒有就新增 | 第 5 章 |
-| `on_duplicate_key_update` | MySQL 專用語法，主鍵重複時改成更新而非報錯，用來做 upsert | 第 5 章 |
-| 冪等 idempotent | 同一個操作做幾次，結果都一樣 | 第 5 章 |
-| transaction 交易 | 一組「要嘛全成功、要嘛全失敗」的資料庫操作；`engine.begin()` | 第 5 章 |
+| MySQL | 本專案存股價的關聯式資料庫，在 :3306 | 第 5 章 |
+| mydb | 本專案使用的資料庫名稱 | 第 5 章 |
+| phpMyAdmin | MySQL 的網頁管理介面，:8080，帳密 root/1234 | 第 5 章 |
+| SQLAlchemy | Python 連資料庫、操作資料庫的工具庫 | 第 5 章 |
+| engine / `create_engine` | SQLAlchemy 的連線引擎，代表「怎麼連到這個資料庫」 | 第 5 章 |
+| `to_sql` | pandas 把整個 DataFrame 直接寫進資料表的方法 | 第 5 章 |
+| `if_exists="append"` | 表已存在就把資料附加上去（會一直疊加、造成重複）| 第 5 章 |
+| 主鍵 primary key | 唯一辨識一筆資料的欄位 | 第 6 章 |
+| 複合主鍵 composite key | 用多個欄位組合當主鍵，本專案用 `stock_id + date` | 第 6 章 |
+| upsert | update + insert：主鍵有就更新、沒有就新增 | 第 6 章 |
+| `on_duplicate_key_update` | MySQL 專用語法，主鍵重複時改成更新而非報錯，用來做 upsert | 第 6 章 |
+| 冪等 idempotent | 同一個操作做幾次，結果都一樣 | 第 6 章 |
+| transaction 交易 | 一組「要嘛全成功、要嘛全失敗」的資料庫操作；`engine.begin()` | 第 6 章 |
 
 ## 爬蟲與資料格式
 
@@ -359,11 +359,11 @@ GIL 讓同一時間只有一條執行緒能跑 Python 程式碼。所以多執�
 
 | 名詞 | 白話說明 | 詳見 |
 |------|---------|------|
-| APScheduler | Python 的排程套件，定時觸發函式 | 第 6 章 |
-| BackgroundScheduler | 背景執行的排程器，需自己用 `while True` 保活 | 第 6 章 |
-| BlockingScheduler | 會卡住主執行緒的排程器，適合「專職跑排程」 | 第 6 章 |
-| cron / trigger | 用「秒 分 時 星期」格式定時的觸發方式 | 第 6 章 |
-| coalesce | 錯過排程時只補跑一次，避免一次爆發 | 第 6 章 |
+| APScheduler | Python 的排程套件，定時觸發函式 | 第 9 章 |
+| BackgroundScheduler | 背景執行的排程器，需自己用 `while True` 保活 | 第 9 章 |
+| BlockingScheduler | 會卡住主執行緒的排程器，適合「專職跑排程」 | 第 9 章 |
+| cron / trigger | 用「秒 分 時 星期」格式定時的觸發方式 | 第 9 章 |
+| coalesce | 錯過排程時只補跑一次，避免一次爆發 | 第 9 章 |
 
 ## 環境與工具
 
@@ -379,7 +379,7 @@ GIL 讓同一時間只有一條執行緒能跑 Python 程式碼。所以多執�
 | 名詞 | 白話說明 | 詳見 |
 |------|---------|------|
 | I/O 密集 | 任務大部分時間在「等」（網路、硬碟、DB）| 第 2、6 章、補充上半 |
-| CPU 密集 | 任務大部分時間在「算」 | 第 6 章、補充上半 |
+| CPU 密集 | 任務大部分時間在「算」 | 第 9 章、補充上半 |
 | 並發 concurrency / 並行 parallelism | 「看起來同時」／「真的同時」 | 補充上半 |
 | GIL | Python 的全域直譯器鎖，同時只有一條執行緒能跑 Python | 補充上半 |
 

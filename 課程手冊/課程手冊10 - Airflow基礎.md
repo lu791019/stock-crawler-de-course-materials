@@ -1,12 +1,12 @@
-# 第 11 章：Airflow 基礎 — 架起你的工作流編排引擎
+# 第 10 章：Airflow 基礎 — 架起你的工作流編排引擎
 
-> 接下來三章是全課程的壓軸。你會用工業級的工作流引擎 Airflow，把前面十章的每一段串成一張可管理、可觀察、可補跑的 DAG。這一章先把 Airflow 架起來、跑通第一個 DAG。
+> 接下來三章是全課程的壓軸。你會用工業級的工作流引擎 Airflow，把前面九章的每一段串成一張可管理、可觀察、可補跑的 DAG。這一章先把 Airflow 架起來、跑通第一個 DAG。
 
 ---
 
 ## 做完這一章，你會做到
 
-1. 講清楚一個常見誤解：**Airflow 取代的是第 6 章的 APScheduler，不是 Celery。**
+1. 講清楚一個常見誤解：**Airflow 取代的是第 9 章的 APScheduler，不是 Celery。**
 2. Build 出包含我們爬蟲程式的 Airflow Docker image。
 3. 啟動 Airflow（Postgres + init + webserver + scheduler），登入 Web UI。
 4. 用 CLI 和 UI 各觸發一次 DAG，看到執行結果和 log。
@@ -21,11 +21,11 @@
 - **Airflow = 總指揮 / 編排層**：決定「什麼時候跑、有哪些步驟、誰先誰後、失敗怎麼補跑」，還提供網頁 UI 看歷史。
 - **Celery = 執行層**：真正把分散式的活幹掉。
 
-證據就在專案裡：`stock_crawler_producer_dag` 這支 DAG，是在 Airflow 裡呼叫 Celery 的 `.delay()` 把任務發到 RabbitMQ——**Airflow 負責指揮、Celery 負責幹活**（第 13 章會實際跑）。
+證據就在專案裡：`stock_crawler_producer_dag` 這支 DAG，是在 Airflow 裡呼叫 Celery 的 `.delay()` 把任務發到 RabbitMQ——**Airflow 負責指揮、Celery 負責幹活**（第 12 章會實際跑）。
 
 用一句話定位三個角色：
 
-- 第 6 章 APScheduler = 陽春鬧鐘（只會定時觸發，沒有歷史、沒有依賴管理、沒有 UI）。
+- 第 9 章 APScheduler = 陽春鬧鐘（只會定時觸發，沒有歷史、沒有依賴管理、沒有 UI）。
 - Airflow = 專業總指揮（排程 + 依賴 + 重試 + 補跑 + UI）。
 - Celery 從頭到尾都是底層的執行引擎。
 
@@ -39,7 +39,7 @@
 |------|------|------|
 | `airflow/Dockerfile` | Image 定義 | Ubuntu + Airflow 2.10 + 我們的 crawler 程式 |
 | `airflow/docker-compose-airflow.yml` | 部署（LocalExecutor）| 輕量版，適合開發，這一章用它 |
-| `airflow/docker-compose-airflow-celery.yml` | 部署（CeleryExecutor）| 額外起 Redis + Celery Worker（第 13 章談）|
+| `airflow/docker-compose-airflow-celery.yml` | 部署（CeleryExecutor）| 額外起 Redis + Celery Worker（第 12 章談）|
 | `airflow/airflow.cfg` | 設定檔 | Airflow 核心設定 |
 | `airflow/dags/example_*.py` | 範例 DAG | 這一章與下一章的教材 |
 | `airflow/README.md` | 說明 | 啟動方式與 DAG 清單 |
@@ -214,7 +214,7 @@ with DAG(
 | `0 11,23 * * *` | 每天 11:00 和 23:00 |
 | `None` | 不自動跑，只能手動觸發 |
 
-> 跟第 6 章 APScheduler 的 `CronTrigger` 是同一套 cron 語法——你已經會了。
+> 跟第 9 章 APScheduler 的 `CronTrigger` 是同一套 cron 語法——你已經會了。
 
 ---
 
@@ -274,9 +274,9 @@ start_task >> [task1, task2, ..., task10] >> end_task
 
 **Q1：Airflow 取代的是我們前面哪一章的東西？它跟 Celery 是競爭還是分工？**
 
-取代的是第 6 章的 APScheduler（排程 / 觸發那一層）。它跟 Celery 是**分工**不是競爭：Airflow 負責「何時做、依賴順序、失敗補跑、監控」，Celery 負責「實際分散式執行」。專案的 `stock_crawler_producer_dag` 就是 Airflow 呼叫 Celery `.delay()` 的實例（第 13 章會跑）。
+取代的是第 9 章的 APScheduler（排程 / 觸發那一層）。它跟 Celery 是**分工**不是競爭：Airflow 負責「何時做、依賴順序、失敗補跑、監控」，Celery 負責「實際分散式執行」。專案的 `stock_crawler_producer_dag` 就是 Airflow 呼叫 Celery `.delay()` 的實例（第 12 章會跑）。
 
-**Q2：第 6 章的 APScheduler 有哪些做不到、而 Airflow 做得到的事？**
+**Q2：第 9 章的 APScheduler 有哪些做不到、而 Airflow 做得到的事？**
 
 APScheduler 只會「時間到就跑一個函式」，看不到執行歷史、不能管理 task 之間的依賴、失敗不好單獨補跑、也沒有 UI。Airflow 這些全都有：依賴圖、每次執行的紀錄與 log、只重跑失敗的 task、網頁監控。所以從「玩具排程」升級成「生產級編排」。
 
