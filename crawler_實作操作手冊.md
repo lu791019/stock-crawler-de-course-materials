@@ -221,7 +221,12 @@ uv run crawler/producer_multi_queue.py
 
 ### Step 6：驗證
 
-同第二部分 Step 4。
+同第二部分 Step 4，但注意：分開版的 compose 沒有寫死 `container_name`，MySQL 容器名是 `compose-advanced-mysql-1` 而不是 `mysql`，所以 DB 驗證改用 `docker compose exec`（用 service 名，不受容器名影響）：
+
+```bash
+docker compose -f compose-advanced/mysql.yml exec mysql \
+  mysql -uroot -p1234 mydb -e "SHOW TABLES; SELECT stock_id, COUNT(*) FROM TaiwanStockPrice GROUP BY stock_id;"
+```
 
 ### Step 7：停止所有服務
 
