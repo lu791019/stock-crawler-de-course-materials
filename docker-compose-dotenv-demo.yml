@@ -13,7 +13,8 @@
 # 兩種機制別搞混：
 #   ①「--env-file / 同目錄的 .env」→ 給 compose 做 yml 裡 ${} 的替換（解析時）
 #   ②  服務底下的「env_file:」     → 把整份檔案的變數注入「容器內」給程式讀（執行時）
-#   本檔示範的是 ①；② 的例子是 worker 裡 config.py 讀 os.environ（見手冊04 熱身）
+#   本檔兩種都有示範：①＝上面四個服務的帳密/port；②＝最下面的 env-reader-demo
+#   看機制②的結果：docker logs env-reader-demo
 #
 # 三個必踩的坑：
 #   1. MySQL 密碼只在資料卷「第一次初始化」時寫入——之後改 .env 不生效，要 down -v 重建
@@ -67,6 +68,22 @@ services:
       # phpMyAdmin 不持有帳密——登入畫面輸入 root / 你在 .env 設的 MYSQL_ROOT_PASSWORD
     depends_on:
       - mysql-demo
+
+  # ── 機制②示範：env_file 把變數注入「容器內」，給容器裡的程式用 os.environ 讀 ──
+  # 跟上面的 ${} 是兩回事：${} 是 compose「解析 yml 時」替換文字；
+  # env_file 是「容器啟動時」把整份檔案塞進容器環境——程式碼裡才看得到。
+  # 同一份 .env.dotenv-demo，兩種機制各用一次，對照最清楚。
+  env-reader-demo:
+    image: python:3.12-alpine
+    container_name: env-reader-demo
+    env_file: .env.dotenv-demo          # ← 整份檔案的變數全部進到容器環境
+    command: >
+      python -c "import os;
+      print('=== 機制②：容器內用 os.environ 讀到的變數 ===');
+      [print(' ', k, '=', os.environ.get(k)) for k in
+       ('RABBITMQ_USER','RABBITMQ_PASS','MYSQL_ROOT_PASSWORD','MYSQL_DATABASE')]"
+    # 一次性容器：印完就退出（Exited(0) 是正常的），結果用 docker logs env-reader-demo 看
+    # 這正是 worker 裡 config.py 的 os.environ.get(key, default) 吃到值的同一條路
 
 volumes:
   mysql_demo:
