@@ -14,48 +14,6 @@
 
 ---
 
-## 熱身：親手驗證環境變數覆蓋（5 分鐘）
-
-第 1 章讀過 `config.py` 的 `os.environ.get(key, default)`，這裡花 5 分鐘親手驗證它，順便把「本機 vs Docker」的環境切換觀念釘死——這觀念跟這一章的「掛掉重連」一樣，都是部署時的基本功。
-
-**實驗 1：不設環境變數（用預設值）**
-
-```bash
-uv run python -c "from crawler.config import RABBITMQ_HOST; print('RABBITMQ_HOST =', RABBITMQ_HOST)"
-```
-
-✅ **預期**：`RABBITMQ_HOST = 127.0.0.1`（預設值）
-
-**實驗 2：設環境變數覆蓋**
-
-```bash
-RABBITMQ_HOST=rabbitmq uv run python -c "from crawler.config import RABBITMQ_HOST; print('RABBITMQ_HOST =', RABBITMQ_HOST)"
-```
-
-✅ **預期**：`RABBITMQ_HOST = rabbitmq`（被覆蓋了，程式碼一行沒改）
-
-**實驗 3：看 worker 啟動時印出的設定**
-
-```bash
-uv run python -c "import crawler.worker"
-```
-
-✅ **預期**：loguru 印出當前的 `RABBITMQ_HOST / RABBITMQ_PORT / WORKER_ACCOUNT / WORKER_PASSWORD`。之後你懷疑「環境變數到底有沒有吃到」，看這幾行就知道。
-
-**這就是本機和 Docker 能共用一份程式的原因**——看 `docker-compose-local.yml` 裡 worker 服務的設定：
-
-```yaml
-worker_twse:
-  environment:
-    - RABBITMQ_HOST=rabbitmq    # 覆蓋預設 127.0.0.1
-    - MYSQL_HOST=mysql          # 覆蓋預設 127.0.0.1
-```
-
-| | 本機執行 | Docker 容器內 |
-|---|---|---|
-| `RABBITMQ_HOST` | `127.0.0.1`（預設值） | `rabbitmq`（compose 覆蓋）|
-| `MYSQL_HOST` | `127.0.0.1`（預設值） | `mysql`（compose 覆蓋）|
-| 為什麼不同 | 服務 port 有映射到本機 | 容器之間用**服務名稱**當主機名互連 |
 
 ---
 
