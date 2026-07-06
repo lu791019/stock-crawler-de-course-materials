@@ -159,6 +159,17 @@ Producer ──.delay()──▶ ［RabbitMQ 佇列］
                           標記 FAILURE → ack → 訊息消失
 ```
 
+**每一步去哪看**（🖥️ = worker 終端機、🐰 = RabbitMQ UI、🌸 = Flower）：
+
+| 圖中步驟 | 去哪看 | 你會看到 |
+|---------|--------|---------|
+| worker 取出訊息 | 🖥️ | `Task task_might_fail[...] received` |
+| 執行 → 失敗 | 🖥️ | `❌ 2330 失敗！5 秒後重試（剩餘 3 次）` |
+| retry 發新任務回佇列 | 🖥️ + 🐰 | 🖥️ `Retry in 5s`；🐰 這 5 秒訊息掛在 **Unacked**（worker 先收下、時間到才執行）|
+| 5 秒後重試 | 🖥️ | `開始處理 2330...（第 2 次嘗試）` |
+| 成功 ack | 🖥️ + 🌸 | 🖥️ `✅ 處理成功` / `succeeded`；🌸 Tasks 頁狀態 SUCCESS（重試過會先看到 RETRY）|
+| 訊息消失 | 🐰 | Ready 0 / Unacked 0 |
+
 **實際跑起來 worker log 長這樣**（VM 實測）：
 
 ```
@@ -206,6 +217,16 @@ Producer ──.delay()──▶ ［RabbitMQ 佇列］Ready = 1 ◀────�
 
               唯一出口：你 Ctrl+C 停掉 worker → 訊息仍留在 Ready（從沒被 ack 過）
 ```
+
+**每一步去哪看**：
+
+| 圖中步驟 | 去哪看 | 你會看到 |
+|---------|--------|---------|
+| 發任務（先不開 worker）| 🐰 | Ready = 1，訊息在等 |
+| worker 取出 | 🖥️ | `received`——注意 **task id 每次都同一個** |
+| 失敗 + 放回 | 🖥️ | `❌ 處理失敗！`＋`reject requeue=True`，毫秒級洗版 |
+| 循環中的佇列 | 🐰 | Ready ↔ Unacked 在 0/1 之間狂跳（重新整理頁面看）|
+| Ctrl+C 停掉 worker | 🐰 | 訊息**仍在 Ready = 1**——它從沒被 ack 過 |
 
 **實際 log（VM 實測），注意兩件事**：
 
@@ -256,6 +277,14 @@ Producer ──.delay()──▶ ［RabbitMQ 佇列］Ready = 1
               Ready 歸 0 ─ 不重試、不放回、就此消失
 ```
 
+**每一步去哪看**：
+
+| 圖中步驟 | 去哪看 | 你會看到 |
+|---------|--------|---------|
+| 發任務 | 🐰 | Ready = 1 |
+| worker 取出執行 | 🖥️ | `開始處理 REJECT_TEST...`＋`❌ 訊息丟棄（不放回 queue）` |
+| 丟棄之後 | 🐰 | Ready **歸 0**——跟情境 2 對比：這次不會再回來 |
+
 ### 情境 4：`task_slow` — 做到一半殺掉 worker
 
 ```python
@@ -300,6 +329,17 @@ Producer ──.delay()──▶ ［RabbitMQ 佇列］Ready = 1
               從「進度 1/30」從頭跑 ──▶ 30/30 ──▶ ack → 訊息消失 ✅
                              （做了兩次 → 這就是第 6 章要教冪等的原因）
 ```
+
+**每一步去哪看**：
+
+| 圖中步驟 | 去哪看 | 你會看到 |
+|---------|--------|---------|
+| 發任務 | 🐰 | Ready = 1 |
+| worker 執行中 | 🖥️ + 🐰 | 🖥️ `進度 1/30、2/30…`；🐰 Ready 0 / **Unacked 1**（借走了、還沒確認）|
+| 按 Ctrl+C | 🖥️ | `worker: Warm shutdown (MainProcess)`；沒退出就再按一次 |
+| worker 死後 | 🐰 | 訊息**回到 Ready = 1**——任務沒有遺失 |
+| 重開 worker | 🖥️ | `進度 1/30` **從頭跑** → `30/30` → `succeeded in 30.2s` |
+| 完成之後 | 🐰 | Ready 0 / Unacked 0——這才真正消失 |
 
 ### retry vs requeue 對照（背下這張表）
 
