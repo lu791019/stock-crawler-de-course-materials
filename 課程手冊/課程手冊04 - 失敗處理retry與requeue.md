@@ -77,7 +77,7 @@ Worker 從 RabbitMQ 拿到一則訊息、成功處理後，要回報一個 **ack
 | `crawler/worker_demo.py` | 獨立的 app | `task_demo`，全域開啟 `acks_late` 與 `task_reject_on_worker_lost` |
 | `crawler/tasks_demo_fail.py` | 任務定義 | 四個模擬失敗的任務 |
 | `crawler/producer_demo_fail.py` | 生產者 | 發送 demo 任務 |
-| `crawler/DEMO_FAIL_README.md` | 官方說明 | 情境說明與對照表 |
+| `crawler/DEMO_FAIL_README.md` | 索引 | 內容已完整整合進本章，該檔只留指標 |
 
 `worker_demo.py` 的關鍵設定：
 
@@ -108,6 +108,25 @@ def task_might_fail(self, stock_id):
 - `max_retries=3, default_retry_delay=5`：最多重試 3 次，每次間隔 5 秒。
 - **`self.retry()` 的本質**：它**發一則新任務**回佇列去重試，有次數上限，超過就標記為 FAILURE 並 ack（訊息消失）。
 
+**訊息流程**：
+
+```
+Producer 發任務 → RabbitMQ → Worker 拿出來
+  → 成功 → ack → 訊息消失 ✅
+  → 失敗（50%）→ self.retry() → 發「新任務」回佇列 → 5 秒後再試
+  → 連續失敗滿 3 次 → 標記 FAILURE → ack → 訊息消失
+```
+
+**實際跑起來 worker log 長這樣**（VM 實測）：
+
+```
+開始處理 2330...（第 1 次嘗試）
+❌ 2330 失敗！5 秒後重試（剩餘 3 次）
+Task crawler.tasks_demo_fail.task_might_fail[f5923bcb-…] retry: Retry in 5s: Exception('2330 模擬錯誤')
+（5 秒後）開始處理 2330...（第 2 次嘗試）
+✅ 2330 處理成功！
+```
+
 ### 情境 2：`task_requeue` — 訊息放回佇列（重點）
 
 ```python
@@ -121,13 +140,48 @@ def task_requeue(self, stock_id):
 - **它沒有次數限制** → worker 又拿出來、又失敗、又放回……**無限循環**，訊息永遠不消失，直到你停掉 worker。
 - 這是 RabbitMQ 管理介面上最好看的示範：Ready ↔ Unacked 一直跳。
 
+**訊息流程**：
+
+```
+Producer 發任務 → RabbitMQ → Worker 拿出來
+  → 失敗 → Reject(requeue=True) → 「原訊息」放回佇列
+  → Worker 又拿出來 → 又失敗 → 又放回 → ♻️ 無限循環
+  → 訊息永遠不消失，直到你停掉 worker
+```
+
+**實際 log（VM 實測），注意兩件事**：
+
+```
+Task task_requeue[9e1344bc-…] received
+❌ REQUEUE_TEST 處理失敗！訊息放回 queue
+Task task_requeue[9e1344bc-…] reject requeue=True
+Task task_requeue[9e1344bc-…] received        ← 同一個 task id 又來了！
+❌ REQUEUE_TEST 處理失敗！訊息放回 queue
+Task task_requeue[9e1344bc-…] reject requeue=True
+...（毫秒級速度無限洗版）
+```
+
+1. **task id（UUID）從頭到尾都一樣**——證明是「同一則訊息」被放回再拿出；對照情境 1 的 retry，每次重試 log 是同一個 id 但那是「新發的任務」帶著原 id 重排程，且有次數上限。
+2. **循環快到毫秒級**——中間沒有任何延遲，worker 被它完全佔住、什麼別的事都做不了。這就是毒訊息可怕的地方。
+
 ### 情境 3：`task_reject_no_requeue` — 訊息丟棄
 
 ```python
-raise Reject(reason="處理失敗", requeue=False)        # 直接丟棄，不放回
+@app.task(bind=True, acks_late=True)
+def task_reject_no_requeue(self, stock_id):
+    print(f"開始處理 {stock_id}...")
+    print(f"❌ {stock_id} 處理失敗！訊息丟棄（不放回 queue）")
+    raise Reject(reason=f"{stock_id} 處理失敗", requeue=False)   # 直接丟棄，不放回
 ```
 
 失敗就把訊息扔掉，效果等同 `acks_late=False` 失敗時的行為——訊息直接消失。
+
+**訊息流程**：
+
+```
+Producer 發任務 → RabbitMQ → Worker 拿出來
+  → 失敗 → Reject(requeue=False) → 訊息直接丟棄 🗑️ → Ready 歸 0
+```
 
 ### 情境 4：`task_slow` — 做到一半殺掉 worker
 
@@ -142,6 +196,15 @@ def task_slow(stock_id, seconds=30):
 
 - 這任務要跑 30 秒；你在第 10 秒 `Ctrl+C` 殺掉 worker。
 - 因為 `acks_late=True`、還沒 ack，**訊息回到佇列**；你重開 worker，任務會**從頭再跑一次**。
+
+**訊息流程**：
+
+```
+Producer 發任務 → RabbitMQ → Worker 拿出來（Unacked = 1）
+  → 跑到進度 10/30 → 你 Ctrl+C 殺掉 worker
+  → 還沒 ack → 訊息回到佇列（Ready = 1）
+  → 重開 worker → 從進度 1/30 從頭跑 → 30/30 → ack → 訊息消失
+```
 
 ### retry vs requeue 對照（背下這張表）
 
@@ -200,32 +263,57 @@ uv run python -m celery -A crawler.worker_demo worker --loglevel=info --concurre
 
 ### Step 6：測情境 3 — 訊息丟棄
 
-編輯 `crawler/producer_demo_fail.py`，取消情境 3 的註解：
+**先做兩件清場動作**（不做的話 Ready 永遠不會歸 0，看不到本情境的重點）：
+
+1. **清掉還躺在佇列裡的 REQUEUE_TEST**：RabbitMQ UI → Queues → `celery` → 頁面最下方 **Purge Messages**。
+2. **把 producer 裡情境 1、2 那幾行註解掉**——不然重發時 REQUEUE_TEST 又會進佇列、又開始無限循環。
+
+然後編輯 `crawler/producer_demo_fail.py`，取消情境 3 的註解：
 
 ```python
-task_reject_no_requeue.delay(stock_id="REJECT_TEST")
+# task_might_fail.delay(stock_id="2330")            # ← 註解掉
+# task_requeue.delay(stock_id="REQUEUE_TEST")       # ← 註解掉
+task_reject_no_requeue.delay(stock_id="REJECT_TEST")  # ← 打開
 ```
 
-重新發送、開 worker。
+重新發送（`uv run crawler/producer_demo_fail.py`）、開 worker。
 
-✅ **預期**：worker 印出「訊息丟棄」，然後 RabbitMQ 的 Ready **歸 0**——訊息真的消失了，不像情境 2 那樣循環。這就是 `requeue=False` 和 `requeue=True` 的差別。
+✅ **預期**（VM 實測）：worker 印出：
+
+```
+開始處理 REJECT_TEST...
+❌ REJECT_TEST 處理失敗！訊息丟棄（不放回 queue）
+```
+
+然後 RabbitMQ 的 Ready **歸 0**——訊息真的消失了，不像情境 2 那樣循環。這就是 `requeue=False` 和 `requeue=True` 的差別。
 
 ### Step 7：測情境 4 — 中途殺 worker，驗證 acks_late
 
-取消 `producer_demo_fail.py` 情境 4 的註解：
+跟 Step 6 一樣先清場：情境 1、2、3 全部註解掉，只打開情境 4：
 
 ```python
 task_slow.delay(stock_id="SLOW_TEST", seconds=30)
 ```
 
-操作順序：
+操作順序（每步都附 VM 實測結果）：
 
 1. 發任務 → 開 worker，看到 `進度 1/30、2/30...`
+   - 此時 RabbitMQ UI：**Ready 0 / Unacked 1**——訊息「借給」worker 處理中、還沒確認
 2. 大約第 10 秒按 `Ctrl+C` 殺掉 worker
-3. 回 RabbitMQ UI → ✅ SLOW_TEST 的訊息**回到 Ready**
-4. 重開 worker → ✅ 任務**從頭**再跑（進度從 1/30 重來）
+   - 你會先看到 `worker: Warm shutdown (MainProcess)`——第一次 Ctrl+C 是「溫和關機」；若 worker 遲遲不退出，**再按一次 Ctrl+C** 強制冷關機
+3. 等 worker 退出後回 RabbitMQ UI → ✅ SLOW_TEST 的訊息**回到 Ready**（Ready 1 / Unacked 0）
+4. 重開 worker → ✅ 任務**從頭**再跑。實測 log：
 
-> **關鍵**：`acks_late=True` 代表「做完才確認」。worker 中途掛掉 → 沒 ack → 訊息不遺失、重新排隊。這是保證任務不丟的核心設定。
+```
+  SLOW_TEST 進度 1/30      ← 從頭開始，不是接著 10/30 跑
+  ...
+  SLOW_TEST 進度 30/30
+Task crawler.tasks_demo_fail.task_slow[2bf4dfa2-…] succeeded in 30.2s: 'SLOW_TEST done'
+```
+
+跑完後 Ready 0 / Unacked 0——訊息這才真正消失。
+
+> **關鍵**：`acks_late=True` 代表「做完才確認」。worker 中途掛掉 → 沒 ack → 訊息不遺失、重新排隊。這是保證任務不丟的核心設定。也請注意「從頭再跑」——同一件事可能被做兩次，這就是第 6 章要教冪等的原因。
 
 ---
 
@@ -304,6 +392,8 @@ docker compose -f docker-compose-local.yml down     # 保留資料
 | worker 一直被 REQUEUE_TEST 佔住 | 這是情境 2 的預期行為 | 看夠了就 `Ctrl+C`；正式環境要設重試上限 / DLQ |
 | 指向錯的 app | 用了 `-A crawler.worker` | 這章要 `-A crawler.worker_demo` |
 | 情境 3/4 沒反應 | producer 裡的註解沒打開 | 編輯 `producer_demo_fail.py` 取消對應註解再發 |
+| Step 6 的 Ready 一直不歸 0 | 情境 1、2 沒註解掉，REQUEUE_TEST 又進了佇列 | 註解掉情境 1、2，UI 上 Purge 佇列後重發 |
+| 按 Ctrl+C worker 沒馬上停 | 第一次 Ctrl+C 是 warm shutdown（先收工再退）| 再按一次 Ctrl+C 冷關機；訊息一樣會回到 Ready |
 
 ---
 
