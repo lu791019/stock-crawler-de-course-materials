@@ -7,7 +7,7 @@ import random
 def task_might_fail(self, stock_id):
     """情境 1：失敗自動重試 3 次，最終成功或放棄"""
     print(f"開始處理 {stock_id}...（第 {self.request.retries + 1} 次嘗試）")
-    if random.random() < 0.5:
+    if random.random() < 0.5:  # 失敗開關：擲硬幣，50% 機率走失敗分支（跟 stock_id 無關）
         print(f"❌ {stock_id} 失敗！5 秒後重試（剩餘 {self.max_retries - self.request.retries} 次）")
         raise self.retry(exc=Exception(f"{stock_id} 模擬錯誤"))
     print(f"✅ {stock_id} 處理成功！")
@@ -21,6 +21,7 @@ def task_requeue(self, stock_id):
     去 RabbitMQ UI 看 Unacked → Ready 的變化"""
     print(f"開始處理 {stock_id}...")
     print(f"❌ {stock_id} 處理失敗！訊息放回 queue")
+    # 沒有任何 if——無條件拋 Reject，100% 必定失敗（毒訊息的設計）
     raise Reject(reason=f"{stock_id} 處理失敗", requeue=True)
 
 
@@ -30,6 +31,7 @@ def task_reject_no_requeue(self, stock_id):
     訊息直接消失，跟 acks_late=False 的效果一樣"""
     print(f"開始處理 {stock_id}...")
     print(f"❌ {stock_id} 處理失敗！訊息丟棄（不放回 queue）")
+    # 跟情境 2 一樣無條件失敗，差別只在 requeue=False：直接丟棄、不循環
     raise Reject(reason=f"{stock_id} 處理失敗", requeue=False)
 
 
@@ -39,6 +41,7 @@ def task_slow(stock_id, seconds=30):
     因為 acks_late=True，Worker 被殺時任務還沒 ack，訊息會回到 queue"""
     import time
     print(f"開始處理 {stock_id}，需要 {seconds} 秒...")
+    # 這個任務本身不會失敗——失敗從外部注入：由你在執行中殺掉 worker
     for i in range(seconds):
         time.sleep(1)
         print(f"  {stock_id} 進度 {i+1}/{seconds}")

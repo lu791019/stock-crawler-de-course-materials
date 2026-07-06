@@ -112,16 +112,35 @@ app.conf.task_reject_on_worker_lost = True     # worker 掛掉時，任務重新
 > 👀 **這些在哪裡看得到？** 圖裡「任務執行」的部分（執行、失敗、retry、reject、succeeded、進度）全部會印在 **worker 的終端機**；「訊息在佇列的狀態」（Ready / Unacked 的變化、訊息被放回）只在 **RabbitMQ UI**（http://localhost:15672 → Queues → celery）看得到。所以做這章的實驗，**開兩個視窗並排**：左邊 worker log、右邊 RabbitMQ UI，一動一靜對著看。
 
 
+### 先搞懂：失敗是怎麼「設計」出來的
+
+這四個任務都**不是真的爬蟲**——完全沒有呼叫 FinMind。失敗全是刻意注入的，這樣它才**可控、可重現**：真實 API 的失敗看緣分，教學實驗的失敗要一按就有。四種注入方式剛好對應真實世界的四種災難：
+
+| 情境 | 失敗怎麼注入 | 程式碼開關 | 模擬真實世界的什麼 |
+|---|---|---|---|
+| 1 `task_might_fail` | **擲硬幣**：50% 機率故意拋例外 | `if random.random() < 0.5:` | 時好時壞的暫時性故障——API timeout、HTTP 429 限流，「再試一次就好」的那種 |
+| 2 `task_requeue` | **無條件失敗**：一進來就拋，沒有任何 if | `raise Reject(requeue=True)` | 永遠處理不了的訊息——資料格式壞掉、怎麼 parse 都爆的「毒訊息」 |
+| 3 `task_reject_no_requeue` | **無條件失敗**，但策略改為丟棄 | `raise Reject(requeue=False)` | 同上，但選擇「認賠丟掉」而不是無限重來 |
+| 4 `task_slow` | **程式本身不會失敗**——失敗從外部來：**你**動手殺 worker | 沒有失敗程式碼，只有 `time.sleep` | 機器層級的災難——容器被 OOM 殺掉、主機斷電、部署時被重啟 |
+
+**那 `2330` 是什麼？** 只是個標籤，跟失敗與否完全無關——`stock_id` 在四個任務裡都只拿來 print，沒有任何邏輯判斷它。情境 1 沿用台積電代號是為了連貫感（「就是平常那個爬蟲任務，只是會隨機失敗」）；情境 2/3/4 用 `REQUEUE_TEST`、`REJECT_TEST`、`SLOW_TEST`，名字本身就說明用途，在 log 和 RabbitMQ UI 裡一眼認出。就算把 `2330` 改成 `HELLO`，行為一模一樣——**失敗的開關在 `random.random()`，不在股票代號**。
+
+**四個情境其實在教「失敗的三個層次」**：
+
+1. **任務內、暫時性**（情境 1）→ 解法是 retry，等一下再試就好
+2. **任務內、永久性**（情境 2、3）→ retry 沒用，要做決策：放回（會無限循環）還是丟棄（正式系統用 DLQ 冷處理）
+3. **任務外、行程死亡**（情境 4）→ 程式碼寫得再完美也擋不住，只能靠 `acks_late` 這種**協定層**的保險
+
 ### 情境 1：`task_might_fail` — 失敗自動重試
 
 ```python
 @app.task(bind=True, acks_late=True, max_retries=3, default_retry_delay=5)
 def task_might_fail(self, stock_id):
     print(f"開始處理 {stock_id}...（第 {self.request.retries + 1} 次嘗試）")
-    if random.random() < 0.5:                        # 50% 機率失敗
-        print(f"❌ {stock_id} 失敗！5 秒後重試")
-        raise self.retry(exc=Exception(f"{stock_id} 模擬錯誤"))
-    print(f"✅ {stock_id} 處理成功！")
+    if random.random() < 0.5:        # ← 失敗開關在這裡：擲硬幣，50% 機率走進失敗分支（跟 stock_id 無關）
+        print(f"❌ {stock_id} 失敗！5 秒後重試（剩餘 {self.max_retries - self.request.retries} 次）")
+        raise self.retry(exc=Exception(f"{stock_id} 模擬錯誤"))   # ← 拋 Retry：發「新任務」回佇列，5 秒後再試
+    print(f"✅ {stock_id} 處理成功！")   # ← 另外 50% 什麼都沒發生：正常成功 → ack → 訊息消失
     return f"{stock_id} done"
 ```
 
@@ -185,8 +204,11 @@ Task crawler.tasks_demo_fail.task_might_fail[f5923bcb-…] retry: Retry in 5s: E
 ```python
 @app.task(bind=True, acks_late=True)
 def task_requeue(self, stock_id):
+    print(f"開始處理 {stock_id}...")
     print(f"❌ {stock_id} 處理失敗！訊息放回 queue")
-    raise Reject(reason="處理失敗", requeue=True)     # 原訊息放回 queue
+    raise Reject(reason=f"{stock_id} 處理失敗", requeue=True)
+    # ↑ 注意：上面「沒有任何 if」——無條件拋 Reject，100% 必定失敗（這就是毒訊息的設計）
+    #   requeue=True ＝ 把「原訊息」放回佇列 → 下一秒又被拿出來 → 又失敗 → 無限循環
 ```
 
 - `Reject(requeue=True)` 把**原本那則訊息**丟回佇列。
@@ -250,7 +272,9 @@ Task task_requeue[9e1344bc-…] reject requeue=True
 def task_reject_no_requeue(self, stock_id):
     print(f"開始處理 {stock_id}...")
     print(f"❌ {stock_id} 處理失敗！訊息丟棄（不放回 queue）")
-    raise Reject(reason=f"{stock_id} 處理失敗", requeue=False)   # 直接丟棄，不放回
+    raise Reject(reason=f"{stock_id} 處理失敗", requeue=False)
+    # ↑ 跟情境 2 一樣是「無條件必定失敗」——唯一差別是 requeue=False：
+    #   訊息直接丟棄、不放回，所以不會循環，Ready 直接歸 0
 ```
 
 失敗就把訊息扔掉，效果等同 `acks_late=False` 失敗時的行為——訊息直接消失。
@@ -290,9 +314,11 @@ Producer ──.delay()──▶ ［RabbitMQ 佇列］Ready = 1
 ```python
 @app.task(acks_late=True)
 def task_slow(stock_id, seconds=30):
-    for i in range(seconds):
-        time.sleep(1)
+    print(f"開始處理 {stock_id}，需要 {seconds} 秒...")
+    for i in range(seconds):           # ← 這個任務「不會失敗」：只是慢慢跑 30 秒
+        time.sleep(1)                  #    失敗是從「外部」注入的——由你在第 10 秒動手殺 worker
         print(f"  {stock_id} 進度 {i+1}/{seconds}")
+    print(f"✅ {stock_id} 處理完成！")   # ← 只有「沒被殺」才會走到這行，然後才 ack
     return f"{stock_id} done"
 ```
 
