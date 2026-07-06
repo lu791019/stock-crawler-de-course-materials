@@ -457,6 +457,7 @@ FROM ubuntu:22.04               ← 從乾淨的 Ubuntu 開始
 | --- | --- |
 | `docker-compose-local.yml` | **推薦**。本地 build，一個檔案包含基礎服務 + worker + producer |
 | `docker-compose-all.yml` | 全服務版：再加上 Airflow 四件套 + Metabase，共 11 容器（課程手冊 13）|
+| `docker-compose-dotenv-demo.yml` | 教學範例：帳密/port 全用 ${} 從 .env 帶入（搭配 `.env.dotenv-demo.example`；port 與主課程錯開，可同時共存）|
 
 ### compose-advanced/（拆開版）
 

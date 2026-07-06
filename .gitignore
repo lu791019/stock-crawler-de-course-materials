@@ -3,6 +3,7 @@
 *.pytest_cache/
 *.vscode
 .env
+.env.dotenv-demo
 *.pyc
 *.egg-info
 .cache

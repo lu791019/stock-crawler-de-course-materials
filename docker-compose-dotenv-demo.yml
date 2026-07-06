@@ -1,0 +1,72 @@
+# ══════════════════════════════════════════════════════════════════════
+# .env 帶入帳密示範（獨立教學範例，與主課程的 compose 完全無關、可同時共存）
+#
+# 這份檔案示範：所有帳密、port 都不寫死在 yml，改用 ${變數:-預設值} 從 .env 帶入。
+#
+# 使用方式：
+#   1. cp .env.dotenv-demo.example .env.dotenv-demo        # 複製範本（.env* 已在 .gitignore）
+#   2. docker compose --env-file .env.dotenv-demo -f docker-compose-dotenv-demo.yml config
+#      ↑ 先看「替換後」的結果——確認變數真的代進去了（除錯神器）
+#   3. docker compose --env-file .env.dotenv-demo -f docker-compose-dotenv-demo.yml up -d
+#   4. 收工：docker compose --env-file .env.dotenv-demo -f docker-compose-dotenv-demo.yml down -v
+#
+# 兩種機制別搞混：
+#   ①「--env-file / 同目錄的 .env」→ 給 compose 做 yml 裡 ${} 的替換（解析時）
+#   ②  服務底下的「env_file:」     → 把整份檔案的變數注入「容器內」給程式讀（執行時）
+#   本檔示範的是 ①；② 的例子是 worker 裡 config.py 讀 os.environ（見手冊04 熱身）
+#
+# 三個必踩的坑：
+#   1. MySQL 密碼只在資料卷「第一次初始化」時寫入——之後改 .env 不生效，要 down -v 重建
+#   2. .env 絕對不能進 git（本 repo 的 .gitignore 已擋）；repo 只放 *.example 範本
+#   3. 優先順序：shell 環境變數 > .env 檔 > ${:-預設值}
+#
+# port 全部與主課程錯開（15673/5673/5556/3307/8081），兩套可以同時跑
+# ══════════════════════════════════════════════════════════════════════
+
+services:
+  rabbitmq-demo:
+    image: rabbitmq:3.13-management-alpine
+    container_name: rabbitmq-demo
+    ports:
+      - "${RABBITMQ_PORT:-5673}:5672"        # port 也能參數化
+      - "${RABBITMQ_UI_PORT:-15673}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-worker}   # ← 帳密從 .env 帶入
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-worker}
+
+  flower-demo:
+    image: mher/flower:latest
+    container_name: flower-demo
+    ports:
+      - "${FLOWER_PORT:-5556}:5555"
+    depends_on:
+      - rabbitmq-demo
+    # ⚠️ 最容易漏的地方：帳密藏在 command 的連線字串裡——這裡也要用 ${} 帶
+    command: ["celery", "--broker=amqp://${RABBITMQ_USER:-worker}:${RABBITMQ_PASS:-worker}@rabbitmq-demo:5672//", "flower", "--port=5555"]
+
+  mysql-demo:
+    image: mysql:8.0
+    container_name: mysql-demo
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mydb}
+      # 帳號固定是 root（MySQL image 內建、不可改名），所以只有密碼變數
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-1234}
+    volumes:
+      - mysql_demo:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+
+  phpmyadmin-demo:
+    image: phpmyadmin:latest
+    container_name: phpmyadmin-demo
+    ports:
+      - "${PHPMYADMIN_PORT:-8081}:80"
+    environment:
+      PMA_HOST: mysql-demo
+      # phpMyAdmin 不持有帳密——登入畫面輸入 root / 你在 .env 設的 MYSQL_ROOT_PASSWORD
+    depends_on:
+      - mysql-demo
+
+volumes:
+  mysql_demo:
