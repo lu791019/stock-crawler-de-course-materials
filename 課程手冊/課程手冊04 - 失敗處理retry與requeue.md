@@ -91,6 +91,27 @@ app.conf.task_reject_on_worker_lost = True     # worker 掛掉時，任務重新
 
 ## 四個情境，一行一行讀懂
 
+先看全景——worker 拿到一則訊息之後，它有四種命運：
+
+```
+                    worker 從佇列拿到訊息（Unacked = 1）
+                                 │
+        ┌───────────┬────────────┴───────────┬──────────────────┐
+        │           │                        │                  │
+      成功        失敗 + retry            失敗 + requeue      worker 被殺
+        │           │                        │              （acks_late）
+        ▼           ▼                        ▼                  │
+       ack      發「新任務」回佇列        「原訊息」放回佇列          ▼
+     訊息消失    （max_retries=3 有上限）  （沒有上限 ♻️）      沒 ack → 訊息回佇列
+     SUCCESS         情境 1                 情境 2            回 Ready 給人重做
+                                                                情境 4
+
+              （失敗 + requeue=False → 訊息直接丟棄 🗑️ → 情境 3）
+```
+
+> 👀 **這些在哪裡看得到？** 圖裡「任務執行」的部分（執行、失敗、retry、reject、succeeded、進度）全部會印在 **worker 的終端機**；「訊息在佇列的狀態」（Ready / Unacked 的變化、訊息被放回）只在 **RabbitMQ UI**（http://localhost:15672 → Queues → celery）看得到。所以做這章的實驗，**開兩個視窗並排**：左邊 worker log、右邊 RabbitMQ UI，一動一靜對著看。
+
+
 ### 情境 1：`task_might_fail` — 失敗自動重試
 
 ```python
@@ -115,6 +136,27 @@ Producer 發任務 → RabbitMQ → Worker 拿出來
   → 成功 → ack → 訊息消失 ✅
   → 失敗（50%）→ self.retry() → 發「新任務」回佇列 → 5 秒後再試
   → 連續失敗滿 3 次 → 標記 FAILURE → ack → 訊息消失
+```
+
+**決策分支圖**（迴圈有次數上限，是這張圖的重點）：
+
+```
+Producer ──.delay()──▶ ［RabbitMQ 佇列］
+                             │
+                             ▼  worker 取出（Unacked）
+                       ┌───────────┐
+                       │  執行任務  │◀──────────────── 等 5 秒 ──┐
+                       └─────┬─────┘                          │
+                   50% ┌─────┴─────┐ 50%                       │
+                       ▼           ▼                          │
+                  ✅ 成功      ❌ 失敗 → self.retry()            │
+                       │           │（發「新任務」回佇列）         │
+                       ▼           ▼                          │
+                  ack、訊息消失   已重試滿 3 次？──否──────────────┘
+                   SUCCESS         │
+                                  是
+                                   ▼
+                          標記 FAILURE → ack → 訊息消失
 ```
 
 **實際跑起來 worker log 長這樣**（VM 實測）：
@@ -147,6 +189,22 @@ Producer 發任務 → RabbitMQ → Worker 拿出來
   → 失敗 → Reject(requeue=True) → 「原訊息」放回佇列
   → Worker 又拿出來 → 又失敗 → 又放回 → ♻️ 無限循環
   → 訊息永遠不消失，直到你停掉 worker
+```
+
+**決策分支圖**（注意那條回頭的箭頭——它沒有出口）：
+
+```
+Producer ──.delay()──▶ ［RabbitMQ 佇列］Ready = 1 ◀────────────────┐
+                             │                                   │
+                             ▼  worker 取出                       │
+                       Ready 0 ／ Unacked 1                       │
+                             │                                   │
+                        執行 → ❌ 一定失敗                          │
+                             │                                   │
+                    Reject(requeue=True)                         │
+                    「原訊息」放回佇列 ────────♻️ 毫秒級、無次數上限────┘
+
+              唯一出口：你 Ctrl+C 停掉 worker → 訊息仍留在 Ready（從沒被 ack 過）
 ```
 
 **實際 log（VM 實測），注意兩件事**：
@@ -183,6 +241,21 @@ Producer 發任務 → RabbitMQ → Worker 拿出來
   → 失敗 → Reject(requeue=False) → 訊息直接丟棄 🗑️ → Ready 歸 0
 ```
 
+**決策分支圖**（一路到底，沒有回頭路）：
+
+```
+Producer ──.delay()──▶ ［RabbitMQ 佇列］Ready = 1
+                             │
+                             ▼  worker 取出
+                        執行 → ❌ 失敗
+                             │
+                    Reject(requeue=False)
+                             │
+                             ▼
+                     🗑️ 訊息直接丟棄
+              Ready 歸 0 ─ 不重試、不放回、就此消失
+```
+
 ### 情境 4：`task_slow` — 做到一半殺掉 worker
 
 ```python
@@ -204,6 +277,28 @@ Producer 發任務 → RabbitMQ → Worker 拿出來（Unacked = 1）
   → 跑到進度 10/30 → 你 Ctrl+C 殺掉 worker
   → 還沒 ack → 訊息回到佇列（Ready = 1）
   → 重開 worker → 從進度 1/30 從頭跑 → 30/30 → ack → 訊息消失
+```
+
+**決策分支圖**（acks_late 的生死線——被殺不等於遺失）：
+
+```
+Producer ──.delay()──▶ ［RabbitMQ 佇列］Ready = 1
+                             │
+                             ▼  worker 取出（acks_late：先不 ack）
+                       Ready 0 ／ Unacked 1
+                             │
+                       跑到進度 10/30
+                             │
+                    ✂️ 你 Ctrl+C 殺掉 worker
+                             │
+              訊息從未被 ack → 連線斷，RabbitMQ 把它放回佇列
+                             │
+                             ▼
+                       Ready = 1（任務沒有遺失）
+                             │  重開 worker
+                             ▼
+              從「進度 1/30」從頭跑 ──▶ 30/30 ──▶ ack → 訊息消失 ✅
+                             （做了兩次 → 這就是第 6 章要教冪等的原因）
 ```
 
 ### retry vs requeue 對照（背下這張表）
