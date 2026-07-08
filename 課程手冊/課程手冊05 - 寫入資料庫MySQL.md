@@ -121,6 +121,7 @@
 | `crawler/config.py` | 設定 | 提供 MySQL 連線資訊 |
 | `example/mock_stock_price_data.sql` | 練習素材 | 模擬台股歷史股價，可在 phpMyAdmin 執行、填充資料練查詢（練習 4 用）|
 | `example/vw_stock_price_daily.sql` | 預告 | 日線 View，第 8 章 Metabase 做圖表時會用到 |
+| `example/ecommerce.sql` | 補充D 教材 | 三張表含外鍵的電商範例（users/products/orders）|
 
 > `example/backup/` 裡是原課程（hahow）留下的通用練習檔（employees、students、ecommerce 等），本課程不使用，留作參考。
 
@@ -383,6 +384,95 @@ docker compose -f docker-compose-local.yml logs worker_twse | grep -E "saved|suc
 - **`engine` 為什麼可以重複使用？** `create_engine` 建立的不是「一條連線」，而是一個「連線池」的管理者。它內部會維護一組連線、需要時借出、用完還回，所以你不用每寫一筆就開關一次連線。這也是為什麼把 `engine` 建好放著重用，比每次都 `create_engine` 更有效率。
 - **`if_exists` 還有別的選項。** 除了 `"append"`（附加），還有 `"replace"`（先刪表重建，會清掉舊資料）和 `"fail"`（表已存在就報錯）。這個專案用 `append` 是因為要持續累積歷史股價；但 `append` 不看重複，所以才會有下一章的問題。
 - **為什麼要「同時」寫 DB 又存 CSV？** 兩者角色不同：MySQL 是給程式查詢、之後接 Metabase / BigQuery 用的「正式儲存」；CSV 則是一份人可以直接打開、方便備份或臨時檢查的快照。真實專案常常這樣「雙寫」，一份給機器、一份給人。
+
+---
+
+## 補充：SQLAlchemy 完整指南（原理、參數、看見它背後做的事）
+
+本章的程式碼只用到 SQLAlchemy 的一小角。這一節把它攤開講清楚——之後不管接 FastAPI（補充B）、寫測試（補充C）還是搬 BigQuery（第 14 章），你都會一直遇到它。
+
+### SQLAlchemy 在整條路的哪一層
+
+```
+你的程式（pandas df.to_sql / read_sql）
+        │
+SQLAlchemy Core（產生 SQL、管理連線池、包交易）
+        │
+DBAPI 驅動（pymysql — 真正跟 MySQL 講話的翻譯員）
+        │
+MySQL（TCP 3306）
+```
+
+連線字串 `mysql+pymysql://...` 的 `mysql` 是「方言（dialect）」、`pymysql` 是「驅動（driver）」——SQLAlchemy 負責把同一套 Python 介面翻成各家資料庫的方言，所以之後想換 PostgreSQL，理論上改連線字串就好，程式碼不動。
+
+**Core vs ORM**：SQLAlchemy 有兩層用法。**Core** 是「用 Python 組 SQL、自己管表」——本課程用的就是它（搭配 pandas）；**ORM** 是「把表映射成 Python class、把資料列當物件操作」——Web 後端（如 FastAPI + 使用者系統）常用，資料工程的批次讀寫用 Core 就夠、也更直觀。知道有這兩層，看到別人的 `class User(Base)` 程式碼時不會慌。
+
+### create_engine 參數詳解
+
+```python
+engine = create_engine(
+    "mysql+pymysql://root:1234@127.0.0.1:3306/mydb",
+    echo=False,           # True = 把它發出的每一句 SQL 印出來（除錯/教學神器，見下）
+    pool_size=5,          # 連線池常駐連線數（預設 5）
+    max_overflow=10,      # 尖峰時可額外再開幾條（預設 10）→ 最多 5+10=15 條
+    pool_recycle=3600,    # 連線活超過 N 秒就換新的（見下面的 8 小時坑）
+    pool_pre_ping=True,   # 每次借出連線前先 ping 一下，死連線自動換（建議開）
+)
+```
+
+- **`engine` 是連線池管理者，不是連線**：`create_engine` 當下並不會連資料庫，第一次真的用到才連。理想用法是**建一次、全程式共用**——`api/main.py`（補充B）就是這樣，engine 放模組層級、app 存活期間重複使用。誠實說：本章的 `tasks_crawler_finmind.py` 是在函式內每次呼叫都建一次——簡單、不會錯，但沒吃到連線池的好處；等你懂了這節，就知道怎麼優化它。
+- **`pool_recycle` 對付 MySQL 的 8 小時坑**：MySQL 預設 `wait_timeout=28800`（8 小時），閒置超過就單方面斷線；連線池不知情、把死連線借給你，就出現經典的 `MySQL server has gone away`。設 `pool_recycle=3600` 或開 `pool_pre_ping=True` 都能防——長時間跑的排程任務（第 9 章）尤其需要。
+- **爬蟲場景的參數怎麼配**：worker 是多行程（prefork）時，**每個子行程有自己的池**，pool_size 不用開大；gevent 高併發時單行程共用一個池，`pool_size` 才需要跟著併發數調。
+
+### engine → connection → transaction 三層
+
+```python
+from sqlalchemy import create_engine, text
+
+engine = create_engine(...)                     # ① 池管理者（全程式一個）
+
+with engine.connect() as conn:                  # ② 借一條連線（用完自動還）
+    r = conn.execute(text("SELECT COUNT(*) FROM TaiwanStockPrice"))
+    print(r.scalar())
+
+with engine.begin() as conn:                    # ③ 借連線 + 包交易：離開 with 自動 COMMIT，
+    conn.execute(text("UPDATE ..."))            #    中途出錯自動 ROLLBACK（補充D 交易一節的程式版）
+```
+
+- `text()`：把字串標記成「一句 SQL」。**參數一律用 `:名字` 佔位**，不要用 f-string 拼——這是 SQL injection 的正解：`conn.execute(text("SELECT * FROM t WHERE stock_id = :sid"), {"sid": "2330"})`
+- Step 3 測連線用的 `SELECT DATABASE()` 就是這套的最小版。
+
+### to_sql 參數完整表
+
+```python
+df.to_sql("TaiwanStockPrice", con=engine, if_exists="append", index=False)
+```
+
+| 參數 | 選項與意義 | 本課的選擇（為什麼） |
+|------|-----------|--------------------|
+| `if_exists` | `"fail"` 表存在就報錯 / `"replace"` **刪表重建**（舊資料全沒） / `"append"` 附加 | `append`——要累積歷史股價。`replace` 很危險：連表結構都會被重建成推斷版 |
+| `index` | 要不要把 DataFrame 的索引寫成一欄 | `False`——我們的索引只是 0,1,2… 流水號，寫進去只是垃圾欄 |
+| `dtype` | 手動指定欄位型別，如 `{"date": sqlalchemy.Date()}` | 沒用——所以型別是猜的。想拿回控制權：用 dtype，或像第 6 章直接 `Table(...)` 定義 |
+| `chunksize` | 每批寫幾筆（預設一次全寫） | 大 DataFrame（十萬筆以上）建議設 1000~5000，避免單一巨大 INSERT 撐爆記憶體 |
+| `method` | `None` 逐筆 INSERT / `"multi"` 多筆合併成一句 INSERT | 資料量大時 `"multi"` + `chunksize` 通常快很多 |
+
+`read_sql` 是反方向的兄弟：`pd.read_sql("SELECT ...", con=engine)` 把查詢結果直接變 DataFrame——第 14 章把 MySQL 搬進 BigQuery，用的正是它。
+
+### 打開黑盒子：echo=True 親眼看它做了什麼
+
+把 `create_engine(..., echo=True)` 打開再跑一次寫入，terminal 會印出它背後發的每一句 SQL（VM 實測）：
+
+```
+INFO sqlalchemy.engine.Engine BEGIN (implicit)          ← 自動開交易（呼應補充D 第 5 節）
+INFO sqlalchemy.engine.Engine DESCRIBE `mydb`.`echo_demo`   ← 先看表存不存在
+CREATE TABLE echo_demo ( ... )                          ← 不存在 → 用 DataFrame 推斷建表
+INFO sqlalchemy.engine.Engine INSERT INTO echo_demo (stock_id, close) VALUES (%(stock_id)s, %(close)s)
+INFO sqlalchemy.engine.Engine COMMIT                    ← 全部成功才提交
+```
+
+一行 `to_sql` 背後 = **開交易 → 檢查表 →（必要時）建表 → 參數化 INSERT → COMMIT**。看過一次這個 log，「to_sql 是魔法」就變成「to_sql 是流程」了。確認完記得把 `echo` 關回去——正式跑爬蟲時它會把 log 洗到看不見重點。
+
+> 想更深入 MySQL 本身（索引、外鍵、交易、分區）→ 看 **補充D**。
 
 ---
 
