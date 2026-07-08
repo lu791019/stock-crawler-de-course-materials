@@ -110,6 +110,22 @@
 
 **phpMyAdmin** 是一個基於 PHP 開發的開源工具，提供 Web 介面來管理 MySQL / MariaDB 資料庫。它的目標是讓不熟悉命令列的使用者也能方便操作資料庫——透過網頁就能完成幾乎所有 SQL 指令的功能。等一下 Step 2 你就會用到它。
 
+### SQL 指令的四大家族（DDL / DML / DQL / DCL）
+
+SQL 指令看起來很多，其實按「管什麼」分成四家，之後看到任何指令都能對號入座：
+
+| 家族 | 全名 | 管什麼 | 常見指令 | 本課在哪遇到 |
+|------|------|--------|---------|-------------|
+| **DDL** | Data Definition Language（資料定義）| 表的**結構**：建、改、刪表 | `CREATE`、`ALTER`、`DROP`、`TRUNCATE` | `to_sql` 幫你自動 CREATE TABLE；補充D 建索引、分區 |
+| **DML** | Data Manipulation Language（資料操作）| 表裡的**資料**：增、改、刪 | `INSERT`、`UPDATE`、`DELETE` | `to_sql` append 就是一串 INSERT；第 6 章 upsert |
+| **DQL** | Data Query Language（資料查詢）| **查**資料 | `SELECT`（配 `WHERE`、`JOIN`、`GROUP BY`）| 三種驗證入庫、`read_sql`、之後 Metabase 的每張圖 |
+| **DCL** | Data Control Language（資料控制）| **誰能做什麼**：權限 | `GRANT`、`REVOKE` | 補充D 的受限帳號（app 只給 SELECT/INSERT）|
+
+兩個備註：
+
+- 跟 **CRUD** 的關係：CRUD 是「動作」視角（Create/Read/Update/Delete），四大家族是「指令分類」視角——CRUD 的 C、U、D 都屬於 DML，R 屬於 DQL。兩套講的是同一件事的不同切面。
+- 有人會把 `COMMIT` / `ROLLBACK` 獨立成第五家 **TCL**（交易控制）——補充D 的交易一節玩的就是它們。
+
 ---
 
 ## 這一章會用到的檔案
