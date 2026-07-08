@@ -31,6 +31,8 @@ docker exec mysql mysql -uroot -p1234 mydb -e "SELECT COUNT(*) FROM TaiwanStockP
 | `AUTO_INCREMENT` | 整數自動遞增 | `id INT AUTO_INCREMENT`——人工代理鍵 |
 | `FOREIGN KEY` | 值必須存在於另一張表 | 見第 3 節 |
 
+> 這三種「入場檢查」被違反時長什麼樣，第 3 節載入電商資料後，用同一張會員表一次實測給你看。
+
 ### 主鍵的兩派選擇：自然鍵 vs 代理鍵
 
 - **自然鍵**：用資料**天生的身分**當主鍵。「2330 在 6/13 的股價」本來就只該有一筆，所以 `(stock_id, date)` 這個組合天然就是它的身分證。
@@ -38,7 +40,7 @@ docker exec mysql mysql -uroot -p1234 mydb -e "SELECT COUNT(*) FROM TaiwanStockP
 
 號碼牌的好處是單欄、短、永不變動；但**號碼牌防不了重複排隊**——同一筆「2330、6/13」塞兩次，會各拿到 id=5 和 id=6，資料庫覺得沒問題（號碼不同嘛），業務上卻重複了。我們選自然鍵，因為「同股同日只能有一筆」正是業務規則本身——這也是第 6 章 upsert 能防重複的根基。
 
-> 進階（先看過就好）：實務常混搭——代理鍵當主鍵、自然鍵組合另設 `UNIQUE`，兩個好處都拿到。等你遇到「身分欄位本身會變動」的表（例如會改帳號名的會員表），就懂為什麼需要它。
+> 進階：實務常混搭——代理鍵當主鍵、自然鍵另設 `UNIQUE`，兩個好處都拿到。為什麼需要它？第 3 節的「改名實驗」會用會員改名的完整劇本演給你看。
 
 > **phpMyAdmin 哪裡看**：選表 → **Structure** 頁籤。主鍵欄位會有金色鑰匙 🔑；下方 Indexes 區塊列出所有鍵。第 5 章 `to_sql` 自動建的表在這裡會看到「**沒有任何鍵**」——這就是第 6 章要拿回控制權的原因。
 
@@ -106,6 +108,30 @@ EXPLAIN SELECT * FROM TaiwanStockPrice WHERE date = '2025-06-13';        -- ❌ 
 docker exec -i mysql mysql -uroot -p1234 < example/ecommerce.sql
 ```
 
+### 先用 users 表把第 1 節的約束落地
+
+`users` 原本沒什麼約束，用 `ALTER`（DDL）補上三種，然後故意違規給你看（VM 實測）：
+
+```sql
+ALTER TABLE users MODIFY name VARCHAR(50) NOT NULL;                     -- 名字不准空
+ALTER TABLE users ADD UNIQUE (email);                                  -- email 不准重複
+ALTER TABLE users ADD COLUMN joined_at DATETIME DEFAULT CURRENT_TIMESTAMP;  -- 沒給就自動補
+```
+
+```sql
+INSERT INTO users (user_id, name, email) VALUES (4, NULL, 'dave@example.com');
+-- ERROR 1048: Column 'name' cannot be null                ← NOT NULL 擋下
+
+INSERT INTO users (user_id, name, email) VALUES (4, 'Dave', 'alice@example.com');
+-- ERROR 1062: Duplicate entry 'alice@example.com'          ← UNIQUE 擋下
+
+INSERT INTO users (user_id, name, email, created_at) VALUES (4, 'Dave', 'dave@example.com', '2024-04-10');
+SELECT user_id, name, joined_at FROM users WHERE user_id = 4;
+-- 4  Dave  2026-07-08 14:25:17                             ← 沒給 joined_at，DEFAULT 自動補 ✅
+```
+
+兩次拒收、一次自動補——「入場檢查」不再是名詞。（Dave 進來了，等下 CASCADE 實驗還會用到他。）
+
 `orders` 表的定義裡有兩個外鍵：
 
 ```sql
@@ -169,6 +195,71 @@ order_id  name   product      total_amount
 ```
 
 三張表靠鍵接回一張完整報表——「關聯式」資料庫的招牌動作。
+
+### 改名實驗：為什麼主鍵要用「不會變的」
+
+第 1 節說代理鍵是號碼牌，這裡用「會員改名」演完整劇本。先看一件事：**`ecommerce.sql` 一開始就是混搭設計**——`user_id`（代理鍵）當主鍵、orders 掛的是 id 不是名字。所以：
+
+**第一幕：混搭設計下，改名毫髮無傷**
+
+```sql
+UPDATE users SET name = 'Alice Wang' WHERE user_id = 1;    -- Alice 改名
+SELECT o.order_id, u.name FROM orders o JOIN users u ON o.user_id = u.user_id
+WHERE u.user_id = 1;
+-- 1001  Alice Wang
+-- 1002  Alice Wang     ← 三筆訂單全部無恙，JOIN 照樣對得回來
+-- 1004  Alice Wang        因為訂單掛的是 user_id=1，不是名字
+```
+
+**第二幕：反例——如果當初拿 username 當主鍵**
+
+```sql
+CREATE TABLE users_nat (username VARCHAR(50) PRIMARY KEY);
+INSERT INTO users_nat VALUES ('alice123');
+CREATE TABLE orders_nat (order_id INT PRIMARY KEY, username VARCHAR(50),
+                         FOREIGN KEY (username) REFERENCES users_nat(username));
+INSERT INTO orders_nat VALUES (1, 'alice123');
+
+UPDATE users_nat SET username = 'alice_wang' WHERE username = 'alice123';
+-- ERROR 1451: Cannot delete or update a parent row    ← 想改名？外鍵擋下，動不了
+```
+
+**那……訂單不要掛 username 不就好了？** 好問題，只有三條路：
+
+1. **掛 username**——就是第二幕：改名被卡死
+2. **掛別的欄位**——外鍵只能指向主鍵或 UNIQUE 欄位，所以你需要「另一個唯一、且永不變動的欄位」……一個不變的唯一流水號——**你剛剛自己發明了代理鍵**，這就是混搭方案
+3. **乾脆不設外鍵，訂單自己存一份 username**——第三幕演給你看：
+
+**第三幕：不設外鍵，改名後「默默斷鏈」**
+
+```sql
+CREATE TABLE users_nofk (username VARCHAR(50) PRIMARY KEY);
+INSERT INTO users_nofk VALUES ('alice123');
+CREATE TABLE orders_nofk (order_id INT PRIMARY KEY, username VARCHAR(50));   -- 沒有 FK
+INSERT INTO orders_nofk VALUES (1, 'alice123');
+
+UPDATE users_nofk SET username = 'alice_wang';             -- 改名：成功，沒人擋
+SELECT COUNT(*) FROM orders_nofk o JOIN users_nofk u ON o.username = u.username;
+-- 0        ← 訂單裡躺著舊名字，JOIN 對不回任何人——沒有報錯，資料默默壞掉
+```
+
+第三幕最可怕：**它不會報錯**。第二幕至少大聲擋你，第三幕是幾個月後報表對不上才發現。結論：問題的根源是「username 既當身分、又會變動」——解法是給一個永不變的身分（代理鍵 id）供人引用，會變的欄位退居 `UNIQUE` 防重複。
+
+### 順手補：ON DELETE CASCADE 長什麼樣
+
+前面說預設是「擋刪」（1451），也可以改成「刪父連子一起刪」。用約束實驗留下的 Dave 來演：
+
+```sql
+CREATE TABLE reviews_demo (review_id INT PRIMARY KEY, user_id INT, comment VARCHAR(100),
+                           FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE);
+INSERT INTO reviews_demo VALUES (1, 4, '出貨快'), (2, 4, '品質好');   -- Dave 的兩則評論
+
+DELETE FROM users WHERE user_id = 4;      -- 刪 Dave（他沒有訂單，不會被 orders 擋）
+SELECT COUNT(*) FROM reviews_demo;        -- 0  ← 兩則評論自動跟著消失
+SELECT COUNT(*) FROM orders;              -- 6  ← 別人的訂單原封不動
+```
+
+CASCADE 方便但危險——刪一列可能連鎖刪掉一片，正式系統用之前要想清楚。
 
 ### 那為什麼我們的股價表「不用」外鍵？
 
@@ -259,6 +350,16 @@ head backup.sql
 
 # 還原（災難後或搬到新機器）
 docker exec -i mysql mysql -uroot -p1234 mydb < backup.sql
+```
+
+**完整災難演習**（VM 實測）——備份不是「有跑指令」就算數，要演練過還原才算有備份：
+
+```bash
+docker exec mysql mysqldump -uroot -p1234 mydb TaiwanStockPrice > backup.sql   # ① 備份
+docker exec mysql mysql -uroot -p1234 mydb -e "DROP TABLE TaiwanStockPrice;"   # ② 災難：手滑刪表
+docker exec -i mysql mysql -uroot -p1234 mydb < backup.sql                     # ③ 還原
+docker exec mysql mysql -uroot -p1234 mydb -e "SELECT COUNT(*) FROM TaiwanStockPrice;"
+# → 320 ✅ 一筆不少地回來了
 ```
 
 實測：320 筆的表匯出約 59 行 SQL。整個資料庫用 `mysqldump -uroot -p1234 --databases mydb`；phpMyAdmin 的 **Export / Import** 頁籤是同一件事的圖形版。搭配第 9 章的排程，「每天凌晨自動備份」就是一個 cron + mysqldump。
