@@ -1,6 +1,6 @@
 # 補充 D：MySQL 深入 — 約束、索引、外鍵、交易與分區（含 phpMyAdmin 實戰）
 
-> 第 5、6 章教會你「把資料寫進去、寫得不重複」。這份補充回答下一層的問題：**資料庫怎麼保護資料的正確性（約束、外鍵、交易）、怎麼查得快（索引、分區）、怎麼管得安全（權限、備份）**。每一段都用我們的 `TaiwanStockPrice` 或 repo 裡現成的 SQL 檔實測，所有輸出都是 VM 真實跑出來的。
+> 第 5、6 章教會你「把資料寫進去、寫得不重複」。這份補充回答下一層的問題：**資料庫怎麼查得快（索引、分區）、怎麼保護資料的正確性（約束、外鍵、交易）、怎麼管得安全（權限）**。每一段都用我們的 `TaiwanStockPrice` 或 repo 裡現成的 SQL 檔實測，所有輸出都是 VM 真實跑出來的。
 
 ---
 
@@ -18,35 +18,7 @@ docker exec mysql mysql -uroot -p1234 mydb -e "SELECT COUNT(*) FROM TaiwanStockP
 
 ---
 
-## 1. 約束家族 — 資料庫的「入場檢查」
-
-約束（constraint）是你寫在表定義上的規則，**資料庫在寫入的瞬間強制檢查**，不合格直接拒收。這比「在 Python 裡自己檢查」可靠——因為不管誰來寫（爬蟲、手動、別的程式），檢查永遠在。
-
-| 約束 | 意思 | 股價表的例子 |
-|------|------|-------------|
-| `NOT NULL` | 這欄不准空 | `date DATE NOT NULL`——沒有日期的股價沒有意義 |
-| `DEFAULT` | 沒給值就用預設 | `created_at DATETIME DEFAULT CURRENT_TIMESTAMP` |
-| `UNIQUE` | 這欄不准重複 | email、身分證字號這類「天然唯一」的欄位 |
-| `PRIMARY KEY` | 唯一 + 不准空 + 一張表只有一個 | `(stock_id, date)`——第 6 章的複合主鍵 |
-| `AUTO_INCREMENT` | 整數自動遞增 | `id INT AUTO_INCREMENT`——人工代理鍵 |
-| `FOREIGN KEY` | 值必須存在於另一張表 | 見第 3 節 |
-
-> 這三種「入場檢查」被違反時長什麼樣，第 3 節載入電商資料後，用同一張會員表一次實測給你看。
-
-### 主鍵的兩派選擇：自然鍵 vs 代理鍵
-
-- **自然鍵**：用資料**天生的身分**當主鍵。「2330 在 6/13 的股價」本來就只該有一筆，所以 `(stock_id, date)` 這個組合天然就是它的身分證。
-- **代理鍵**：另外發一張**號碼牌**——加一欄 `id INT AUTO_INCREMENT`，資料進來就 1、2、3… 自動編下去。號碼跟資料內容一點關係都沒有，像戶政事務所的抽號機。現成的例子就在第 3 節要載入的 `example/ecommerce.sql`：`users` 表的 `user_id`（1、2、3…）就是號碼牌——Alice 叫什麼名字、換什麼 email 都與它無關。
-
-號碼牌的好處是單欄、短、永不變動；但**號碼牌防不了重複排隊**——同一筆「2330、6/13」塞兩次，會各拿到 id=5 和 id=6，資料庫覺得沒問題（號碼不同嘛），業務上卻重複了。我們選自然鍵，因為「同股同日只能有一筆」正是業務規則本身——這也是第 6 章 upsert 能防重複的根基。
-
-> 進階：實務常混搭——代理鍵當主鍵、自然鍵另設 `UNIQUE`，兩個好處都拿到。為什麼需要它？第 3 節的「改名實驗」會用會員改名的完整劇本演給你看。
-
-> **phpMyAdmin 哪裡看**：選表 → **Structure** 頁籤。主鍵欄位會有金色鑰匙 🔑；下方 Indexes 區塊列出所有鍵。第 5 章 `to_sql` 自動建的表在這裡會看到「**沒有任何鍵**」——這就是第 6 章要拿回控制權的原因。
-
----
-
-## 2. 索引 — 從「整本翻」到「查目錄」
+## 1. 索引 — 從「整本翻」到「查目錄」
 
 **索引（index）是資料庫的目錄**。沒有目錄，查一個字要整本書翻過去（全表掃描）；有目錄，翻兩三頁就到。底層是 B+Tree——你可以先想成「排好序、可以二分搜尋的目錄樹」，細節等需要時再深究。
 
@@ -66,6 +38,8 @@ ALL   NULL           NULL  320   Using where     ← type=ALL：全表掃描，3
 **建索引**（SQL 或 phpMyAdmin 二選一）：
 
 ```sql
+-- CREATE INDEX 索引名 ON 表名 (欄位...)：在這些欄位上建一份「排好序的目錄」
+-- 兩欄一起寫 = 複合索引：先按 stock_id 排、同股再按 date 排
 CREATE INDEX idx_stock_date ON TaiwanStockPrice (stock_id, date);
 ```
 
@@ -100,6 +74,34 @@ EXPLAIN SELECT * FROM TaiwanStockPrice WHERE date = '2025-06-13';        -- ❌ 
 
 ---
 
+## 2. 約束家族 — 資料庫的「入場檢查」
+
+約束（constraint）是你寫在表定義上的規則，**資料庫在寫入的瞬間強制檢查**，不合格直接拒收。這比「在 Python 裡自己檢查」可靠——因為不管誰來寫（爬蟲、手動、別的程式），檢查永遠在。
+
+| 約束 | 意思 | 股價表的例子 |
+|------|------|-------------|
+| `NOT NULL` | 這欄不准空 | `date DATE NOT NULL`——沒有日期的股價沒有意義 |
+| `DEFAULT` | 沒給值就用預設 | `created_at DATETIME DEFAULT CURRENT_TIMESTAMP` |
+| `UNIQUE` | 這欄不准重複 | email、身分證字號這類「天然唯一」的欄位 |
+| `PRIMARY KEY` | 唯一 + 不准空 + 一張表只有一個 | `(stock_id, date)`——第 6 章的複合主鍵 |
+| `AUTO_INCREMENT` | 整數自動遞增 | `id INT AUTO_INCREMENT`——人工代理鍵 |
+| `FOREIGN KEY` | 值必須存在於另一張表 | 見第 3 節 |
+
+> 這三種「入場檢查」被違反時長什麼樣，第 3 節載入電商資料後，用同一張會員表一次實測給你看。
+
+### 主鍵的兩派選擇：自然鍵 vs 代理鍵
+
+- **自然鍵**：用資料**天生的身分**當主鍵。「2330 在 6/13 的股價」本來就只該有一筆，所以 `(stock_id, date)` 這個組合天然就是它的身分證。
+- **代理鍵**：另外發一張**號碼牌**——加一欄 `id INT AUTO_INCREMENT`，資料進來就 1、2、3… 自動編下去。號碼跟資料內容一點關係都沒有，像戶政事務所的抽號機。現成的例子就在第 3 節要載入的 `example/ecommerce.sql`：`users` 表的 `user_id`（1、2、3…）就是號碼牌——Alice 叫什麼名字、換什麼 email 都與它無關。
+
+號碼牌的好處是單欄、短、永不變動；但**號碼牌防不了重複排隊**——同一筆「2330、6/13」塞兩次，會各拿到 id=5 和 id=6，資料庫覺得沒問題（號碼不同嘛），業務上卻重複了。我們選自然鍵，因為「同股同日只能有一筆」正是業務規則本身——這也是第 6 章 upsert 能防重複的根基。
+
+> 進階：實務常混搭——代理鍵當主鍵、自然鍵另設 `UNIQUE`，兩個好處都拿到。為什麼需要它？第 3 節的「改名實驗」會用會員改名的完整劇本演給你看。
+
+> **phpMyAdmin 哪裡看**：選表 → **Structure** 頁籤。主鍵欄位會有金色鑰匙 🔑；下方 Indexes 區塊列出所有鍵。第 5 章 `to_sql` 自動建的表在這裡會看到「**沒有任何鍵**」——這就是第 6 章要拿回控制權的原因。
+
+---
+
 ## 3. 外鍵 FOREIGN KEY — 表與表之間的「掛鉤」
 
 股價表是單表世界，看不出外鍵的用途。用 repo 的 `example/ecommerce.sql`（三張表：users、products、orders）：
@@ -108,7 +110,7 @@ EXPLAIN SELECT * FROM TaiwanStockPrice WHERE date = '2025-06-13';        -- ❌ 
 docker exec -i mysql mysql -uroot -p1234 < example/ecommerce.sql
 ```
 
-### 先用 users 表把第 1 節的約束落地
+### 先用 users 表把第 2 節的約束落地
 
 `users` 原本沒什麼約束，用 `ALTER`（DDL）補上三種，然後故意違規給你看（VM 實測）：
 
@@ -182,10 +184,10 @@ ERROR 1451 (23000): Cannot delete or update a parent row: a foreign key constrai
 ### 有了關聯，JOIN 才有意義
 
 ```sql
-SELECT o.order_id, u.name, p.name AS product, o.total_amount
-FROM orders o
-JOIN users u    ON o.user_id = u.user_id
-JOIN products p ON o.product_id = p.product_id;
+SELECT o.order_id, u.name, p.name AS product, o.total_amount   -- AS：幫欄位取別名，避免兩個 name 撞名
+FROM orders o                                   -- o / u / p 是「表別名」，讓下面寫起來短
+JOIN users u    ON o.user_id = u.user_id        -- ON：兩表用什麼條件對起來（訂單的 user_id = 會員的 user_id）
+JOIN products p ON o.product_id = p.product_id; -- 再接第二張表，一樣用鍵對應
 ```
 ```
 order_id  name   product      total_amount
@@ -198,7 +200,7 @@ order_id  name   product      total_amount
 
 ### 改名實驗：為什麼主鍵要用「不會變的」
 
-第 1 節說代理鍵是號碼牌，這裡用「會員改名」演完整劇本。先看一件事：**`ecommerce.sql` 一開始就是混搭設計**——`user_id`（代理鍵）當主鍵、orders 掛的是 id 不是名字。所以：
+第 2 節說代理鍵是號碼牌，這裡用「會員改名」演完整劇本。先看一件事：**`ecommerce.sql` 一開始就是混搭設計**——`user_id`（代理鍵）當主鍵、orders 掛的是 id 不是名字。所以：
 
 **第一幕：混搭設計下，改名毫髮無傷**
 
@@ -214,11 +216,11 @@ WHERE u.user_id = 1;
 **第二幕：反例——如果當初拿 username 當主鍵**
 
 ```sql
-CREATE TABLE users_nat (username VARCHAR(50) PRIMARY KEY);
-INSERT INTO users_nat VALUES ('alice123');
+CREATE TABLE users_nat (username VARCHAR(50) PRIMARY KEY);   -- 反例組：拿會變動的 username 直接當主鍵
+INSERT INTO users_nat VALUES ('alice123');                    -- Alice 用帳號名報到
 CREATE TABLE orders_nat (order_id INT PRIMARY KEY, username VARCHAR(50),
-                         FOREIGN KEY (username) REFERENCES users_nat(username));
-INSERT INTO orders_nat VALUES (1, 'alice123');
+                         FOREIGN KEY (username) REFERENCES users_nat(username));  -- 訂單外鍵直接掛 username
+INSERT INTO orders_nat VALUES (1, 'alice123');                -- 一筆掛在她名下的訂單
 
 UPDATE users_nat SET username = 'alice_wang' WHERE username = 'alice123';
 -- ERROR 1451: Cannot delete or update a parent row    ← 想改名？外鍵擋下，動不了
@@ -235,11 +237,12 @@ UPDATE users_nat SET username = 'alice_wang' WHERE username = 'alice123';
 ```sql
 CREATE TABLE users_nofk (username VARCHAR(50) PRIMARY KEY);
 INSERT INTO users_nofk VALUES ('alice123');
-CREATE TABLE orders_nofk (order_id INT PRIMARY KEY, username VARCHAR(50));   -- 沒有 FK
+CREATE TABLE orders_nofk (order_id INT PRIMARY KEY, username VARCHAR(50));   -- 訂單自己存名字，「沒有」外鍵約束
 INSERT INTO orders_nofk VALUES (1, 'alice123');
 
-UPDATE users_nofk SET username = 'alice_wang';             -- 改名：成功，沒人擋
-SELECT COUNT(*) FROM orders_nofk o JOIN users_nofk u ON o.username = u.username;
+UPDATE users_nofk SET username = 'alice_wang';             -- 改名：成功，沒人擋（因為沒有 FK 保護）
+SELECT COUNT(*) FROM orders_nofk o                          -- 用名字把訂單 JOIN 回會員
+JOIN users_nofk u ON o.username = u.username;
 -- 0        ← 訂單裡躺著舊名字，JOIN 對不回任何人——沒有報錯，資料默默壞掉
 ```
 
@@ -251,11 +254,12 @@ SELECT COUNT(*) FROM orders_nofk o JOIN users_nofk u ON o.username = u.username;
 
 ```sql
 CREATE TABLE reviews_demo (review_id INT PRIMARY KEY, user_id INT, comment VARCHAR(100),
-                           FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE);
-INSERT INTO reviews_demo VALUES (1, 4, '出貨快'), (2, 4, '品質好');   -- Dave 的兩則評論
+                           FOREIGN KEY (user_id) REFERENCES users(user_id)
+                           ON DELETE CASCADE);   -- ← 關鍵：刪父列時「連鎖刪除」子列（預設是擋下 1451）
+INSERT INTO reviews_demo VALUES (1, 4, '出貨快'), (2, 4, '品質好');   -- Dave（user_id=4）的兩則評論
 
-DELETE FROM users WHERE user_id = 4;      -- 刪 Dave（他沒有訂單，不會被 orders 擋）
-SELECT COUNT(*) FROM reviews_demo;        -- 0  ← 兩則評論自動跟著消失
+DELETE FROM users WHERE user_id = 4;      -- 刪 Dave（他沒有訂單，不會被 orders 的預設外鍵擋）
+SELECT COUNT(*) FROM reviews_demo;        -- 0  ← 兩則評論被 CASCADE 自動刪掉
 SELECT COUNT(*) FROM orders;              -- 6  ← 別人的訂單原封不動
 ```
 
@@ -285,8 +289,8 @@ WHERE t.rn = 1;      -- 同股同日若有重複，只取成交量最大的那�
 它把「去重後的乾淨日線」包成一張虛擬表，之後想要乾淨資料就：
 
 ```sql
-SELECT stock_id, trade_date, close FROM vw_stock_price_daily
-WHERE stock_id = '2330' ORDER BY trade_date DESC LIMIT 3;
+SELECT stock_id, trade_date, close FROM vw_stock_price_daily   -- 查 VIEW 跟查表寫法一模一樣
+WHERE stock_id = '2330' ORDER BY trade_date DESC LIMIT 3;      -- 背後其實是重新執行了上面那段 SELECT
 ```
 
 **用途**：把複雜查詢包起來給下游用——第 8 章 Metabase 接的就是這個 VIEW，BI 工具永遠拿到乾淨資料，而不用每張圖表都重寫一次去重邏輯。這是「**在資料庫層做一層介面**」的思維。
@@ -301,10 +305,10 @@ WHERE stock_id = '2330' ORDER BY trade_date DESC LIMIT 3;
 
 ```sql
 SELECT close FROM TaiwanStockPrice WHERE stock_id='2330' AND date='2025-06-13';  -- 1000.65
-START TRANSACTION;
+START TRANSACTION;       -- 開一個交易：從這裡開始的修改都先「記帳」，不真正定案
 UPDATE TaiwanStockPrice SET close = 0 WHERE stock_id='2330' AND date='2025-06-13';
 SELECT close FROM ...;   -- 0.00   ← 交易內看得到自己的修改
-ROLLBACK;
+ROLLBACK;                -- 撤銷：把這筆帳整個劃掉（反之 COMMIT 是定案生效）
 SELECT close FROM ...;   -- 1000.65 ← 像沒發生過一樣
 ```
 
@@ -319,8 +323,8 @@ SELECT close FROM ...;   -- 1000.65 ← 像沒發生過一樣
 到目前為止我們都用 `root / 1234`——教學方便，但正式環境是大忌：任何程式拿到的帳號都能 DROP 整個資料庫。正確做法是**給每個應用一個「只能做份內事」的帳號**：
 
 ```sql
-CREATE USER 'app'@'%' IDENTIFIED BY 'app-pass-123';
-GRANT SELECT, INSERT ON mydb.* TO 'app'@'%';     -- 只給查和寫，不給改結構
+CREATE USER 'app'@'%' IDENTIFIED BY 'app-pass-123';   -- 建帳號：'名字'@'可以從哪裡連'（% = 任何主機）
+GRANT SELECT, INSERT ON mydb.* TO 'app'@'%';           -- 授權：只給「查、寫」，範圍限 mydb 的所有表（mydb.*）
 ```
 
 實測：`app` 帳號 `SELECT COUNT(*)` 正常回 320，但想 DROP TABLE：
@@ -335,38 +339,7 @@ ERROR 1142 (42000): DROP command denied to user 'app'@'localhost' for table 'Tai
 
 ---
 
-## 7. 備份與還原 — mysqldump 一招
-
-資料庫最重要的保險。`mysqldump` 把表匯出成「一份可以重放的 SQL 檔」：
-
-```bash
-# 備份 mydb 的 TaiwanStockPrice 表
-docker exec mysql mysqldump -uroot -p1234 mydb TaiwanStockPrice > backup.sql
-
-# 看它長什麼樣：就是 CREATE TABLE + 一大串 INSERT
-head backup.sql
-# CREATE TABLE `TaiwanStockPrice` (...
-# INSERT INTO `TaiwanStockPrice` VALUES ('2025-06-13','2330',...
-
-# 還原（災難後或搬到新機器）
-docker exec -i mysql mysql -uroot -p1234 mydb < backup.sql
-```
-
-**完整災難演習**（VM 實測）——備份不是「有跑指令」就算數，要演練過還原才算有備份：
-
-```bash
-docker exec mysql mysqldump -uroot -p1234 mydb TaiwanStockPrice > backup.sql   # ① 備份
-docker exec mysql mysql -uroot -p1234 mydb -e "DROP TABLE TaiwanStockPrice;"   # ② 災難：手滑刪表
-docker exec -i mysql mysql -uroot -p1234 mydb < backup.sql                     # ③ 還原
-docker exec mysql mysql -uroot -p1234 mydb -e "SELECT COUNT(*) FROM TaiwanStockPrice;"
-# → 320 ✅ 一筆不少地回來了
-```
-
-實測：320 筆的表匯出約 59 行 SQL。整個資料庫用 `mysqldump -uroot -p1234 --databases mydb`；phpMyAdmin 的 **Export / Import** 頁籤是同一件事的圖形版。搭配第 9 章的排程，「每天凌晨自動備份」就是一個 cron + mysqldump。
-
----
-
-## 8. 分區 Partitioning — 大表切抽屜（進階）
+## 7. 分區 Partitioning — 大表切抽屜（進階）
 
 表大到千萬筆時，連索引都吃力。**分區**把一張表按規則實體切成多個「抽屜」，查詢時只開有關的抽屜（分區剪枝 pruning）。時序資料最常見**按時間切**：
 
@@ -376,10 +349,10 @@ CREATE TABLE TaiwanStockPrice_part (
   stock_id VARCHAR(10) NOT NULL,
   open DECIMAL(10,2), close DECIMAL(10,2), Trading_Volume BIGINT,
   PRIMARY KEY (stock_id, date)               -- ⚠️ 分區鍵(date)必須包含在主鍵裡
-) PARTITION BY RANGE (YEAR(date)) (
-  PARTITION p2024 VALUES LESS THAN (2025),
-  PARTITION p2025 VALUES LESS THAN (2026),
-  PARTITION pmax  VALUES LESS THAN MAXVALUE
+) PARTITION BY RANGE (YEAR(date)) (          -- 用「date 的年份」當切抽屜的規則
+  PARTITION p2024 VALUES LESS THAN (2025),     -- 2025 年以前的資料放這格
+  PARTITION p2025 VALUES LESS THAN (2026),     -- 2025 年的放這格
+  PARTITION pmax  VALUES LESS THAN MAXVALUE    -- 其餘（未來）全部收這格，避免無處可放報錯
 );
 ```
 
@@ -396,7 +369,8 @@ TaiwanStockPrice_part  p2025       ALL   320    ← 只開 p2025 這個抽屜，
 分區資訊也可以直接查：
 
 ```sql
-SELECT PARTITION_NAME, TABLE_ROWS FROM information_schema.PARTITIONS
+SELECT PARTITION_NAME, TABLE_ROWS            -- information_schema：MySQL 的「系統目錄」，存放所有表的中繼資料
+FROM information_schema.PARTITIONS
 WHERE TABLE_NAME = 'TaiwanStockPrice_part';
 -- p2024: 0 / p2025: 320 / pmax: 0
 ```
@@ -419,7 +393,6 @@ WHERE TABLE_NAME = 'TaiwanStockPrice_part';
 | 下游要乾淨資料 | VIEW | 存起來的查詢，DB 層的介面 |
 | 多步驟要同生共死 | 交易 | 全做完或當沒發生 |
 | 程式權限太大很危險 | CREATE USER / GRANT | 只給份內事 |
-| 怕資料毀損 | mysqldump | 可重放的 SQL 快照 |
 | 表大到索引都吃力 | 分區 | 切抽屜、只開有關的 |
 
 ---
@@ -463,10 +436,10 @@ MySQL 要能只憑主鍵判斷「這筆在哪個抽屜」。若主鍵不含 date
 ## 收工（清掉實驗產物）
 
 ```sql
-DROP TABLE IF EXISTS TaiwanStockPrice_part;
-DROP INDEX idx_stock_date ON TaiwanStockPrice;
-DROP DATABASE IF EXISTS test_ecommerce;
-DROP USER IF EXISTS 'app'@'%';
+DROP TABLE IF EXISTS TaiwanStockPrice_part;      -- 刪分區實驗表（IF EXISTS：不存在也不報錯）
+DROP INDEX idx_stock_date ON TaiwanStockPrice;   -- 拆掉實驗用的索引
+DROP DATABASE IF EXISTS test_ecommerce;          -- 整個電商練習庫（含所有實驗表）一起收
+DROP USER IF EXISTS 'app'@'%';                   -- 刪實驗帳號
 ```
 
 ---
@@ -477,4 +450,4 @@ DROP USER IF EXISTS 'app'@'%';
 - 索引 = 目錄：EXPLAIN 親測 320→32；複合索引有最左前綴原則；索引的代價是寫入變慢
 - 外鍵保護參照完整性（1452/1451 兩個方向）；資料工程落地表常不設外鍵，驗證放 pipeline
 - VIEW 是 DB 層的介面，Metabase 接的就是它；交易讓多步驟同生共死
-- 正式環境用受限帳號（GRANT）+ mysqldump 備份；分區是大表的抽屜術，分區鍵必須在主鍵裡
+- 正式環境用受限帳號（GRANT）；分區是大表的抽屜術，分區鍵必須在主鍵裡
