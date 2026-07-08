@@ -33,10 +33,12 @@ docker exec mysql mysql -uroot -p1234 mydb -e "SELECT COUNT(*) FROM TaiwanStockP
 
 ### 主鍵的兩派選擇：自然鍵 vs 代理鍵
 
-- **自然鍵**：用資料本身的身分當主鍵，例如 `(stock_id, date)`。優點：語意清楚、天生防重複（第 6 章 upsert 靠的就是它）。
-- **代理鍵**：加一個無意義的 `id INT AUTO_INCREMENT PRIMARY KEY`。優點：單欄、短、永不變動；缺點：**防不了業務重複**——同股同日可以塞兩筆，各拿一個不同的 id。
+- **自然鍵**：用資料**天生的身分**當主鍵。「2330 在 6/13 的股價」本來就只該有一筆，所以 `(stock_id, date)` 這個組合天然就是它的身分證。
+- **代理鍵**：另外發一張**號碼牌**——加一欄 `id INT AUTO_INCREMENT`，資料進來就 1、2、3… 自動編下去。號碼跟資料內容一點關係都沒有，像戶政事務所的抽號機。
 
-我們的股價表選自然鍵，因為「同股同日只能有一筆」正是業務規則本身。實務常見混搭：代理鍵當主鍵 + 自然鍵組合設 `UNIQUE`，兩個好處都拿到。
+號碼牌的好處是單欄、短、永不變動；但**號碼牌防不了重複排隊**——同一筆「2330、6/13」塞兩次，會各拿到 id=5 和 id=6，資料庫覺得沒問題（號碼不同嘛），業務上卻重複了。我們選自然鍵，因為「同股同日只能有一筆」正是業務規則本身——這也是第 6 章 upsert 能防重複的根基。
+
+> 進階（先看過就好）：實務常混搭——代理鍵當主鍵、自然鍵組合另設 `UNIQUE`，兩個好處都拿到。等你遇到「身分欄位本身會變動」的表（例如會改帳號名的會員表），就懂為什麼需要它。
 
 > **phpMyAdmin 哪裡看**：選表 → **Structure** 頁籤。主鍵欄位會有金色鑰匙 🔑；下方 Indexes 區塊列出所有鍵。第 5 章 `to_sql` 自動建的表在這裡會看到「**沒有任何鍵**」——這就是第 6 章要拿回控制權的原因。
 
@@ -120,7 +122,7 @@ CREATE TABLE orders (
 意思：**訂單不能掛在不存在的使用者或商品上**。實測兩個方向的保護：
 
 ```sql
--- ① 塞一筆 user_id=99 的訂單（users 表沒有 99 號）
+-- ① 擋進：塞一筆「孤兒訂單」（user_id=99，users 表沒有 99 號）
 INSERT INTO orders VALUES (9999, 99, 101, '2024-05-01', 1, 100);
 ```
 ```
@@ -128,14 +130,28 @@ ERROR 1452 (23000): Cannot add or update a child row: a foreign key constraint f
 ```
 
 ```sql
--- ② 刪掉 Alice（user_id=1），但她還有訂單掛著
+-- ② 擋刪：刪掉 Alice（user_id=1），但她名下還有訂單掛著
 DELETE FROM users WHERE user_id = 1;
 ```
 ```
 ERROR 1451 (23000): Cannot delete or update a parent row: a foreign key constraint fails
 ```
 
-**子表塞不進孤兒、父表刪不掉還被引用的資料**——這就是「參照完整性」。（進階：`ON DELETE CASCADE` 可以改成「刪父連子一起刪」，預設是擋下來。）
+白話記法：**1452＝擋進（不准建立孤兒訂單）、1451＝擋刪（不准丟下孤兒就跑）**。一個管進、一個管刪，合起來保證訂單永遠找得到主人——這就是「參照完整性」。（進階：`ON DELETE CASCADE` 可以改成「刪父連子一起刪」，預設是擋下來。）
+
+### 同一個實驗，改用 phpMyAdmin 介面做
+
+不想打 SQL 的話，圖形介面照樣能踩到這兩道保護——phpMyAdmin 只是幫你送出同一句 SQL，紅色錯誤框裡的代碼一模一樣：
+
+**擋進（#1452）**：
+1. 左側選 `test_ecommerce` → 點 `orders` 表 → 上方 **Insert（新增）** 頁籤
+2. 填 order_id `9999`、user_id `99`（故意填不存在的）、product_id `101`、其餘隨意 → **Go**
+3. 頁面跳出紅色錯誤：`#1452 - Cannot add or update a child row...`——資料沒進去
+
+**擋刪（#1451）**：
+1. 點 `users` 表 → **Browse（瀏覽）** 頁籤
+2. 找到 user_id=1（Alice）那一列 → 按該列的 **Delete** → 確認
+3. 紅色錯誤：`#1451 - Cannot delete or update a parent row...`——Alice 還有訂單，刪不掉
 
 ### 有了關聯，JOIN 才有意義
 
