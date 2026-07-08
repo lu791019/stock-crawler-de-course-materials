@@ -128,7 +128,7 @@ SQL 指令看起來很多，其實按「管什麼」分成四家，之後看到�
 
 **四家各來一個範例**（都可以在 phpMyAdmin 的 SQL 頁籤直接跑，VM 實測過）：
 
-**DDL — 動的是「櫃子本身」，不是櫃子裡的東西**：
+**DDL — 定義資料結構**：
 
 ```sql
 CREATE TABLE my_notes (                          -- 建：定義欄位、型別、主鍵
@@ -139,7 +139,7 @@ ALTER TABLE my_notes ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP;  
 DROP TABLE my_notes;                             -- 刪：整張表連結構帶資料消失
 ```
 
-**DML — 動的是櫃子裡的東西**（這三句跑完，表會回到原樣——一組最小的增改刪循環）：
+**DML — 操作資料內容**（這三句跑完，表會回到原樣——一組最小的增改刪循環）：
 
 ```sql
 INSERT INTO TaiwanStockPrice (date, stock_id, close) VALUES ('2025-06-16', '2330', 1010.0);
@@ -147,7 +147,7 @@ UPDATE TaiwanStockPrice SET close = 1011.5 WHERE stock_id = '2330' AND date = '2
 DELETE FROM TaiwanStockPrice WHERE stock_id = '2330' AND date = '2025-06-16';
 ```
 
-**DQL — 只讀不寫，怎麼跑都不會改變資料**（所以 Metabase 這種 BI 工具只需要 DQL）：
+**DQL — 查詢資料內容**（只讀不寫；Metabase 這類 BI 工具只需要它）：
 
 ```sql
 SELECT stock_id, ROUND(AVG(close), 2) AS avg_close   -- 六月以來各股平均收盤價 Top 3
@@ -159,7 +159,7 @@ LIMIT 3;
 -- 實測：2454→1205.13、2330→998.52、2382→400.30
 ```
 
-**DCL — 管的是「人」，不是資料**（完整實測見補充D 第 6 節）：
+**DCL — 控制使用者權限**（完整實測見補充D 第 6 節）：
 
 ```sql
 GRANT SELECT, INSERT ON mydb.* TO 'app'@'%';    -- 給 app 帳號：查＋寫
