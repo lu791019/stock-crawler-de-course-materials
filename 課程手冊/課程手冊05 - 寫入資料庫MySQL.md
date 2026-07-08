@@ -319,6 +319,14 @@ uv add sqlalchemy
 uv sync
 ```
 
+**版本**：本專案鎖定 `pymysql==1.1.1`、`sqlalchemy>=2.0,<3`（實裝 2.0.49，VM 實測）。特別注意 **SQLAlchemy 1.x 和 2.x 語法差很多**，本課全部用 2.0 風格——例如 SQL 字串必須包 `text()` 才能執行；網路上舊教學直接 `conn.execute("SELECT ...")` 傳裸字串的是 1.x 寫法，在 2.x 會報錯。確認自己裝到什麼版本：
+
+```bash
+uv pip list | grep -i -e pymysql -e sqlalchemy
+# pymysql      1.1.1
+# sqlalchemy   2.0.49
+```
+
 接著在真正跑 pipeline 之前，先用一小段程式確認連線沒問題（問題切小塊，好排查）：
 
 ```bash
