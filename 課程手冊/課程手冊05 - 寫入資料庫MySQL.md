@@ -405,6 +405,47 @@ MySQL（TCP 3306）
 
 連線字串 `mysql+pymysql://...` 的 `mysql` 是「方言（dialect）」、`pymysql` 是「驅動（driver）」——SQLAlchemy 負責把同一套 Python 介面翻成各家資料庫的方言，所以之後想換 PostgreSQL，理論上改連線字串就好，程式碼不動。
 
+### 往下看一層：直接用 pymysql 長什麼樣
+
+SQLAlchemy 底下那層（DBAPI）親眼看一次，之後看到別人 `import pymysql` 的程式碼就不會慌（VM 實測可跑）：
+
+```python
+import pymysql
+
+conn = pymysql.connect(host="127.0.0.1", port=3306,
+                       user="root", password="1234", database="mydb")
+try:
+    with conn.cursor() as cursor:                      # cursor（游標）= 你跟 DB 對話的把手
+        cursor.execute(
+            "SELECT date, close FROM TaiwanStockPrice WHERE stock_id = %s "
+            "ORDER BY date DESC LIMIT 3",
+            ("2330",),                                  # %s 佔位 + 參數分開傳 → 防 SQL injection
+        )
+        for row in cursor.fetchall():                   # 取回結果（tuple 的 list）
+            print(row)        # (datetime.date(2025, 6, 13), Decimal('1000.65')) ...
+    conn.commit()                                       # 有寫入的話要自己 commit
+finally:
+    conn.close()                                        # 用完要自己關
+```
+
+**跟 SQLAlchemy 版對照，你就知道上層幫你省了什麼**：
+
+| | 原生 pymysql | SQLAlchemy |
+|---|---|---|
+| 連線管理 | 自己 connect / close，沒有連線池 | engine 連線池自動借還 |
+| 交易 | 自己記得 commit | `engine.begin()` 自動 commit/rollback |
+| 佔位符 | `%s`（pymysql 專屬） | `:名字`（跨資料庫統一） |
+| 結果 | tuple，欄位靠位置對 | 可直接進 pandas DataFrame |
+| 換資料庫 | 整段重寫（各家 DBAPI 不同） | 改連線字串即可 |
+
+所以本課站在 SQLAlchemy + pandas 這層——但底層概念（cursor、佔位符、commit）是通用的，任何語言連任何資料庫都是這一套。
+
+**版本與兩個坑**：
+
+- 本專案 `pyproject.toml` 鎖定 `pymysql==1.1.1`，`uv sync` 就會裝對；自己的新專案 `uv add pymysql` 即可。
+- ⚠️ **查版本別用 `pymysql.__version__`**——它會回 `"1.4.6"`，那是 PyMySQL 假扮成舊套件 MySQLdb 的「相容版本號」，不是它自己的版本（歷史包袱：讓檢查 MySQLdb 版本的老程式碼不會爆）。要看真實版本用 `pymysql.VERSION`（回 `(1, 1, 1, 'final', 1)`）或 `uv pip list`。以上皆 VM 實測。
+- MySQL 8 預設認證方式（`caching_sha2_password`）需要另裝 `cryptography` 套件才能連。本課的 compose 設了 `--default-authentication-plugin=mysql_native_password`、且專案依賴裡已帶 cryptography，所以你不會踩到；在別的環境看到 `cryptography is required` 錯誤，就是這件事。
+
 **Core vs ORM**：SQLAlchemy 有兩層用法。**Core** 是「用 Python 組 SQL、自己管表」——本課程用的就是它（搭配 pandas）；**ORM** 是「把表映射成 Python class、把資料列當物件操作」——Web 後端（如 FastAPI + 使用者系統）常用，資料工程的批次讀寫用 Core 就夠、也更直觀。知道有這兩層，看到別人的 `class User(Base)` 程式碼時不會慌。
 
 ### create_engine 參數詳解
