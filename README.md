@@ -136,6 +136,7 @@ stock-crawler/
 | 補充B | MySQL to FastAPI（資料的 API 出口）| `api/main.py` |
 | 補充C | Unit Test 與整合測試（pytest + mock + 冪等驗證）| `tests/` |
 | 補充D | MySQL 深入：約束/索引/外鍵/交易/權限/分區 + phpMyAdmin 實戰 | `example/ecommerce.sql`、`example/mock_stock_price_data.sql` |
+| 補充E | .env 與環境變數：${} 替換 vs env_file 注入、三層哲學、三個坑 | `docker-compose-dotenv-demo.yml`、`.env.dotenv-demo.example` |
 
 ---
 
