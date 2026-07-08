@@ -126,6 +126,47 @@ SQL 指令看起來很多，其實按「管什麼」分成四家，之後看到�
 - 跟 **CRUD** 的關係：CRUD 是「動作」視角（Create/Read/Update/Delete），四大家族是「指令分類」視角——CRUD 的 C、U、D 都屬於 DML，R 屬於 DQL。兩套講的是同一件事的不同切面。
 - 有人會把 `COMMIT` / `ROLLBACK` 獨立成第五家 **TCL**（交易控制）——補充D 的交易一節玩的就是它們。
 
+**四家各來一個範例**（都可以在 phpMyAdmin 的 SQL 頁籤直接跑，VM 實測過）：
+
+**DDL — 動的是「櫃子本身」，不是櫃子裡的東西**：
+
+```sql
+CREATE TABLE my_notes (                          -- 建：定義欄位、型別、主鍵
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    note VARCHAR(200) NOT NULL
+);
+ALTER TABLE my_notes ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP;  -- 改：加一欄
+DROP TABLE my_notes;                             -- 刪：整張表連結構帶資料消失
+```
+
+**DML — 動的是櫃子裡的東西**（這三句跑完，表會回到原樣——一組最小的增改刪循環）：
+
+```sql
+INSERT INTO TaiwanStockPrice (date, stock_id, close) VALUES ('2025-06-16', '2330', 1010.0);
+UPDATE TaiwanStockPrice SET close = 1011.5 WHERE stock_id = '2330' AND date = '2025-06-16';
+DELETE FROM TaiwanStockPrice WHERE stock_id = '2330' AND date = '2025-06-16';
+```
+
+**DQL — 只讀不寫，怎麼跑都不會改變資料**（所以 Metabase 這種 BI 工具只需要 DQL）：
+
+```sql
+SELECT stock_id, ROUND(AVG(close), 2) AS avg_close   -- 六月以來各股平均收盤價 Top 3
+FROM TaiwanStockPrice
+WHERE date >= '2025-06-01'
+GROUP BY stock_id
+ORDER BY avg_close DESC
+LIMIT 3;
+-- 實測：2454→1205.13、2330→998.52、2382→400.30
+```
+
+**DCL — 管的是「人」，不是資料**（完整實測見補充D 第 6 節）：
+
+```sql
+GRANT SELECT, INSERT ON mydb.* TO 'app'@'%';    -- 給 app 帳號：查＋寫
+REVOKE INSERT ON mydb.* FROM 'app'@'%';         -- 收回寫入權
+SHOW GRANTS FOR 'app'@'%';                      -- 驗證：清單裡只剩 SELECT ✅
+```
+
 ---
 
 ## 這一章會用到的檔案
