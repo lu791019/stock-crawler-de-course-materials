@@ -116,10 +116,10 @@ SQL 指令看起來很多，其實按「管什麼」分成四家，之後看到�
 
 | 家族 | 全名 | 管什麼 | 常見指令 | 本課在哪遇到 |
 |------|------|--------|---------|-------------|
-| **DDL** | Data Definition Language（資料定義）| 表的**結構**：建、改、刪表 | `CREATE`、`ALTER`、`DROP`、`TRUNCATE` | `to_sql` 幫你自動 CREATE TABLE；補充D 建索引、分區 |
-| **DML** | Data Manipulation Language（資料操作）| 表裡的**資料**：增、改、刪 | `INSERT`、`UPDATE`、`DELETE` | `to_sql` append 就是一串 INSERT；第 6 章 upsert |
-| **DQL** | Data Query Language（資料查詢）| **查**資料 | `SELECT`（配 `WHERE`、`JOIN`、`GROUP BY`）| 三種驗證入庫、`read_sql`、之後 Metabase 的每張圖 |
-| **DCL** | Data Control Language（資料控制）| **誰能做什麼**：權限 | `GRANT`、`REVOKE` | 補充D 的受限帳號（app 只給 SELECT/INSERT）|
+| **DDL** | Data Definition Language（資料定義）| **定義資料結構**：建、改、刪表 | `CREATE`、`ALTER`、`DROP`、`TRUNCATE` | `to_sql` 幫你自動 CREATE TABLE；補充D 建索引、分區 |
+| **DML** | Data Manipulation Language（資料操作）| **操作資料內容**：增、改、刪 | `INSERT`、`UPDATE`、`DELETE` | `to_sql` append 就是一串 INSERT；第 6 章 upsert |
+| **DQL** | Data Query Language（資料查詢）| **查詢資料內容** | `SELECT`（配 `WHERE`、`JOIN`、`GROUP BY`）| 三種驗證入庫、`read_sql`、之後 Metabase 的每張圖 |
+| **DCL** | Data Control Language（資料控制）| **控制使用者權限** | `GRANT`、`REVOKE` | 補充D 的受限帳號（app 只給 SELECT/INSERT）|
 
 兩個備註：
 
