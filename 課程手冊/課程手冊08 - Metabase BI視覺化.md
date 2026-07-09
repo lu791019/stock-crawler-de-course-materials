@@ -18,6 +18,29 @@
 
 前面的章節都在解決「怎麼把資料可靠地生出來、存起來」。但資料躺在資料庫裡沒人看，價值等於零。**BI（Business Intelligence，商業智慧）工具就是資料的出口**——讓不會寫 SQL 的人也能拉圖表、看趨勢、做決策。
 
+**BI / Dashboard 工具在做什麼？六件核心的事**：
+
+1. **連資料源**：接上資料庫/倉儲，不搬資料、即時查
+2. **查詢**：不會 SQL 的人拖拉點選（query builder），會 SQL 的人直接寫
+3. **視覺化**：查詢結果變成折線、長條、圓餅、數字卡…
+4. **Dashboard 組裝**：多張圖拼成一面儀表板，加全域篩選器
+5. **分享與權限**：誰能看哪個庫、哪張表、哪面板
+6. **排程與告警**：定時寄報表、指標超標自動通知
+
+**常見 BI 工具一覽**：
+
+| 工具 | 定位 | 特點 | 費用 |
+|------|------|------|------|
+| **Metabase** | 開源自架、輕量 | 上手最快、query builder 對非工程師友善、Docker 一行起 | 開源免費（另有付費雲）|
+| **Power BI** | 微軟企業級 | 功能深（DAX）、Office/Excel 整合強 | 個人免費、團隊付費 |
+| **Tableau** | 視覺化旗艦 | 拖拉分析與圖表表現力天花板、企業標配 | 貴 |
+| **Redash** | 開源、SQL-first | 每張圖就是一句 SQL，開發者取向 | 開源（近年維護趨緩）|
+| **Superset** | Apache 開源 | 功能最全的開源選項，架設與學習較重 | 免費 |
+| **Looker Studio** | Google 免費雲端 | 接 GA、BigQuery 特別順 | 免費 |
+| **Grafana** | 監控/時序起家 | DevOps 儀表板之王，看系統 metrics 不是業務報表 | 開源 |
+
+選型口訣：教學與中小團隊自架 → Metabase；企業微軟生態 → Power BI；純 SQL 人 → Redash / Superset；看系統監控 → Grafana。本課選 Metabase：開源、Docker 一行起、十分鐘拉出第一張圖。
+
 **Metabase 是什麼**：
 
 - 開源的商業智慧（BI）平台
@@ -48,6 +71,27 @@
 2. **資料來源**：也就是你的 MySQL（`mydb`）。Metabase 只是「連過去查」，你要在它的網頁設定裡手動加這個連線。
 
 一句話：**MySQL 是「被查的對象」，Metabase 的設定另外存在 H2。** 因為有 volume，重啟容器你的 Dashboard 不會不見。
+
+---
+
+## Metabase 功能地圖（每一項都實測過）
+
+做圖之前先認識整個介面有什麼。下表的「實測範例」都是在本課的股價資料上真實跑過的：
+
+| 頁面 / 功能 | 在哪 | 做什麼 | 實測範例 |
+|------------|------|--------|---------|
+| **Browse data** | 左側 Databases | 點開資料庫直接看每張表 | 連上後看到 4 張表（含 VIEW）|
+| **Question 查詢產生器** | + New → Question | 免 SQL：選表→篩選→彙總→分組 | 「各股平均收盤價」長條圖：11 支股票一次畫出 |
+| **SQL 模式 + 變數** | + New → SQL query | 寫 SQL，`{{變數}}` 做互動篩選 | `WHERE stock_id = {{sid}}`，切 2454 立刻重畫 32 天走勢 |
+| **視覺化切換** | 結果頁左下 Visualization | 同一份結果切折線/長條/數字卡… | 上面兩例分別存成 bar 和 line |
+| **Dashboard** | + New → Dashboard | 卡片拼裝＋全域篩選器＋自動刷新 | 「台股戰情室」：兩張卡並排組裝完成 |
+| **Collections** | 左側收藏集 | 資料夾式管理 Question/Dashboard，可設權限 | 建「股價分析」收藏集歸檔 |
+| **X-ray 一鍵分析** | 表格頁的黃色閃電 | Metabase 自動掃資料生一組圖 | 對 TaiwanStockPrice 按下去：**自動生出 9 張圖** |
+| **訂閱與警示** | Dashboard / Question 內 | 定時寄報表、數字達標告警 | 功能在 UI 裡；寄送需先設 SMTP（管理員→設定→Email），課堂不設 |
+| **Admin → Databases** | 齒輪 → 管理員 | 資料源管理、同步 schema | Step 10 的 VIEW 同步就在這 |
+| **Admin → People / Permissions** | 同上 | 使用者、群組、誰能看哪個資料庫 | 見下方「權限有兩層」|
+
+> **權限有兩層**：MySQL 的 `metabase_ro` 管「Metabase 整體拿得到什麼」（DB 層）；Metabase 的 Permissions 管「哪個使用者看得到什麼」（BI 層）。兩層各守一關。
 
 ---
 
