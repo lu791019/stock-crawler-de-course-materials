@@ -18,7 +18,11 @@
 
 前面的章節都在解決「怎麼把資料可靠地生出來、存起來」。但資料躺在資料庫裡沒人看，價值等於零。**BI（Business Intelligence，商業智慧）工具就是資料的出口**——讓不會寫 SQL 的人也能拉圖表、看趨勢、做決策。
 
-Metabase 是一套開源 BI 工具，特點是設定簡單、網頁介面友善，很適合入門和中小型團隊。
+**Metabase 是什麼**：
+
+- 開源的商業智慧（BI）平台
+- 能將資料庫裡的資料快速轉換成圖表、儀表板與報表
+- 簡單易用、安裝快速，適合中小型團隊、教育場合，或作為企業內部的輕量 BI 工具
 
 **為什麼排在這裡？** 因為到第 4 章為止，你的資料已經穩定地在 MySQL 裡了。這時把它變成圖表，你會第一次「看到自己做的東西有用」——這種成就感是最好的學習動力。
 
@@ -40,6 +44,7 @@ Metabase 是一套開源 BI 工具，特點是設定簡單、網頁介面友善�
 用之前一定要分清楚，不然你會被「為什麼要設定兩次資料庫」搞糊塗：
 
 1. **Metabase 自己的設定庫**：你的帳號、做好的 Dashboard、查詢紀錄，存在 Metabase **內建的 H2 資料庫**裡，透過 Docker volume `metabase-data` 保存。**它跟你的 MySQL 沒關係。**
+   > 有些教學會要你先在 phpMyAdmin 建一個 `metabasedb` 資料庫和專用帳號給 Metabase 存設定——那是「設定庫放 MySQL」的做法；本課用內建 H2，這整組步驟都**不需要**。Google 到那種教學時別混淆。
 2. **資料來源**：也就是你的 MySQL（`mydb`）。Metabase 只是「連過去查」，你要在它的網頁設定裡手動加這個連線。
 
 一句話：**MySQL 是「被查的對象」，Metabase 的設定另外存在 H2。** 因為有 volume，重啟容器你的 Dashboard 不會不見。
@@ -100,6 +105,19 @@ docker network connect my_network mysql
 
 打開 http://localhost:3000 ，跟著導覽建立一個管理員帳號（這個帳號是存在 Metabase 的 H2 裡，跟 MySQL 無關）。語言可選繁體中文。
 
+### Step 3.5：幫 Metabase 建一個「唯讀」資料庫帳號
+
+Metabase 對 MySQL 只需要「讀」——正式做法是給它一個只有 SELECT 的專用帳號（最小權限原則，補充D 第 6 節的實戰應用）：
+
+```sql
+CREATE USER 'metabase_ro'@'%' IDENTIFIED BY 'metabase';   -- _ro = read-only 的慣用命名
+GRANT SELECT ON mydb.* TO 'metabase_ro'@'%';              -- 只給查詢，不給寫
+```
+
+> **phpMyAdmin 版**（同一件事的圖形操作）：root 登入 → 首頁 **User accounts** → **Add user account** → 使用者名稱 `metabase_ro`、主機名稱選「任何主機（%）」、設密碼 → 「資料庫的權限」選 `mydb` → 只勾 **SELECT** → 執行。
+
+✅ VM 實測：這個帳號透過 Metabase 查資料一切正常；想 `DELETE` 會被 MySQL 直接擋下（`DELETE command denied to user 'metabase_ro'`）——BI 只該讀、不該寫，權限層幫你守住。
+
 ### Step 4：把 MySQL 加進來當資料來源
 
 在 Metabase 裡：設定（齒輪）→ 管理員 → 資料庫 → 新增資料庫，填入：
@@ -111,10 +129,12 @@ docker network connect my_network mysql
 | Host | `mysql`（**注意：是這個服務名，不是 127.0.0.1**）|
 | Port | `3306` |
 | 資料庫名稱 | `mydb` |
-| 帳號 | `root` |
-| 密碼 | `1234` |
+| 帳號 | `metabase_ro`（Step 3.5 建的唯讀帳號）|
+| 密碼 | `metabase` |
 
-> ✅ 儲存後沒報錯、能在 Metabase 裡看到 `TaiwanStockPrice` 這張表，就連通了。
+> ✅ 儲存後沒報錯、能在 Metabase 裡看到 `TaiwanStockPrice` 這張表，就連通了（Metabase 在「儲存」當下就會實際連線驗證，帳密錯會直接報錯）。
+>
+> 💡 用 `root / 1234` 也連得上，但正式做法是最小權限——就算 Metabase 被玩壞或帳號外洩，也動不了你的資料。
 >
 > ⚠️ 最常卡在 Host：在 Docker 網路裡，容器之間要用**服務名**（`mysql`）互相找，不能用 `127.0.0.1`（那會指向 Metabase 容器自己）。前提是兩個容器在同一個網路（`my_network`）。
 
@@ -265,7 +285,8 @@ ORDER BY trade_date;
 |-------------|------|--------|
 | 連 MySQL 一直失敗 | Host 填了 `127.0.0.1`，或兩容器不同網路 | 改填服務名 `mysql`；跑 `docker network connect my_network mysql` |
 | http://localhost:3000 一片空白 | Metabase（JVM）還在啟動 | 等 30~60 秒再刷新，或用 Step 2 的等待迴圈 |
-| 看不到任何資料表 | MySQL 裡 `mydb` 沒資料，或帳密錯 | 回 Step 1 載入 mock 資料；確認 root/1234 |
+| 看不到任何資料表 | MySQL 裡 `mydb` 沒資料，或帳密錯 | 回 Step 1 載入 mock 資料；確認 metabase_ro/metabase |
+| 新增資料庫時帳密被拒 | `metabase_ro` 還沒建，或密碼打錯 | 回 Step 3.5 建帳號；`SHOW GRANTS FOR 'metabase_ro'@'%'` 檢查 |
 | 新建的 VIEW 在 Metabase 找不到 | schema 還沒同步 | 管理員 → 資料庫 → 同步資料庫 schema |
 | 重啟後 Dashboard 不見 | volume 沒掛好 | 確認 compose 有掛 `metabase-data` volume，別用 `down -v` |
 

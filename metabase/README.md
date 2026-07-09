@@ -20,15 +20,19 @@ Metabase 啟動較慢（JVM），約需 30-60 秒。
 
 ## 首次設定
 
-1. 開啟 http://localhost:3000，依照導覽建立管理員帳號
-2. 設定 → 資料庫 → 新增資料庫
-3. 填寫 MySQL 連線資訊：
+1. 開啟 http://localhost:3000，依照導覽建立管理員帳號（存在 Metabase 內建 H2，跟 MySQL 無關）
+2. 幫 Metabase 建唯讀資料庫帳號（最小權限，詳見課程手冊08 Step 3.5）：
+   ```sql
+   CREATE USER 'metabase_ro'@'%' IDENTIFIED BY 'metabase';
+   GRANT SELECT ON mydb.* TO 'metabase_ro'@'%';
+   ```
+3. 設定 → 資料庫 → 新增資料庫，填寫 MySQL 連線資訊：
    - 類型：MySQL
    - Host：`mysql`（Docker 網路內的 hostname）
    - Port：`3306`
    - 資料庫名稱：`mydb`
-   - 帳號：`root`
-   - 密碼：`1234`
+   - 帳號：`metabase_ro`
+   - 密碼：`metabase`
 4. 儲存後即可在 Metabase 裡查詢 TaiwanStockPrice 等資料表
 
 ## 架構說明
