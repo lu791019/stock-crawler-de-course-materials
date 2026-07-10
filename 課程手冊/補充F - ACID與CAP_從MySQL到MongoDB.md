@@ -1,31 +1,33 @@
 # 補充 F：ACID 與 CAP — 從 MySQL 到 MongoDB
 
-> 手冊05 的大局觀比過 RDBMS vs NoSQL，那張表裡有兩個沒展開的縮寫：**ACID** 和 **CAP**。這份補充把它們講透，然後動手跑一個真的 NoSQL——用跟 MySQL 版完全同款的 Celery 爬蟲，把股價寫進 **MongoDB**，比較兩個世界的差異。
+> 手冊05 的大局觀比過 RDBMS vs NoSQL，那張表裡有兩個沒展開的縮寫：**ACID** 和 **CAP**。這份補充說明這兩個概念，然後動手跑一個真的 NoSQL——用跟 MySQL 版完全同款的 Celery 爬蟲，把股價寫進 **MongoDB**，比較兩個世界的差異。
 
 ---
 
-## 1. ACID — 單機資料庫的四條保證
+## 1. ACID — 交易的四條保證
 
-交易（補充D 第 5 節玩過的 `START TRANSACTION` / `ROLLBACK`）背後就是這四個字母：
+交易（補充D 第 5 節操作過的 `START TRANSACTION` / `ROLLBACK`）背後就是這四個字母：
 
-| 字母 | 名稱 | 白話 | 在課程哪裡摸過 |
-|------|------|------|---------------|
-| **A** | Atomicity 原子性 | 一組操作要嘛全做完、要嘛全沒發生 | 補充D 交易實驗：改成 0 → ROLLBACK → 變回 1000.65 |
-| **C** | Consistency 一致性 | 交易前後，資料都符合所有規則（主鍵、外鍵、約束）| 補充D 的 1048/1062/1452——違規直接拒收 |
-| **I** | Isolation 隔離性 | 多人同時操作，彼此不互相干擾（像各自在隔間工作）| 多 worker 同時寫入時 MySQL 幫你擋衝突 |
+| 字母 | 名稱 | 白話 | 課程對應 |
+|------|------|------|---------|
+| **A** | Atomicity 原子性 | 一組操作要嘛全做完、要嘛全沒發生 | 補充D 第 5 節交易實驗：改成 0 → ROLLBACK → 變回 1000.65 |
+| **C** | Consistency 一致性 | 交易前後，資料都符合所有規則（主鍵、外鍵、約束）| 補充D 第 2、3 節：NOT NULL 缺值（1048）、主鍵重複（1062）、外鍵指向不存在的資料（1452），都會被拒收 |
+| **I** | Isolation 隔離性 | 多人同時操作，彼此不互相干擾（像各自在隔間工作）| 多 worker 同時寫入時由 MySQL 處理衝突 |
 | **D** | Durability 持久性 | COMMIT 成功的資料，斷電也不會消失（已落盤）| volume 掛載 + MySQL 的交易日誌 |
 
-一句話：**ACID 是「單機資料庫對你的承諾」——資料永遠正確、永遠不丟。** MySQL、PostgreSQL 這些 RDBMS 的招牌就是它。
+**ACID 是資料庫對「交易」的保證：資料正確、不遺失。** 它本身跟單機或分散式無關，但在單機上最容易完整實現——MySQL、PostgreSQL 這類 RDBMS 都完整支援。一旦資料分散到多台機器，要維持同樣的保證就必須跨機器協調、成本大增——這正是下一節 CAP 要處理的問題。
 
 ## 2. CAP — 分散式世界的「三選二」
 
-資料一多，一台機器放不下，要多台——這時出現一個殘酷的定理。三個願望：
+資料一多，一台機器放不下，要多台——這時有一個取捨定理。三個目標：
 
 - **C**onsistency 一致性：任何時刻、問任何一台，答案都一樣
 - **A**vailability 可用性：任何時刻都有人回答你（不會「服務暫停」）
 - **P**artition tolerance 分區容忍：機器之間**斷線時**系統還能運作
 
 **CAP 定理：三個最多同時滿足兩個。** 而且 P 不是選項、是現實——網路一定會斷。所以真正的選擇題是：**斷線的當下，你要 C 還是 A？**
+
+注意：CAP 講的是**分散式系統**，不是 NoSQL 專屬——MySQL 做主從複寫或集群時同樣受 CAP 約束；單機一台 MySQL 沒有「機器之間斷線」的問題，所以不在 CAP 討論範圍。只是多數 NoSQL 天生為分散式設計，才更常跟 CAP 一起被提起。
 
 用連鎖餐廳想像：台北、高雄兩家分店共用會員點數，兩店之間網路斷了，這時客人來扣點——
 
@@ -42,7 +44,7 @@
 | 適合 | 交易系統、需要 JOIN 與強約束 | 結構多變、量大、高流量寫入 |
 | 課程對應 | 手冊05-06 的股價落地 | 本補充的動手段 |
 
-（手冊05 大局觀那張 RDBMS vs NoSQL 表的「ACID」「最終一致性」，現在你知道它們是什麼了。）
+（手冊05 大局觀那張 RDBMS vs NoSQL 表的「ACID」「最終一致性」，對應的就是上面兩節。）
 
 ---
 
@@ -69,7 +71,7 @@ docker compose -f docker-compose-local.yml up -d mongodb mongo-express
 def upload_data_to_mongo(data: list):
     client = MongoClient(host=MONGO_HOST, port=MONGO_PORT,
                          username=MONGO_ACCOUNT, password=MONGO_PASSWORD)
-    collection = client["mydb"]["TaiwanStockPrice"]   # 資料庫和集合不存在？第一次寫入自動出現
+    collection = client["mydb"]["TaiwanStockPrice"]   # 資料庫和集合不存在時，第一次寫入自動建立
     for doc in data:
         collection.update_one(
             {"stock_id": doc["stock_id"], "date": doc["date"]},  # 同股同日 = 同一份文件
@@ -80,7 +82,7 @@ def upload_data_to_mongo(data: list):
 
 | | MySQL 版（手冊05/06）| MongoDB 版（本補充）|
 |---|---|---|
-| 寫入前要做什麼 | 建表、定欄位型別、設主鍵 | **什麼都不用**——dict 直接塞 |
+| 寫入前要做什麼 | 建表、定欄位型別、設主鍵 | 不需要——dict 直接寫入 |
 | 資料單位 | 一列（row，欄位固定）| 一份文件（dict，欄位自由）|
 | 防重複 | 複合主鍵 + `on_duplicate_key_update` | `update_one(filter, $set, upsert=True)` |
 | 型別 | DB 層強制（DECIMAL/BIGINT…）| 寫進去是什麼就是什麼 |
@@ -101,9 +103,9 @@ uv run crawler/producer_crawler_finmind_mongo.py
 ```bash
 docker exec mongodb mongosh -u root -p 1234 --quiet --eval \
   'db.getSiblingDB("mydb").TaiwanStockPrice.countDocuments()'
-# → 3035          ← 5 支股票的歷史全進來了
+# → 3035          ← 5 支股票的歷史資料全部寫入
 
-# 抽一份文件看長相——就是 FinMind 回來的 dict 原樣：
+# 查看其中一份文件——就是 FinMind 回來的 dict 原樣：
 # { stock_id: '2330', date: '2024-01-02', Trading_Volume: 27997826, ... }
 ```
 
@@ -129,7 +131,7 @@ docker compose -f docker-compose-local.yml down    # mongodb volume 保留資料
 | 欄位固定、要 JOIN 分析 | MySQL | 關聯與約束是它的主場 |
 | 資料結構常變（每支爬蟲欄位都不同）| MongoDB | 免 schema，改欄位不用 ALTER |
 | 超高流量寫入、要水平擴展 | MongoDB | 天生分散式 |
-| 我們的股價表 | MySQL 為主 | 欄位固定、要給 Metabase/BigQuery——但你現在兩邊都會了 |
+| 我們的股價表 | MySQL 為主 | 欄位固定、要給 Metabase/BigQuery 做關聯查詢 |
 
 ## 想一想（確認你懂了）
 
@@ -143,7 +145,7 @@ docker compose -f docker-compose-local.yml down    # mongodb volume 保留資料
 
 **Q3：MongoDB 免建表很方便，代價是什麼？**
 
-沒有 DB 層的入場檢查——欄位打錯字、型別亂塞它照收（補充D 的 1048/1062 都不會發生），髒資料的防守全部退到程式碼層。方便和保護是一組取捨。
+沒有 DB 層的入場檢查——欄位打錯字、型別不對它照收（補充D 的 1048/1062 都不會發生），檢查責任全部落到程式碼層。方便和保護是一組取捨。
 
 ## 速查
 
