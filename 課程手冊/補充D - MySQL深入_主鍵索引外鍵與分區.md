@@ -341,44 +341,95 @@ ERROR 1142 (42000): DROP command denied to user 'app'@'localhost' for table 'Tai
 
 ## 7. 分區 Partitioning — 大表切抽屜（進階）
 
-表大到千萬筆時，連索引都吃力。**分區**把一張表按規則實體切成多個「抽屜」，查詢時只開有關的抽屜（分區剪枝 pruning）。時序資料最常見**按時間切**：
+表大到千萬筆時，連索引都吃力。**分區**把一張表按規則實體切成多個「抽屜」，查詢時只開有關的抽屜（分區剪枝 pruning）。時序資料最常見**按時間切**。
+
+### 建表：欄位與正式表完全同構
+
+分區表的欄位**必須跟正式表一模一樣**（外加主鍵），否則之後爬蟲寫入會欄位對不上：
 
 ```sql
 CREATE TABLE TaiwanStockPrice_part (
-  date DATE NOT NULL,
+  date DATE NOT NULL,                -- 分區鍵：必須包含在主鍵裡（MySQL 硬規定）
   stock_id VARCHAR(10) NOT NULL,
-  open DECIMAL(10,2), close DECIMAL(10,2), Trading_Volume BIGINT,
-  PRIMARY KEY (stock_id, date)               -- ⚠️ 分區鍵(date)必須包含在主鍵裡
-) PARTITION BY RANGE (YEAR(date)) (          -- 用「date 的年份」當切抽屜的規則
-  PARTITION p2024 VALUES LESS THAN (2025),     -- 2025 年以前的資料放這格
-  PARTITION p2025 VALUES LESS THAN (2026),     -- 2025 年的放這格
-  PARTITION pmax  VALUES LESS THAN MAXVALUE    -- 其餘（未來）全部收這格，避免無處可放報錯
+  Trading_Volume BIGINT,             -- ↓ 以下欄位與正式表 TaiwanStockPrice 完全一致
+  Trading_money BIGINT,
+  open DECIMAL(10,2),
+  max DECIMAL(10,2),
+  min DECIMAL(10,2),
+  close DECIMAL(10,2),
+  spread DECIMAL(10,2),
+  Trading_turnover BIGINT,
+  PRIMARY KEY (stock_id, date)       -- 複合主鍵（含分區鍵 date）
+) PARTITION BY RANGE (YEAR(date)) (  -- 用「date 的年份」當切抽屜的規則
+  PARTITION p2024 VALUES LESS THAN (2025),   -- 2025 年以前放這格
+  PARTITION p2025 VALUES LESS THAN (2026),   -- 2025 年的放這格
+  PARTITION pmax  VALUES LESS THAN MAXVALUE  -- 其餘（未來）全收這格，避免無處可放報錯
 );
 ```
 
-塞入資料後看剪枝是否生效——EXPLAIN 的 `partitions` 欄：
+### 搬歷史資料：小心「舊表有重複」
+
+正式表是 `append` 累積的、**沒有主鍵**，裡面很可能躺著重複資料。直接 `INSERT INTO ... SELECT *` 會撞主鍵：
+
+```
+ERROR 1062: Duplicate entry '2330-2024-01-02' for key 'TaiwanStockPrice_part.PRIMARY'
+```
+
+用 `INSERT IGNORE` 跳過撞主鍵的列（順便完成去重——第 6 章的觀念又出現了）：
+
+```sql
+INSERT IGNORE INTO TaiwanStockPrice_part SELECT * FROM TaiwanStockPrice;
+-- VM 實測：原表 3480 筆（含重複）→ 分區表 2052 筆（去重後）
+```
+
+### 剪枝驗證：EXPLAIN 的 partitions 欄
 
 ```sql
 EXPLAIN SELECT * FROM TaiwanStockPrice_part WHERE date BETWEEN '2025-06-01' AND '2025-06-13';
 ```
 ```
 table                  partitions  type  rows
-TaiwanStockPrice_part  p2025       ALL   320    ← 只開 p2025 這個抽屜，p2024/pmax 完全沒碰
+TaiwanStockPrice_part  p2025       ALL   530    ← 只開 p2025 這個抽屜，p2024/pmax 完全沒碰
 ```
 
-分區資訊也可以直接查：
+分區分佈也可以直接查（`information_schema` 是 MySQL 的系統目錄）：
 
 ```sql
-SELECT PARTITION_NAME, TABLE_ROWS            -- information_schema：MySQL 的「系統目錄」，存放所有表的中繼資料
-FROM information_schema.PARTITIONS
+SELECT PARTITION_NAME, TABLE_ROWS FROM information_schema.PARTITIONS
 WHERE TABLE_NAME = 'TaiwanStockPrice_part';
--- p2024: 0 / p2025: 320 / pmax: 0
+-- p2024: 1415 / p2025: 637 / pmax: 0
 ```
 
-**兩個誠實提醒**：
+### 讓爬蟲直接寫進分區表：一個陷阱與正解
 
-1. **分區鍵必須包含在主鍵（或唯一鍵）裡**——這是 MySQL 的硬規定。我們的複合主鍵 `(stock_id, date)` 正好含 date，天生適合按年分區；如果當初用自增 id 當主鍵，這裡就要重新設計。設計 Data Model 時多想一步的價值在這裡兌現。
-2. **什麼時候才需要**：GB 級、千萬筆以上才有感。我們 320 筆的教學表用分區是殺雞用牛刀——先會概念和語法，等表真的大了再拿出來。BigQuery（第 14 章）的日期分區是同一個概念的雲端版，到時會再遇到它。
+因為兩張表同構，用 `RENAME TABLE` 就能讓分區表**無縫接管**正式表名（原子操作，瞬間完成）：
+
+```sql
+RENAME TABLE TaiwanStockPrice      TO TaiwanStockPrice_plain,   -- 舊表讓位
+             TaiwanStockPrice_part TO TaiwanStockPrice;         -- 分區表接管
+```
+
+**陷阱（VM 實測踩給你看）**：接管後直接跑第 5 章的 append 版爬蟲（`crawler_finmind`，`to_sql append`），worker 立刻報錯——
+
+```
+IntegrityError (1062, "Duplicate entry '2330-2024-01-02' for key 'TaiwanStockPrice.PRIMARY'")
+```
+
+原因：`append` 不看重複、整段歷史照塞，但這張表現在**有主鍵**，重複進不去。**有主鍵的表，寫入方式也必須冪等**——這正是第 6 章 upsert 存在的理由。
+
+**正解（VM 實測）**：搭配 upsert 版任務。upsert 任務的 `create_all` 只在表不存在時建表，所以**先建好「分區版」的同名表，任務就會直接用它**：
+
+```sql
+-- 預先把 TaiwanStockPrice_duplicate 建成「分區版」（欄位同 Table(...) 定義：複合主鍵+10欄）
+-- 然後照第 6 章跑 producer_crawler_finmind_duplicate
+```
+
+實測結果：第一輪寫入 698 筆（p2024: 484 / p2025: 214，資料正確落抽屜）；**重跑第二輪仍是 698 筆、零報錯**——分區＋主鍵＋upsert 三件事同時成立：查得快、擋重複、可重跑。
+
+### 兩個誠實提醒
+
+1. **分區鍵必須包含在主鍵（或唯一鍵）裡**——我們的複合主鍵 `(stock_id, date)` 正好含 date，天生適合按年分區；當初若用自增 id 當主鍵，這裡就要重新設計。Data Model 多想一步的價值在這裡兌現。
+2. **什麼時候才需要**：GB 級、千萬筆以上才有感。教學表用分區是殺雞用牛刀——先會概念和語法，等表真的大了再拿出來。BigQuery（第 14 章）的日期分區是同一個概念的雲端版。
 
 ---
 
@@ -437,6 +488,7 @@ MySQL 要能只憑主鍵判斷「這筆在哪個抽屜」。若主鍵不含 date
 
 ```sql
 DROP TABLE IF EXISTS TaiwanStockPrice_part;      -- 刪分區實驗表（IF EXISTS：不存在也不報錯）
+-- 若做過 RENAME 接管實驗，記得先換回：RENAME TABLE TaiwanStockPrice TO TaiwanStockPrice_part, TaiwanStockPrice_plain TO TaiwanStockPrice;
 DROP INDEX idx_stock_date ON TaiwanStockPrice;   -- 拆掉實驗用的索引
 DROP DATABASE IF EXISTS test_ecommerce;          -- 整個電商練習庫（含所有實驗表）一起收
 DROP USER IF EXISTS 'app'@'%';                   -- 刪實驗帳號
