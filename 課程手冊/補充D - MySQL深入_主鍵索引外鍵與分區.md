@@ -375,7 +375,7 @@ CREATE TABLE TaiwanStockPrice_part (
 ERROR 1062: Duplicate entry '2330-2024-01-02' for key 'TaiwanStockPrice_part.PRIMARY'
 ```
 
-用 `INSERT IGNORE` 跳過撞主鍵的列（順便完成去重——第 6 章的觀念又出現了）：
+為什麼會撞？**不是新舊表互撞，是舊表『自己內部』的重複互撞**——舊表沒主鍵、append 塞了多輪，同股同日有兩筆以上；搬進有主鍵的新表，第二份就被拒收。這跟用 SQL 還是 Python 發 INSERT 無關，主鍵只看資料。用 `INSERT IGNORE` 跳過撞主鍵的列（順便完成去重）：
 
 ```sql
 INSERT IGNORE INTO TaiwanStockPrice_part SELECT * FROM TaiwanStockPrice;
@@ -400,7 +400,7 @@ WHERE TABLE_NAME = 'TaiwanStockPrice_part';
 -- p2024: 1415 / p2025: 637 / pmax: 0
 ```
 
-### 讓爬蟲直接寫進分區表：一個陷阱與正解
+### 接管：讓分區表頂替正式表
 
 因為兩張表同構，用 `RENAME TABLE` 就能讓分區表**無縫接管**正式表名（原子操作，瞬間完成）：
 
@@ -409,22 +409,7 @@ RENAME TABLE TaiwanStockPrice      TO TaiwanStockPrice_plain,   -- 舊表讓位
              TaiwanStockPrice_part TO TaiwanStockPrice;         -- 分區表接管
 ```
 
-**陷阱（VM 實測踩給你看）**：接管後直接跑第 5 章的 append 版爬蟲（`crawler_finmind`，`to_sql append`），worker 立刻報錯——
-
-```
-IntegrityError (1062, "Duplicate entry '2330-2024-01-02' for key 'TaiwanStockPrice.PRIMARY'")
-```
-
-原因：`append` 不看重複、整段歷史照塞，但這張表現在**有主鍵**，重複進不去。**有主鍵的表，寫入方式也必須冪等**——這正是第 6 章 upsert 存在的理由。
-
-**正解（VM 實測）**：搭配 upsert 版任務。upsert 任務的 `create_all` 只在表不存在時建表，所以**先建好「分區版」的同名表，任務就會直接用它**：
-
-```sql
--- 預先把 TaiwanStockPrice_duplicate 建成「分區版」（欄位同 Table(...) 定義：複合主鍵+10欄）
--- 然後照第 6 章跑 producer_crawler_finmind_duplicate
-```
-
-實測結果：第一輪寫入 698 筆（p2024: 484 / p2025: 214，資料正確落抽屜）；**重跑第二輪仍是 698 筆、零報錯**——分區＋主鍵＋upsert 三件事同時成立：查得快、擋重複、可重跑。
+**接管後的寫入端注意事項**：這張表現在**有主鍵**了——第 5 章的 append 版爬蟲重跑會撞 1062，必須改用第 6 章的 upsert 版。為什麼、以及完整的對照表，**見手冊06「反向驗證」一節**（這是主鍵的議題，不是分區的議題——分區只是逼你裝了主鍵）。VM 實測：upsert 版對分區表跑兩輪都是 698 筆、零報錯，資料正確落在 p2024/p2025 抽屜。
 
 ### 兩個誠實提醒
 
