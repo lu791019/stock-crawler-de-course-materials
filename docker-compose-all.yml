@@ -13,6 +13,7 @@
 #   3306  - MySQL
 #   8080  - phpMyAdmin
 #   8081  - Airflow Web UI
+#   8082  - mongo-express（補充F，選用）
 #   3000  - Metabase
 
 services:
@@ -84,6 +85,7 @@ services:
     environment:
       RABBITMQ_HOST: rabbitmq
       MYSQL_HOST: mysql
+      MONGO_HOST: mongodb   # 補充F：worker 連 MongoDB 用服務名
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -101,6 +103,7 @@ services:
     environment:
       RABBITMQ_HOST: rabbitmq
       MYSQL_HOST: mysql
+      MONGO_HOST: mongodb   # 補充F：worker 連 MongoDB 用服務名
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -155,6 +158,7 @@ services:
       AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Taipei
       RABBITMQ_HOST: rabbitmq
       MYSQL_HOST: mysql
+      MONGO_HOST: mongodb   # 補充F：worker 連 MongoDB 用服務名
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/airflow.cfg:/opt/airflow/airflow.cfg
@@ -180,6 +184,7 @@ services:
       AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Taipei
       RABBITMQ_HOST: rabbitmq
       MYSQL_HOST: mysql
+      MONGO_HOST: mongodb   # 補充F：worker 連 MongoDB 用服務名
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/airflow.cfg:/opt/airflow/airflow.cfg
@@ -205,7 +210,37 @@ services:
       timeout: 5s
       retries: 10
 
+
+  # ── MongoDB（補充F 用；平常不啟動，不影響主線）────────────────
+  # 啟動: docker compose -f docker-compose-local.yml up -d mongodb mongo-express
+  mongodb:
+    image: mongo:7
+    container_name: mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root   # 跟 MySQL 一樣的教學帳密慣例
+      MONGO_INITDB_ROOT_PASSWORD: "1234"
+    volumes:
+      - mongodb:/data/db
+
+  # mongo-express: MongoDB 的 Web 管理介面（= phpMyAdmin 之於 MySQL）
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo-express
+    restart: unless-stopped
+    ports:
+      - "8082:8081"                      # 8082: 避開 phpMyAdmin(8080) 與 Airflow(8081)
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://root:1234@mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: root # 開網頁時要輸入的帳密
+      ME_CONFIG_BASICAUTH_PASSWORD: "1234"
+    depends_on:
+      - mongodb
+
 volumes:
   mysql-data:
+  mongodb:
   airflow-postgres-data:
   metabase-data:

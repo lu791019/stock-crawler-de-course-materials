@@ -22,5 +22,12 @@ MYSQL_PORT = int(os.environ.get("MYSQL_PORT", 3306))
 MYSQL_ACCOUNT = os.environ.get("MYSQL_ACCOUNT", "root")
 MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "1234")
 
+# MongoDB 連線設定（補充F 用）
+# 跟 MySQL 一樣的哲學: 本機用預設值 127.0.0.1, 容器內由 compose 的 environment 覆蓋成服務名 mongodb
+MONGO_HOST = os.environ.get("MONGO_HOST", "127.0.0.1")
+MONGO_PORT = int(os.environ.get("MONGO_PORT", 27017))
+MONGO_ACCOUNT = os.environ.get("MONGO_ACCOUNT", "root")
+MONGO_PASSWORD = os.environ.get("MONGO_PASSWORD", "1234")
+
 # GCP 設定（使用 BigQuery 時取消註解）
 # GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "your-project-id")
