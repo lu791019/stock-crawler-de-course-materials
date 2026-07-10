@@ -41,13 +41,17 @@ def upload_data_to_mysql_duplicate(df: pd.DataFrame):
         metadata.create_all(engine)
     except Exception:
         pass
-    # 遍歷 DataFrame 的每一列資料
+    # 逐列寫入：DataFrame 的每一列各做一次「插入或更新」（upsert）
     for _, row in df.iterrows():
-        # 使用 SQLAlchemy 的 insert 語句建立插入語法
+        # ① 準備插入這一列
+        #    row.to_dict() 把整列轉成 {欄位名: 值} 的 dict，例如 {"stock_id": "2330", "date": "2024-01-02", "close": 593.0, ...}
+        #    ** 把這個 dict 展開成 values() 的參數，等同 values(stock_id="2330", date="2024-01-02", ...)
         insert_stmt = insert(stock_price_table).values(**row.to_dict())
 
-        # 加上 on_duplicate_key_update 的邏輯：
-        # 若主鍵重複（id 已存在），就更新 name 與 score 欄位為新值
+        # ② 宣告「主鍵撞到時不要報錯，改成更新」
+        #    insert_stmt.inserted[欄位名]：代表「這次原本要插入的新值」（MySQL upsert 的固定寫法）
+        #    dict comprehension 對表的每一個欄位都寫一條「欄位 = 新值」
+        #    整句效果：同股同日已存在時，把該筆所有欄位更新成這次抓到的值；不存在則正常插入
         update_stmt = insert_stmt.on_duplicate_key_update(
             **{
                 col.name: insert_stmt.inserted[col.name]
