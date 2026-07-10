@@ -367,20 +367,15 @@ CREATE TABLE TaiwanStockPrice_part (
 );
 ```
 
-### 搬歷史資料：小心「舊表有重複」
+### 搬歷史資料
 
-正式表是 `append` 累積的、**沒有主鍵**，裡面很可能躺著重複資料。直接 `INSERT INTO ... SELECT *` 會撞主鍵：
-
-```
-ERROR 1062: Duplicate entry '2330-2024-01-02' for key 'TaiwanStockPrice_part.PRIMARY'
-```
-
-為什麼會撞？**不是新舊表互撞，是舊表『自己內部』的重複互撞**——舊表沒主鍵、append 塞了多輪，同股同日有兩筆以上；搬進有主鍵的新表，第二份就被拒收。這跟用 SQL 還是 Python 發 INSERT 無關，主鍵只看資料。用 `INSERT IGNORE` 跳過撞主鍵的列（順便完成去重）：
+欄位同構，直接搬就好：
 
 ```sql
-INSERT IGNORE INTO TaiwanStockPrice_part SELECT * FROM TaiwanStockPrice;
--- VM 實測：原表 3480 筆（含重複）→ 分區表 2052 筆（去重後）
+INSERT INTO TaiwanStockPrice_part SELECT * FROM TaiwanStockPrice;
 ```
+
+> ⚠️ 如果撞到 `ERROR 1062`，代表你的舊表曾被 append 重跑塞出重複（同股同日多筆）——先照手冊06 的做法去重再搬；或改用 `INSERT IGNORE`（撞主鍵的列自動跳過，等於邊搬邊去重）。撞不撞跟「用 SQL 還是 Python 發 INSERT」無關，主鍵只看資料本身。
 
 ### 剪枝驗證：EXPLAIN 的 partitions 欄
 
