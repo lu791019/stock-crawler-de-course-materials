@@ -35,7 +35,12 @@ def upload_data_to_mysql_duplicate(df: pd.DataFrame):
         Column("Trading_turnover", BigInteger),
     )
     # ✅ 自動建立資料表（如果不存在才建立）
-    metadata.create_all(engine)
+    # 兩個任務可能同時執行：A 建表的瞬間 B 也在建，B 會撞 1050 Table already exists
+    # 表已存在就是我們要的狀態，所以吞掉這個錯誤繼續往下寫入
+    try:
+        metadata.create_all(engine)
+    except Exception:
+        pass
     # 遍歷 DataFrame 的每一列資料
     for _, row in df.iterrows():
         # 使用 SQLAlchemy 的 insert 語句建立插入語法
