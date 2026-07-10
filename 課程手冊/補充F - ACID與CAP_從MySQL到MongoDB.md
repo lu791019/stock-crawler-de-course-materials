@@ -137,6 +137,8 @@ Web 介面的角色由 mongo-express 擔任，命令列的角色則是 **mongosh
 docker exec -it mongodb mongosh -u root -p 1234
 ```
 
+> 不想用 `docker exec`？本節的每個操作都有 **pymongo（Python）** 和 **mongo-express（網頁）** 的做法——見**補充G**，配套 notebook `example/pymongo.ipynb` 可以直接跑。
+
 | 你想做 | SQL（MySQL）| MongoDB（mongosh）|
 |--------|-------------|-------------------|
 | 切換資料庫 | `USE mydb` | `use mydb` |
