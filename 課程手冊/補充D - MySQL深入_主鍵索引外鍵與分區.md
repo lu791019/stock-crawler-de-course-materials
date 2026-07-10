@@ -325,9 +325,9 @@ WHERE stock_id = '2330' ORDER BY trade_date DESC LIMIT 3;      -- 背後其實�
 
 ---
 
-## 5. 交易 Transaction — 要嘛全做完，要嘛當沒發生
+## 5. (補充) 交易 Transaction — 要嘛全做完，要嘛當沒發生 
 
-大局觀講過 ACID，這裡親手摸 A（原子性）。**交易**把多個操作包成一個單位：全部成功才算數（COMMIT），中間出錯全部撤銷（ROLLBACK）。實測：
+ACID 實際測試，這裡親手摸 A（原子性）。**交易**把多個操作包成一個單位：全部成功才算數（COMMIT），中間出錯全部撤銷（ROLLBACK）。實測：
 
 ```sql
 SELECT close FROM TaiwanStockPrice WHERE stock_id='2330' AND date='2025-06-13';  -- 1000.65
@@ -340,11 +340,11 @@ SELECT close FROM ...;   -- 1000.65 ← 像沒發生過一樣
 
 實測輸出：`1000.65 → 0.00 → ROLLBACK → 1000.65`。
 
-**跟課程的關聯**：經典場景是轉帳（扣款+入帳必須同生共死）；在資料工程裡，「一批資料要嘛全進要嘛全不進」也是交易——第 5 章 `to_sql` 底層每個 chunk 就包在交易裡，這也是為什麼寫到一半失敗不會留半批髒資料。平常 mysql 客戶端 `autocommit=ON`（每句自動 COMMIT），所以你之前的操作都「立即生效」；要手動控制才寫 `START TRANSACTION`。
+**補充**：經典場景是轉帳（扣款+入帳必須同生共死）；在實際場景中，「一批資料要嘛全進要嘛全不進」也是交易——第 5 章 `to_sql` 底層每個 chunk 就包在交易裡，這也是為什麼寫到一半失敗不會留半批髒資料。平常 mysql 客戶端 `autocommit=ON`（每句自動 COMMIT），所以你之前的操作都「立即生效」；要手動控制才寫 `START TRANSACTION`。
 
 ---
 
-## 6. 使用者與權限 — 別什麼都用 root
+## 6. (補充) 使用者與權限 — 別什麼都用 root
 
 到目前為止我們都用 `root / 1234`——教學方便，但正式環境是大忌：任何程式拿到的帳號都能 DROP 整個資料庫。正確做法是**給每個應用一個「只能做份內事」的帳號**：
 
@@ -371,7 +371,6 @@ ERROR 1142 (42000): DROP command denied to user 'app'@'localhost' for table 'Tai
 
 ### 建表：欄位與正式表完全同構
 
-分區表的欄位**必須跟正式表一模一樣**（外加主鍵），否則之後爬蟲寫入會欄位對不上：
 
 ```sql
 CREATE TABLE TaiwanStockPrice_part (
@@ -395,15 +394,11 @@ CREATE TABLE TaiwanStockPrice_part (
 
 ### 搬歷史資料
 
-欄位同構，直接搬就好：
-
 ```sql
 INSERT INTO TaiwanStockPrice_part SELECT * FROM TaiwanStockPrice;
 ```
 
-> ⚠️ 如果撞到 `ERROR 1062`，代表你的舊表曾被 append 重跑塞出重複（同股同日多筆）——先照手冊06 的做法去重再搬；或改用 `INSERT IGNORE`（撞主鍵的列自動跳過，等於邊搬邊去重）。撞不撞跟「用 SQL 還是 Python 發 INSERT」無關，主鍵只看資料本身。
-
-### 剪枝驗證：EXPLAIN 的 partitions 欄
+### 驗證：EXPLAIN 的 partitions 欄
 
 ```sql
 EXPLAIN SELECT * FROM TaiwanStockPrice_part WHERE date BETWEEN '2025-06-01' AND '2025-06-13';
@@ -421,7 +416,7 @@ WHERE TABLE_NAME = 'TaiwanStockPrice_part';
 -- p2024: 1415 / p2025: 637 / pmax: 0
 ```
 
-### 接管：讓分區表頂替正式表
+### (補充) 接管：讓分區表頂替正式表
 
 因為兩張表同構，用 `RENAME TABLE` 就能讓分區表**無縫接管**正式表名（原子操作，瞬間完成）：
 
@@ -430,11 +425,13 @@ RENAME TABLE TaiwanStockPrice      TO TaiwanStockPrice_plain,   -- 舊表讓位
              TaiwanStockPrice_part TO TaiwanStockPrice;         -- 分區表接管
 ```
 
-**接管後的寫入端注意事項**：這張表現在**有主鍵**了——第 5 章的 append 版爬蟲重跑會撞 1062，必須改用第 6 章的 upsert 版。為什麼、以及完整的對照表，**見手冊06「反向驗證」一節**（這是主鍵的議題，不是分區的議題——分區只是逼你裝了主鍵）。VM 實測：upsert 版對分區表跑兩輪都是 698 筆、零報錯，資料正確落在 p2024/p2025 抽屜。
+**接管後的寫入端注意事項**：
+若改用分區表，因為**有主鍵**了—— 05 的 append 版爬蟲重跑會 Error，必須改用 06 的 upsert 版。
+為什麼、以及完整的對照表，**見手冊06「反向驗證」一節**（不過這是主鍵的議題，此處為分區所以不多做討論）。
 
 ### 兩個誠實提醒
 
-1. **分區鍵必須包含在主鍵（或唯一鍵）裡**——我們的複合主鍵 `(stock_id, date)` 正好含 date，天生適合按年分區；當初若用自增 id 當主鍵，這裡就要重新設計。Data Model 多想一步的價值在這裡兌現。
+1. **分區鍵必須包含在主鍵（或唯一鍵）裡**——我們的複合主鍵 `(stock_id, date)` 含有 date，天生適合按年分區；當初若用自增 id 當主鍵，這裡就要重新設計。
 2. **什麼時候才需要**：GB 級、千萬筆以上才有感。教學表用分區是殺雞用牛刀——先會概念和語法，等表真的大了再拿出來。BigQuery（第 14 章）的日期分區是同一個概念的雲端版。
 
 ---
@@ -460,9 +457,9 @@ RENAME TABLE TaiwanStockPrice      TO TaiwanStockPrice_plain,   -- 舊表讓位
 
 因為複合索引是「先按 stock_id、再按 date」排序的目錄——像電話簿先姓後名，只知道名字沒法用。要按日期查得快，得另建以 date 開頭的索引。
 
-**Q2：外鍵那麼好，為什麼我們的股價表不設？**
+**Q2 為什麼我們的股價表不用外鍵？**
 
-外鍵每次寫入都要回父表驗證，寫入密集的爬蟲有額外成本；而且股價表是單表、沒有父表可掛。交易系統靠外鍵保正確性，資料工程的落地表常把驗證放 pipeline——場景不同，選擇不同。
+外鍵每次寫入都要回父表驗證，寫入密集的爬蟲有額外成本；而且股價表是單表、不用父表。交易系統靠外鍵保正確性 -> 資料工程的落地表常把驗證放 pipeline——場景不同，選擇不同。
 
 **Q3：為什麼分區表的主鍵一定要包含分區鍵？**
 
@@ -476,21 +473,18 @@ MySQL 要能只憑主鍵判斷「這筆在哪個抽屜」。若主鍵不含 date
 
 ## 換你試試看
 
-**練習 1：幫查詢配眼鏡**
+**練習 1：幫查詢配 Explain **
 對 `TaiwanStockPrice` 跑 `EXPLAIN SELECT * FROM TaiwanStockPrice WHERE close > 1000;`，看 type 是什麼。替 `close` 建索引再跑一次。想一想：什麼樣的查詢值得為它建索引？
 
 **練習 2：體驗外鍵的保護**
 在 `test_ecommerce` 加一張 `reviews` 表（review_id、user_id、product_id、rating），設兩個外鍵。試塞一筆 user_id=999 的評論，確認被擋下。
 
-**練習 3：交易的「全或無」**
-開交易、連續兩句 UPDATE 改兩支股票的 close、ROLLBACK，確認兩筆都回到原值——體會「包在一起」的意義。
-
-**練習 4（進階）：用 `example/backup/employees.sql` 練 GROUP BY + 索引**
+**練習 3（進階）：用 `example/backup/employees.sql` 練 GROUP BY + 索引**
 載入員工表，查各部門平均薪資；替 department 建索引前後各 EXPLAIN 一次比較。
 
 ---
 
-## 收工（清掉實驗產物）
+## 收工
 
 ```sql
 DROP TABLE IF EXISTS TaiwanStockPrice_part;      -- 刪分區實驗表（IF EXISTS：不存在也不報錯）
