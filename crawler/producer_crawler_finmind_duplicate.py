@@ -3,12 +3,13 @@
 # 避免同一筆資料重複 insert 造成主鍵衝突
 from crawler.tasks_crawler_finmind_duplicate import crawler_finmind_duplicate
 
-# 兩個任務都送同一個佇列（twse）——這一章只觀察「去重與冪等」的效果，
-# 一次只看一件事；多佇列分流在第 3 章已經教過
+# .s() 建立 signature, 再用 apply_async 指定 queue
+# 這裡同樣示範多佇列分流 (twse / tpex)
+# 發送到 twse 的 queue
 task_2330 = crawler_finmind_duplicate.s(stock_id="2330")
-task_2330.apply_async(queue="twse")
+task_2330.apply_async(queue="twse")  # 發送任務
 print("send task_2330 task")
-
+# 發送到 tpex 的 queue
 task_00679b = crawler_finmind_duplicate.s(stock_id="00679B")  # 美債
-task_00679b.apply_async(queue="twse")
+task_00679b.apply_async(queue="tpex")  # 發送任務
 print("send task_00679b task")
