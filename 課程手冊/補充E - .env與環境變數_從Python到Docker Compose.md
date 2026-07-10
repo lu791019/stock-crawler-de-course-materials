@@ -1,6 +1,6 @@
 # 補充 E：.env 與環境變數 — 同一份程式與設定，跑遍所有環境
 
-> 你在課程裡其實已經三次遇到同一個哲學：`config.py` 的 `os.environ.get()`、compose 裡的 `${MYSQL_ROOT_PASSWORD:-1234}`、還有 worker 服務的 `environment:` 區塊。這份補充把它們串成一張地圖，並用 repo 現成的範例檔（`docker-compose-dotenv-demo.yml` + `.env.dotenv-demo.example`）完整跑一次。所有輸出皆 VM 實測。
+> 你在課程裡其實已經三次遇到同一個哲學：`config.py` 的 `os.environ.get()`、compose 裡的 `${MYSQL_ROOT_PASSWORD:-1234}`、還有 worker 服務的 `environment:` 區塊。這份補充把它們串成一張地圖，並用 repo 現成的範例檔（`docker-compose-dotenv-demo.yml` + `.env.dotenv-demo.example`）完整跑一次。
 
 ---
 
@@ -54,7 +54,7 @@ docker compose --env-file .env.dotenv-demo -f docker-compose-dotenv-demo.yml up 
 docker compose --env-file .env.dotenv-demo -f docker-compose-dotenv-demo.yml config | grep -E "PASS|USER"
 ```
 
-VM 實測輸出（demo 檔的值全部正確代入，包括藏在 flower `command:` 連線字串裡的那組——最容易漏的地方）：
+輸出（demo 檔的值全部正確代入，包括藏在 flower `command:` 連線字串裡的那組——最容易漏的地方）：
 
 ```
       - --broker=amqp://demo:demo-pass-123@rabbitmq-demo:5672//
@@ -76,7 +76,7 @@ services:
     env_file: .env.dotenv-demo     # 整份檔案的變數注入容器環境
 ```
 
-這**不會**做 yml 裡的 `${}` 替換——它是把變數交給**容器裡的程式**（也就是 `config.py` 那層的 `os.environ` 讀到的東西）。VM 實測 `docker logs env-reader-demo`：
+這**不會**做 yml 裡的 `${}` 替換——它是把變數交給**容器裡的程式**（也就是 `config.py` 那層的 `os.environ` 讀到的東西）。用 `docker logs env-reader-demo` 看輸出：
 
 ```
 === 機制②：容器內用 os.environ 讀到的變數 ===
@@ -119,7 +119,7 @@ docker compose --env-file .env.dotenv-demo -f docker-compose-dotenv-demo.yml up 
 docker compose --env-file .env.dotenv-demo -f docker-compose-dotenv-demo.yml down -v
 ```
 
-VM 實測的關鍵證據：用 `demo / demo-pass-123` 呼叫 RabbitMQ API 成功（回 administrator）；**用預設的 `worker / worker` 被拒 HTTP 401**——證明 .env 的帳密真的接管了，不是巧合。
+關鍵驗證：用 `demo / demo-pass-123` 呼叫 RabbitMQ API 成功（回 administrator）；**用預設的 `worker / worker` 被拒 HTTP 401**——證明 .env 的帳密真的接管了，不是巧合。
 
 ---
 

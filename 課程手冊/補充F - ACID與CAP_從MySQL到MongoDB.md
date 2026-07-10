@@ -1,6 +1,6 @@
 # 補充 F：ACID 與 CAP — 從 MySQL 到 MongoDB
 
-> 手冊05 的大局觀比過 RDBMS vs NoSQL，那張表裡有兩個沒展開的縮寫：**ACID** 和 **CAP**。這份補充把它們講透，然後動手跑一個真的 NoSQL——用跟 MySQL 版完全同款的 Celery 爬蟲，把股價寫進 **MongoDB**，親手感受兩個世界的差異。所有輸出皆 VM 實測。
+> 手冊05 的大局觀比過 RDBMS vs NoSQL，那張表裡有兩個沒展開的縮寫：**ACID** 和 **CAP**。這份補充把它們講透，然後動手跑一個真的 NoSQL——用跟 MySQL 版完全同款的 Celery 爬蟲，把股價寫進 **MongoDB**，親手感受兩個世界的差異。
 
 ---
 
@@ -59,7 +59,7 @@ docker compose -f docker-compose-local.yml up -d mongodb mongo-express
 | `mongodb` | MongoDB 本體（帳密 root / 1234，跟 MySQL 同慣例）| port 27017 |
 | `mongo-express` | **Web 管理介面**——MongoDB 界的 phpMyAdmin | http://localhost:8082（root / 1234）|
 
-> ✅ VM 實測：8082 不帶帳密回 401、帶 root/1234 回 200。port 用 8082 避開 phpMyAdmin(8080) 和 Airflow(8081)。
+> ✅ 8082 不帶帳密回 401、帶 root/1234 回 200。port 用 8082 避開 phpMyAdmin(8080) 和 Airflow(8081)。
 
 ### 對照組程式碼：跟 MySQL 版差在哪
 
@@ -86,7 +86,7 @@ def upload_data_to_mongo(data: list):
 | 型別 | DB 層強制（DECIMAL/BIGINT…）| 寫進去是什麼就是什麼 |
 | 佇列派送 | `.s().apply_async(queue=)` | **完全同款**（worker 是同一批）|
 
-### 跑起來（VM 實測全紀錄）
+### 跑起來
 
 ```bash
 # worker 要重建一次（image 裡要有 pymongo；pyproject 已收錄、uv sync 會裝）
@@ -96,7 +96,7 @@ docker compose -f docker-compose-local.yml up -d --build worker_twse worker_tpex
 uv run crawler/producer_crawler_finmind_mongo.py
 ```
 
-實測結果：
+執行結果：
 
 ```bash
 docker exec mongodb mongosh -u root -p 1234 --quiet --eval \

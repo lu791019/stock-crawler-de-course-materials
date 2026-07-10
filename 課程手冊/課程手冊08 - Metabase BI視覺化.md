@@ -74,11 +74,11 @@
 
 ---
 
-## Metabase 功能地圖（每一項都實測過）
+## Metabase 功能地圖
 
-做圖之前先認識整個介面有什麼。下表的「實測範例」都是在本課的股價資料上真實跑過的：
+做圖之前先認識整個介面有什麼。下表的範例都以本課的股價資料示範：
 
-| 頁面 / 功能 | 在哪 | 做什麼 | 實測範例 |
+| 頁面 / 功能 | 在哪 | 做什麼 | 範例 |
 |------------|------|--------|---------|
 | **Browse data** | 左側 Databases | 點開資料庫直接看每張表 | 連上後看到 4 張表（含 VIEW）|
 | **Question 查詢產生器** | + New → Question | 免 SQL：選表→篩選→彙總→分組 | 「各股平均收盤價」長條圖：11 支股票一次畫出 |
@@ -160,7 +160,7 @@ GRANT SELECT ON mydb.* TO 'metabase_ro'@'%';              -- 只給查詢，不�
 
 > **phpMyAdmin 版**（同一件事的圖形操作）：root 登入 → 首頁 **User accounts** → **Add user account** → 使用者名稱 `metabase_ro`、主機名稱選「任何主機（%）」、設密碼 → 「資料庫的權限」選 `mydb` → 只勾 **SELECT** → 執行。
 
-✅ VM 實測：這個帳號透過 Metabase 查資料一切正常；想 `DELETE` 會被 MySQL 直接擋下（`DELETE command denied to user 'metabase_ro'`）——BI 只該讀、不該寫，權限層幫你守住。
+✅ 這個帳號透過 Metabase 查資料一切正常；想 `DELETE` 會被 MySQL 直接擋下（`DELETE command denied to user 'metabase_ro'`）——BI 只該讀、不該寫，權限層幫你守住。
 
 ### Step 4：把 MySQL 加進來當資料來源
 

@@ -147,7 +147,7 @@ Producer ──.delay()──▶ ［RabbitMQ 佇列］
 | 成功 ack | 🖥️ + 🌸 | 🖥️ `✅ 處理成功` / `succeeded`；🌸 Tasks 頁狀態 SUCCESS（重試過會先看到 RETRY）|
 | 訊息消失 | 🐰 | Ready 0 / Unacked 0 |
 
-**實際跑起來 worker log 長這樣**（VM 實測）：
+**實際跑起來 worker log 長這樣**：
 
 ```
 開始處理 2330...（第 1 次嘗試）
@@ -208,7 +208,7 @@ Producer ──.delay()──▶ ［RabbitMQ 佇列］Ready = 1 ◀────�
 | 循環中的佇列 | 🐰 | Ready ↔ Unacked 在 0/1 之間狂跳（重新整理頁面看）|
 | Ctrl+C 停掉 worker | 🐰 | 訊息**仍在 Ready = 1**——它從沒被 ack 過 |
 
-**實際 log（VM 實測），注意兩件事**：
+**實際 log，注意兩件事**：
 
 ```
 Task task_requeue[9e1344bc-…] received
@@ -221,7 +221,7 @@ Task task_requeue[9e1344bc-…] reject requeue=True
 ```
 
 1. **task id（UUID）從頭到尾都一樣**——證明是「同一則訊息」被放回再拿出；對照情境 1 的 retry，每次重試 log 是同一個 id 但那是「新發的任務」帶著原 id 重排程，且有次數上限。
-2. **循環快到毫秒級**——中間沒有任何延遲，worker 被它完全佔住、什麼別的事都做不了。這就是毒訊息可怕的地方。
+2. **循環快到毫秒級**——中間沒有任何延遲，worker 被它完全佔住、什麼別的事都做不了。這就是毒訊息的危險之處。
 
 ### 情境 3：`task_reject_no_requeue` — 訊息丟棄
 
@@ -397,7 +397,7 @@ task_reject_no_requeue.delay(stock_id="REJECT_TEST")  # ← 打開
 
 重新發送（`uv run crawler/producer_demo_fail.py`）、開 worker。
 
-✅ **預期**（VM 實測）：worker 印出：
+✅ **預期**：worker 印出：
 
 ```
 開始處理 REJECT_TEST...
@@ -414,14 +414,14 @@ task_reject_no_requeue.delay(stock_id="REJECT_TEST")  # ← 打開
 task_slow.delay(stock_id="SLOW_TEST", seconds=30)
 ```
 
-操作順序（每步都附 VM 實測結果）：
+操作順序（每步都附執行結果）：
 
 1. 發任務 → 開 worker，看到 `進度 1/30、2/30...`
    - 此時 RabbitMQ UI：**Ready 0 / Unacked 1**——訊息「借給」worker 處理中、還沒確認
 2. 大約第 10 秒按 `Ctrl+C` 殺掉 worker
    - 你會先看到 `worker: Warm shutdown (MainProcess)`——第一次 Ctrl+C 是「溫和關機」；若 worker 遲遲不退出，**再按一次 Ctrl+C** 強制冷關機
 3. 等 worker 退出後回 RabbitMQ UI → ✅ SLOW_TEST 的訊息**回到 Ready**（Ready 1 / Unacked 0）
-4. 重開 worker → ✅ 任務**從頭**再跑。實測 log：
+4. 重開 worker → ✅ 任務**從頭**再跑。log：
 
 ```
   SLOW_TEST 進度 1/30      ← 從頭開始，不是接著 10/30 跑

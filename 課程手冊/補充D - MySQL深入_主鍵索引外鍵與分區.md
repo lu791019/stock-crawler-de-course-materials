@@ -1,6 +1,6 @@
 # 補充 D：MySQL 深入 — 約束、索引、外鍵、交易與分區（含 phpMyAdmin 實戰）
 
-> 第 5、6 章教會你「把資料寫進去、寫得不重複」。這份補充回答下一層的問題：**資料庫怎麼查得快（索引、分區）、怎麼保護資料的正確性（約束、外鍵、交易）、怎麼管得安全（權限）**。每一段都用我們的 `TaiwanStockPrice` 或 repo 裡現成的 SQL 檔實測，所有輸出都是 VM 真實跑出來的。
+> 第 5、6 章教會你「把資料寫進去、寫得不重複」。這份補充回答下一層的問題：**資料庫怎麼查得快（索引、分區）、怎麼保護資料的正確性（約束、外鍵、交易）、怎麼管得安全（權限）**。每一段都用我們的 `TaiwanStockPrice` 或 repo 裡現成的 SQL 檔示範。
 
 ---
 
@@ -64,7 +64,7 @@ EXPLAIN SELECT * FROM TaiwanStockPrice WHERE stock_id='2330' AND date='2025-06-1
 EXPLAIN SELECT * FROM TaiwanStockPrice WHERE date = '2025-06-13';        -- ❌ 用不到！
 ```
 
-最後一句實測回 `type=ALL`——因為目錄是「先股票再日期」排的，只知道日期等於從目錄中間開始找，沒用。**口訣：複合索引像電話簿（姓、名），只知道名字查不了電話簿。** 常按日期查的話，就再建一個以 `date` 開頭的索引。
+最後一句會回 `type=ALL`——因為目錄是「先股票再日期」排的，只知道日期等於從目錄中間開始找，沒用。**口訣：複合索引像電話簿（姓、名），只知道名字查不了電話簿。** 常按日期查的話，就再建一個以 `date` 開頭的索引。
 
 ### 索引的代價（為什麼不每欄都建）
 
@@ -87,7 +87,7 @@ EXPLAIN SELECT * FROM TaiwanStockPrice WHERE date = '2025-06-13';        -- ❌ 
 | `AUTO_INCREMENT` | 整數自動遞增 | `id INT AUTO_INCREMENT`——人工代理鍵 |
 | `FOREIGN KEY` | 值必須存在於另一張表 | 見第 3 節 |
 
-> 這三種「入場檢查」被違反時長什麼樣，第 3 節載入電商資料後，用同一張會員表一次實測給你看。
+> 這三種「入場檢查」被違反時長什麼樣，第 3 節載入電商資料後，用同一張會員表一次示範給你看。
 
 ### 主鍵的兩派選擇：自然鍵 vs 代理鍵
 
@@ -138,7 +138,7 @@ docker exec -i mysql mysql -uroot -p1234 < example/ecommerce.sql
 
 ### 先用 users 表把第 2 節的約束落地
 
-`users` 原本沒什麼約束，用 `ALTER`（DDL）補上三種，然後故意違規給你看（VM 實測）：
+`users` 原本沒什麼約束，用 `ALTER`（DDL）補上三種，然後故意違規給你看：
 
 ```sql
 ALTER TABLE users MODIFY name VARCHAR(50) NOT NULL;                     -- 名字不准空
@@ -173,7 +173,7 @@ CREATE TABLE orders (
 );
 ```
 
-意思：**訂單不能掛在不存在的使用者或商品上**。實測兩個方向的保護：
+意思：**訂單不能掛在不存在的使用者或商品上**。示範兩個方向的保護：
 
 ```sql
 -- ① 擋進：塞一筆「孤兒訂單」（user_id=99，users 表沒有 99 號）
@@ -258,7 +258,7 @@ UPDATE users_nat SET username = 'alice_wang' WHERE username = 'alice123';
 2. **掛別的欄位**——外鍵只能指向主鍵或 UNIQUE 欄位，所以你需要「另一個唯一、且永不變動的欄位」……一個不變的唯一流水號——**你剛剛自己發明了代理鍵**，這就是混搭方案
 3. **乾脆不設外鍵，訂單自己存一份 username**——第三幕演給你看：
 
-**第三幕：不設外鍵，改名後「默默斷鏈」**
+**第三幕：不設外鍵，改名後斷鏈且不報錯**
 
 ```sql
 CREATE TABLE users_nofk (username VARCHAR(50) PRIMARY KEY);
@@ -269,10 +269,10 @@ INSERT INTO orders_nofk VALUES (1, 'alice123');
 UPDATE users_nofk SET username = 'alice_wang';             -- 改名：成功，沒人擋（因為沒有 FK 保護）
 SELECT COUNT(*) FROM orders_nofk o                          -- 用名字把訂單 JOIN 回會員
 JOIN users_nofk u ON o.username = u.username;
--- 0        ← 訂單裡躺著舊名字，JOIN 對不回任何人——沒有報錯，資料默默壞掉
+-- 0        ← 訂單裡還是舊名字，JOIN 對不回任何人——沒有報錯，但資料已經不一致
 ```
 
-第三幕最可怕：**它不會報錯**。第二幕至少大聲擋你，第三幕是幾個月後報表對不上才發現。結論：問題的根源是「username 既當身分、又會變動」——解法是給一個永不變的身分（代理鍵 id）供人引用，會變的欄位退居 `UNIQUE` 防重複。
+第三幕的問題最嚴重：**它不會報錯**。第二幕會當場擋下，第三幕是幾個月後報表對不上才發現。結論：問題的根源是「username 既當身分、又會變動」——解法是給一個永不變的身分（代理鍵 id）供人引用，會變的欄位退居 `UNIQUE` 防重複。
 
 ### 順手補：ON DELETE CASCADE 長什麼樣
 
@@ -327,7 +327,7 @@ WHERE stock_id = '2330' ORDER BY trade_date DESC LIMIT 3;      -- 背後其實�
 
 ## 5. (補充) 交易 Transaction — 要嘛全做完，要嘛當沒發生 
 
-ACID 實際測試，這裡親手摸 A（原子性）。**交易**把多個操作包成一個單位：全部成功才算數（COMMIT），中間出錯全部撤銷（ROLLBACK）。實測：
+ACID 實際測試，這裡親手摸 A（原子性）。**交易**把多個操作包成一個單位：全部成功才算數（COMMIT），中間出錯全部撤銷（ROLLBACK）。示範：
 
 ```sql
 SELECT close FROM TaiwanStockPrice WHERE stock_id='2330' AND date='2025-06-13';  -- 1000.65
@@ -338,7 +338,7 @@ ROLLBACK;                -- 撤銷：把這筆帳整個劃掉（反之 COMMIT �
 SELECT close FROM ...;   -- 1000.65 ← 像沒發生過一樣
 ```
 
-實測輸出：`1000.65 → 0.00 → ROLLBACK → 1000.65`。
+輸出：`1000.65 → 0.00 → ROLLBACK → 1000.65`。
 
 **補充**：經典場景是轉帳（扣款+入帳必須同生共死）；在實際場景中，「一批資料要嘛全進要嘛全不進」也是交易——第 5 章 `to_sql` 底層每個 chunk 就包在交易裡，這也是為什麼寫到一半失敗不會留半批髒資料。平常 mysql 客戶端 `autocommit=ON`（每句自動 COMMIT），所以你之前的操作都「立即生效」；要手動控制才寫 `START TRANSACTION`。
 
@@ -353,7 +353,7 @@ CREATE USER 'app'@'%' IDENTIFIED BY 'app-pass-123';   -- 建帳號：'名字'@'�
 GRANT SELECT, INSERT ON mydb.* TO 'app'@'%';           -- 授權：只給「查、寫」，範圍限 mydb 的所有表（mydb.*）
 ```
 
-實測：`app` 帳號 `SELECT COUNT(*)` 正常回 320，但想 DROP TABLE：
+示範：`app` 帳號 `SELECT COUNT(*)` 正常回 320，但想 DROP TABLE：
 
 ```
 ERROR 1142 (42000): DROP command denied to user 'app'@'localhost' for table 'TaiwanStockPrice'

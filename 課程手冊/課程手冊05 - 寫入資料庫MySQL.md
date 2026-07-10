@@ -126,7 +126,7 @@ SQL 指令看起來很多，其實按「管什麼」分成四家，之後看到�
 - 跟 **CRUD** 的關係：CRUD 是「動作」視角（Create/Read/Update/Delete），四大家族是「指令分類」視角——CRUD 的 C、U、D 都屬於 DML，R 屬於 DQL。兩套講的是同一件事的不同切面。
 - 有人會把 `COMMIT` / `ROLLBACK` 獨立成第五家 **TCL**（交易控制）——補充D 的交易一節玩的就是它們。
 
-**四家各來一個範例**（都可以在 phpMyAdmin 的 SQL 頁籤直接跑，VM 實測過）：
+**四家各來一個範例**（都可以在 phpMyAdmin 的 SQL 頁籤直接跑）：
 
 **DDL — 定義資料結構**：
 
@@ -156,10 +156,10 @@ WHERE date >= '2025-06-01'
 GROUP BY stock_id
 ORDER BY avg_close DESC
 LIMIT 3;
--- 實測：2454→1205.13、2330→998.52、2382→400.30
+-- 查詢結果：2454→1205.13、2330→998.52、2382→400.30
 ```
 
-**DCL — 控制使用者權限**（完整實測見補充D 第 6 節）：
+**DCL — 控制使用者權限**（完整示範見補充D 第 6 節）：
 
 ```sql
 GRANT SELECT, INSERT ON mydb.* TO 'app'@'%';    -- 給 app 帳號：查＋寫
@@ -319,7 +319,7 @@ uv add sqlalchemy
 uv sync
 ```
 
-**版本**：本專案鎖定 `pymysql==1.1.1`、`sqlalchemy>=2.0,<3`（實裝 2.0.49，VM 實測）。特別注意 **SQLAlchemy 1.x 和 2.x 語法差很多**，本課全部用 2.0 風格——例如 SQL 字串必須包 `text()` 才能執行；網路上舊教學直接 `conn.execute("SELECT ...")` 傳裸字串的是 1.x 寫法，在 2.x 會報錯。確認自己裝到什麼版本：
+**版本**：本專案鎖定 `pymysql==1.1.1`、`sqlalchemy>=2.0,<3`（實裝 2.0.49）。特別注意 **SQLAlchemy 1.x 和 2.x 語法差很多**，本課全部用 2.0 風格——例如 SQL 字串必須包 `text()` 才能執行；網路上舊教學直接 `conn.execute("SELECT ...")` 傳裸字串的是 1.x 寫法，在 2.x 會報錯。確認自己裝到什麼版本：
 
 ```bash
 uv pip list | grep -i -e pymysql -e sqlalchemy
@@ -472,7 +472,7 @@ MySQL（TCP 3306）
 
 ### 往下看一層：直接用 pymysql 長什麼樣
 
-SQLAlchemy 底下那層（DBAPI）親眼看一次，之後看到別人 `import pymysql` 的程式碼就不會慌（VM 實測可跑）：
+SQLAlchemy 底下那層（DBAPI）親眼看一次，之後看到別人 `import pymysql` 的程式碼就不會慌：
 
 ```python
 import pymysql
@@ -508,7 +508,7 @@ finally:
 **版本與兩個坑**：
 
 - 本專案 `pyproject.toml` 鎖定 `pymysql==1.1.1`，`uv sync` 就會裝對；自己的新專案 `uv add pymysql` 即可。
-- ⚠️ **查版本別用 `pymysql.__version__`**——它會回 `"1.4.6"`，那是 PyMySQL 假扮成舊套件 MySQLdb 的「相容版本號」，不是它自己的版本（歷史包袱：讓檢查 MySQLdb 版本的老程式碼不會爆）。要看真實版本用 `pymysql.VERSION`（回 `(1, 1, 1, 'final', 1)`）或 `uv pip list`。以上皆 VM 實測。
+- ⚠️ **查版本別用 `pymysql.__version__`**——它會回 `"1.4.6"`，那是 PyMySQL 假扮成舊套件 MySQLdb 的「相容版本號」，不是它自己的版本（歷史包袱：讓檢查 MySQLdb 版本的老程式碼不會爆）。要看真實版本用 `pymysql.VERSION`（回 `(1, 1, 1, 'final', 1)`）或 `uv pip list`。
 - MySQL 8 預設認證方式（`caching_sha2_password`）需要另裝 `cryptography` 套件才能連。本課的 compose 設了 `--default-authentication-plugin=mysql_native_password`、且專案依賴裡已帶 cryptography，所以你不會踩到；在別的環境看到 `cryptography is required` 錯誤，就是這件事。
 
 **Core vs ORM**：SQLAlchemy 有兩層用法。**Core** 是「用 Python 組 SQL、自己管表」——本課程用的就是它（搭配 pandas）；**ORM** 是「把表映射成 Python class、把資料列當物件操作」——Web 後端（如 FastAPI + 使用者系統）常用，資料工程的批次讀寫用 Core 就夠、也更直觀。知道有這兩層，看到別人的 `class User(Base)` 程式碼時不會慌。
@@ -566,7 +566,7 @@ df.to_sql("TaiwanStockPrice", con=engine, if_exists="append", index=False)
 
 ### 打開黑盒子：echo=True 親眼看它做了什麼
 
-把 `create_engine(..., echo=True)` 打開再跑一次寫入，terminal 會印出它背後發的每一句 SQL（VM 實測）：
+把 `create_engine(..., echo=True)` 打開再跑一次寫入，terminal 會印出它背後發的每一句 SQL：
 
 ```
 INFO sqlalchemy.engine.Engine BEGIN (implicit)          ← 自動開交易（呼應補充D 第 5 節）
