@@ -94,34 +94,121 @@ def upload_data_to_mongo(data: list):
 | 資料單位 | 一列（row，欄位固定）| 一份文件（dict，欄位自由）|
 | 防重複 | 複合主鍵 + `on_duplicate_key_update` | `update_one(filter, $set, upsert=True)` |
 | 型別 | DB 層強制（DECIMAL/BIGINT…）| 寫進去是什麼就是什麼 |
-| 佇列派送 | `.s().apply_async(queue=)` | **完全同款**（worker 是同一批）|
+| 任務派送 | `.delay()`（同手冊06 的單一 worker 方式）| **完全同款**（worker 是同一批）|
 
 ### 跑起來
 
-```bash
-# worker 要重建一次（image 裡要有 pymongo；pyproject 已收錄、uv sync 會裝）
-docker compose -f docker-compose-local.yml up -d --build worker_twse worker_tpex
+另開一個終端機，啟動本機 worker——不帶 `-Q`、收預設佇列，跟手冊06 同一個方式（pymongo 已在 uv 環境裡，`uv sync` 會裝）：
 
-# 派送 5 支股票（跟 MySQL 版同款的分流路由）
-uv run crawler/producer_crawler_finmind_mongo.py
+```bash
+uv run celery -A crawler.worker worker --loglevel=info
 ```
+
+派送 5 支股票（`.delay()` 不指定佇列，單一 worker 逐一執行）：
+
+```bash
+uv run crawler/producer_crawler_finmind_mongo_single.py
+```
+
+> 想搭配第 3 章的多佇列分流跑，用 `producer_crawler_finmind_mongo.py`；那條路的 worker 在 docker 裡，要先 `up -d --build worker_twse worker_tpex` 重建 image 才有 pymongo。
 
 執行結果：
 
 ```bash
 docker exec mongodb mongosh -u root -p 1234 --quiet --eval \
   'db.getSiblingDB("mydb").TaiwanStockPrice.countDocuments()'
-# → 3035          ← 5 支股票的歷史資料全部寫入
+# → 回傳文件總數（5 支股票的歷史日線資料）
 
 # 查看其中一份文件——就是 FinMind 回來的 dict 原樣：
 # { stock_id: '2330', date: '2024-01-02', Trading_Volume: 27997826, ... }
 ```
 
-**再跑一次 producer** → countDocuments 仍是 **3035**——重跑不重複，`upsert=True` 就是 Mongo 版的冪等（跟手冊06 同一個觀念、不同語法）。
+**再跑一次 producer**，countDocuments 的數字不變——重跑不重複，`upsert=True` 就是 Mongo 版的冪等（跟手冊06 同一個觀念、不同語法）。
 
 ### 用 mongo-express 看資料
 
 http://localhost:8082 → 資料庫 `mydb` → collection `TaiwanStockPrice` → 直接瀏覽文件、可以搜尋 `{"stock_id": "2330"}`——跟 phpMyAdmin 看表是同一件事。
+
+### mongosh 基本操作（SQL 對照）
+
+Web 介面的角色由 mongo-express 擔任，命令列的角色則是 **mongosh**。進入方式：
+
+```bash
+docker exec -it mongodb mongosh -u root -p 1234
+```
+
+| 你想做 | SQL（MySQL）| MongoDB（mongosh）|
+|--------|-------------|-------------------|
+| 切換資料庫 | `USE mydb` | `use mydb` |
+| 查前幾筆 | `SELECT * FROM t LIMIT 5` | `db.t.find().limit(5)` |
+| 條件查詢 | `WHERE stock_id='2330'` | `.find({stock_id: "2330"})` |
+| 只挑欄位 | `SELECT date, close` | `.find({...}, {_id: 0, date: 1, close: 1})` |
+| 排序 | `ORDER BY date DESC` | `.sort({date: -1})` |
+| 計數 | `SELECT COUNT(*)` | `.countDocuments()` |
+| 不重複值 | `SELECT DISTINCT stock_id` | `.distinct("stock_id")` |
+| 範圍條件 | `WHERE close > 1000` | `.find({close: {$gt: 1000}})` |
+| 更新一筆 | `UPDATE ... WHERE ...` | `.updateOne(filter, {$set: {...}})` |
+| 刪除一筆 | `DELETE ... WHERE ...` | `.deleteOne(filter)` |
+| 分組統計 | `GROUP BY` | `.aggregate([{$group: ...}])` |
+
+逐條操作（都在 `use mydb` 之後執行）：
+
+```javascript
+// 2330 最近三天的收盤價：條件 + 挑欄位 + 排序 + 限量
+db.TaiwanStockPrice.find({stock_id: "2330"}, {_id: 0, date: 1, close: 1}).sort({date: -1}).limit(3)
+// [{date: '2026-07-09', close: 2415}, {date: '2026-07-08', close: 2465}, ...]
+
+// 集合裡有哪些股票
+db.TaiwanStockPrice.distinct("stock_id")
+// ['0050', '0056', '00713', '2317', '2330']
+
+// 條件計數：2330 收盤價超過 1000 的天數（$gt = greater than；同族還有 $gte / $lt / $lte / $ne）
+db.TaiwanStockPrice.countDocuments({stock_id: "2330", close: {$gt: 1000}})
+
+// 分組統計：每支股票的平均收盤價與筆數（SQL 的 GROUP BY + AVG + COUNT）
+db.TaiwanStockPrice.aggregate([
+  {$group: {_id: "$stock_id", avg_close: {$avg: "$close"}, days: {$sum: 1}}},
+  {$sort: {_id: 1}}
+])
+// {_id: '0050', avg_close: 130.55, days: 603}
+// {_id: '2330', avg_close: 1234.27, days: 608} ...
+```
+
+`$gt`、`$set`、`$group`、`$avg` 這些帶 `$` 的都是 MongoDB 的**運算子**——條件用巢狀 dict 組出來，這是它和 SQL 語法差異最大的地方。
+
+### schema-free 的另一面：寫入一份欄位完全不同的文件
+
+```javascript
+db.TaiwanStockPrice.insertOne({stock_id: "TEST", note: "欄位跟股價完全不同", anything: [1, 2, 3]})
+// { acknowledged: true, insertedId: ObjectId('...') }   ← 照樣收下，沒有任何檢查
+
+db.TaiwanStockPrice.find({stock_id: "TEST"}, {_id: 0})
+// {stock_id: 'TEST', note: '欄位跟股價完全不同', anything: [1, 2, 3]}
+
+db.TaiwanStockPrice.deleteOne({stock_id: "TEST"})   // 清掉實驗文件
+```
+
+同一張表這樣寫，MySQL 會報 1054（欄位不存在）直接拒絕；MongoDB 照單全收——同一個集合裡可以放結構完全不同的文件。方便，但髒資料的檢查責任全部落到程式碼層（想一想 Q3 的取捨）。
+
+順帶認識 `_id`：每份文件都有一個自動產生的 `ObjectId`，這是 MongoDB 內建的代理鍵（補充D「自然鍵 vs 代理鍵」的 Mongo 版）。
+
+### MongoDB 怎麼防重複：unique index
+
+MySQL 用主鍵擋重複；MongoDB 對應的機制是**唯一索引**：
+
+```javascript
+db.TaiwanStockPrice.createIndex({stock_id: 1, date: 1}, {unique: true})
+// 'stock_id_1_date_1'
+
+db.TaiwanStockPrice.getIndexes()
+// [{key: {_id: 1}}, {key: {stock_id: 1, date: 1}, unique: true}]
+
+// 之後 insert 同股同日的第二份文件會被擋下：
+db.TaiwanStockPrice.insertOne({stock_id: "2330", date: "2024-01-02", close: 1})
+// E11000 duplicate key error ... dup key: { stock_id: "2330", date: "2024-01-02" }
+```
+
+E11000 就是 MongoDB 版的 1062。我們的任務用 `update_one(upsert=True)`，本來就不會製造重複；unique index 的價值是**保底**——即使有程式用 insert 亂寫，資料庫層也擋得住。對應補充D 的原則：規則放在資料庫層，任何程式來寫都會被管到。
 
 ### 收工
 
@@ -162,5 +249,8 @@ docker compose -f docker-compose-local.yml down    # mongodb volume 保留資料
 | 起 MongoDB + 介面 | `docker compose -f docker-compose-local.yml up -d mongodb mongo-express` |
 | 進 mongo shell | `docker exec -it mongodb mongosh -u root -p 1234` |
 | 數文件 | `db.getSiblingDB("mydb").TaiwanStockPrice.countDocuments()` |
-| 派送 mongo 版爬蟲 | `uv run crawler/producer_crawler_finmind_mongo.py` |
+| 條件查詢 | `db.TaiwanStockPrice.find({stock_id: "2330"})`（先 `use mydb`）|
+| 防重複保底（唯一索引）| `db.TaiwanStockPrice.createIndex({stock_id: 1, date: 1}, {unique: true})` |
+| 派送 mongo 版爬蟲（單一 worker）| `uv run crawler/producer_crawler_finmind_mongo_single.py` |
+| 派送 mongo 版爬蟲（多佇列分流）| `uv run crawler/producer_crawler_finmind_mongo.py` |
 | Web 介面 | http://localhost:8082（root / 1234）|
