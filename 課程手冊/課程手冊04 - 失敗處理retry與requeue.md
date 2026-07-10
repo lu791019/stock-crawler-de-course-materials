@@ -1,12 +1,12 @@
 # 第 4 章：任務失敗、Worker 掛掉怎麼辦 — retry、requeue 與訊息的命運
 
-> 這是「會用」和「懂原理」差最多的一章。前面都在讓任務成功，這一章你要故意讓它失敗、故意把 worker 殺掉，親眼看訊息在 RabbitMQ 裡到底發生什麼事。
+> 這是「會用」和「懂原理」差最多的一章。前面都在讓任務成功，這一章你要故意讓它失敗、故意把 worker 殺掉，觀察訊息在 RabbitMQ 裡到底發生什麼事。
 
 ---
 
 ## 做完這一章，你會做到
 
-1. 親手驗證 config.py 的「環境變數覆蓋」，搞懂同一份程式為什麼本機和 Docker 都能跑。
+1. 驗證 config.py 的「環境變數覆蓋」，搞懂同一份程式為什麼本機和 Docker 都能跑。
 2. 分得清 `self.retry()`（重試）和 `Reject(requeue=True)`（放回佇列）本質差在哪。
 3. 懂 `acks_late=True` 的意義：做完才確認，沒做完就回佇列。
 4. 會用 RabbitMQ 管理介面觀察 Ready / Unacked 的變化。
@@ -482,7 +482,7 @@ docker compose -f docker-compose-local.yml down     # 保留資料
 
 **Q4：同一份程式碼，在本機連 `127.0.0.1`、在容器裡連 `rabbitmq`，是怎麼做到的？**
 
-靠 `config.py` 的 `os.environ.get(key, default)`：本機沒設環境變數就用預設值 `127.0.0.1`；compose 裡用 `environment` 設了 `RABBITMQ_HOST=rabbitmq`，容器裡的程式讀到的就是服務名。程式碼一行不用改——這是熱身實驗親手驗證過的。
+靠 `config.py` 的 `os.environ.get(key, default)`：本機沒設環境變數就用預設值 `127.0.0.1`；compose 裡用 `environment` 設了 `RABBITMQ_HOST=rabbitmq`，容器裡的程式讀到的就是服務名。程式碼一行不用改——這是熱身實驗驗證過的。
 
 ---
 
@@ -492,13 +492,13 @@ docker compose -f docker-compose-local.yml down     # 保留資料
 
 只發情境 1（`task_might_fail`），開 worker（`--concurrency=1`），連續觀察好幾輪。你會看到 log 印出「第 N 次嘗試」，有時第一次就成功，有時重試兩三次才成功、或最後放棄。把「重試次數」和「最後結果」記幾筆下來，你就理解 `max_retries` 和 `default_retry_delay` 實際怎麼運作。
 
-**練習 2：親手製造「毒訊息」再看 RabbitMQ**
+**練習 2：製造「毒訊息」再看 RabbitMQ**
 
 只發情境 2（REQUEUE_TEST），開一個 worker，打開 RabbitMQ UI 的 `celery` 佇列頁面，盯著 **Ready** 和 **Unacked** 這兩個數字。你會看到它們一直在 0↔1 之間跳——訊息被拿走（Unacked=1）、失敗放回（Ready=1）、又被拿走……用自己的話描述這個循環，你就懂 requeue 了。看完把 worker 停掉，確認那則訊息還在 Ready 裡。
 
 **練習 3：驗證 `acks_late` 保住任務**
 
-發情境 4（`task_slow`，把 producer 對應註解打開），開 worker，等它印到「進度 10/30」左右時 `Ctrl+C` 殺掉。到 RabbitMQ UI 確認那則訊息回到 Ready，然後重開 worker——你會看到它**從進度 1 重新開始跑**。這讓你親眼證明「acks_late 讓被中斷的任務不遺失」，也讓你體會為什麼這種任務最好是冪等的。
+發情境 4（`task_slow`，把 producer 對應註解打開），開 worker，等它印到「進度 10/30」左右時 `Ctrl+C` 殺掉。到 RabbitMQ UI 確認那則訊息回到 Ready，然後重開 worker——你會看到它**從進度 1 重新開始跑**。這證明了「acks_late 讓被中斷的任務不遺失」，也讓你體會為什麼這種任務最好是冪等的。
 
 ---
 

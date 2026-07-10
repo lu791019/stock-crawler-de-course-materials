@@ -22,7 +22,7 @@ docker exec mysql mysql -uroot -p1234 mydb -e "SELECT COUNT(*) FROM TaiwanStockP
 
 **索引（index）是資料庫的目錄**。沒有目錄，查一個字要整本書翻過去（全表掃描）；有目錄，翻兩三頁就到。底層是 B+Tree——你可以先想成「排好序、可以二分搜尋的目錄樹」，細節等需要時再深究。
 
-### 親眼看差異：EXPLAIN
+### 用 EXPLAIN 看差異
 
 `EXPLAIN` 放在任何 SELECT 前面，資料庫會告訴你「我打算怎麼查」。**建索引前**：
 
@@ -327,7 +327,7 @@ WHERE stock_id = '2330' ORDER BY trade_date DESC LIMIT 3;      -- 背後其實�
 
 ## 5. (補充) 交易 Transaction — 要嘛全做完，要嘛當沒發生 
 
-ACID 實際測試，這裡親手摸 A（原子性）。**交易**把多個操作包成一個單位：全部成功才算數（COMMIT），中間出錯全部撤銷（ROLLBACK）。示範：
+ACID 實際測試，這裡實際操作 A（原子性）。**交易**把多個操作包成一個單位：全部成功才算數（COMMIT），中間出錯全部撤銷（ROLLBACK）。示範：
 
 ```sql
 SELECT close FROM TaiwanStockPrice WHERE stock_id='2330' AND date='2025-06-13';  -- 1000.65

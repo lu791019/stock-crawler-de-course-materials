@@ -472,7 +472,7 @@ MySQL（TCP 3306）
 
 ### 往下看一層：直接用 pymysql 長什麼樣
 
-SQLAlchemy 底下那層（DBAPI）親眼看一次，之後看到別人 `import pymysql` 的程式碼就不會慌：
+SQLAlchemy 底下那層（DBAPI）看一次，之後看到別人 `import pymysql` 的程式碼就不會慌：
 
 ```python
 import pymysql
@@ -564,7 +564,7 @@ df.to_sql("TaiwanStockPrice", con=engine, if_exists="append", index=False)
 
 `read_sql` 是反方向的兄弟：`pd.read_sql("SELECT ...", con=engine)` 把查詢結果直接變 DataFrame——第 14 章把 MySQL 搬進 BigQuery，用的正是它。
 
-### 打開黑盒子：echo=True 親眼看它做了什麼
+### 打開黑盒子：echo=True 看它做了什麼
 
 把 `create_engine(..., echo=True)` 打開再跑一次寫入，terminal 會印出它背後發的每一句 SQL：
 
@@ -619,7 +619,7 @@ INFO sqlalchemy.engine.Engine COMMIT                    ← 全部成功才提�
 
 ## 換你試試看
 
-**練習 1：親眼數出「重複」**
+**練習 1：數出「重複」**
 
 跑 producer 前先用 Step 7 方式 B 記下 `TaiwanStockPrice` 的筆數，跑完再看一次，然後**再跑第三次**。把三次的筆數記下來，你會看到它以固定幅度一直增加。用自己的話解釋為什麼——這會讓你對「不冪等」的痛有很直接的感受，正好接到第 6 章。
 

@@ -248,7 +248,7 @@ uv run python -m celery -A crawler.worker worker -l info -n w2@%h
 
 ---
 
-## 一步一步實測（用 repo 親手驗證）
+## 逐項驗證（用 repo 實際執行）
 
 ### 實驗 1：prefork（多行程）vs gevent（多並發）
 
@@ -299,7 +299,7 @@ GIL 讓同一時間只有一條執行緒能跑 Python 程式碼。所以多執�
 
 **練習 1：看見多行程**
 
-用預設 prefork 啟動 worker，另開一個終端機執行 `ps aux | grep celery`（Mac/Linux）。你會看到不只一個 celery 行程——一個主行程加上好幾個子行程（數量約等於 concurrency）。這讓你親眼確認 prefork 真的開了多個作業系統行程。
+用預設 prefork 啟動 worker，另開一個終端機執行 `ps aux | grep celery`（Mac/Linux）。你會看到不只一個 celery 行程——一個主行程加上好幾個子行程（數量約等於 concurrency）。這確認了 prefork 真的開了多個作業系統行程。
 
 **練習 2：對照 I/O 密集下兩種 pool 的吞吐**
 

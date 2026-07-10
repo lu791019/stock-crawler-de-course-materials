@@ -7,7 +7,7 @@
 ## 做完這一章，你會做到
 
 1. 跑 `stock_crawler_dag`：Airflow 直接呼叫爬蟲，10 支股票寫進 MySQL。
-2. 跑 `stock_crawler_producer_dag`：Airflow 只發任務，Celery worker 執行——親眼看兩層分工。
+2. 跑 `stock_crawler_producer_dag`：Airflow 只發任務，Celery worker 執行——觀察兩層分工。
 3. 跑 `stock_crawler_etl_dag`：爬蟲 + 建 VIEW + 建實體表的完整 ETL。
 4. 分得清 LocalExecutor 與 CeleryExecutor，看出後者怎麼回扣你學過的 Celery。
 5. 會用 Airflow UI 的 Graph / Grid / Logs 監控與除錯。

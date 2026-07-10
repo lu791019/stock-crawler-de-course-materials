@@ -250,7 +250,7 @@ docker compose -f docker-compose-local.yml down
 
 **練習 2：故意試 SQL Injection**
 
-用 curl 打 `http://localhost:8000/stocks/2330%27%20OR%20%271%27=%271/latest`（URL 編碼的注入字串）。你會得到 404 而不是整張表——參數化查詢把它當成一個不存在的股票代碼。這讓你親眼確認防線有效。
+用 curl 打 `http://localhost:8000/stocks/2330%27%20OR%20%271%27=%271/latest`（URL 編碼的注入字串）。你會得到 404 而不是整張表——參數化查詢把它當成一個不存在的股票代碼。這確認了防線有效。
 
 **練習 3：讓 API 查 VIEW**
 

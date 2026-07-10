@@ -63,7 +63,7 @@ curl -o /dev/null -s -w "phpMyAdmin: %{http_code}\n" http://localhost:8080
 | **Unacked** | worker 取走了、還沒回報完成 | 短暫出現後消失 |
 | **Total** | Ready + Unacked | — |
 
-- Ready 一直堆高不降 → 沒有 worker 在消費（沒開、掛了、或 `-Q` 訂錯佇列）——第 3 章的對照實驗你已經親眼看過。
+- Ready 一直堆高不降 → 沒有 worker 在消費（沒開、掛了、或 `-Q` 訂錯佇列）——第 3 章的對照實驗你已經看過。
 - Unacked 卡住不動 → worker 拿了任務但卡住沒做完——第 4 章的 requeue 實驗你也看過它跳動。
 
 ### Step 3：Flower — 看「任務」
@@ -185,7 +185,7 @@ docker logs rabbitmq
 
 **Q2：Flower 顯示任務 SUCCESS，但 phpMyAdmin 查不到資料，問題可能出在哪？**
 
-任務「執行成功」只代表程式沒拋出例外，不代表資料寫對了地方。可能：寫到別的資料庫（MYSQL_HOST 指錯，例如本機/容器搞混）、寫到別張表、或任務本身是 print 版根本不寫 DB。這就是為什麼資料落地一定要到 DB 層親眼驗證。
+任務「執行成功」只代表程式沒拋出例外，不代表資料寫對了地方。可能：寫到別的資料庫（MYSQL_HOST 指錯，例如本機/容器搞混）、寫到別張表、或任務本身是 print 版根本不寫 DB。這就是為什麼資料落地一定要到 DB 層驗證。
 
 **Q3：Ready 堆高和 Unacked 卡住，分別代表什麼問題？**
 
