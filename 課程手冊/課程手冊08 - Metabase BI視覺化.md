@@ -135,9 +135,25 @@ docker exec mysql mysql -uroot -p1234 mydb -e \
 >
 > 再跑一次上面的查詢，就會看到 2330、0050、2317 等 10 支股票的資料。
 
-### Step 2：建立設定庫，啟動 Metabase
+### Step 2：把兩個 compose 檔串起來，啟動 Metabase
 
-Metabase 開機的第一件事就是連設定庫，所以順序固定：**先讓 MySQL 就緒、建好 `metabasedb`、接上網路，最後才起 Metabase**——順序反了 Metabase 會啟動失敗。
+本章的服務分屬兩個 compose 檔：MySQL 在 `docker-compose-local.yml`（Step 1 已啟動），Metabase 在 `metabase/docker-compose-metabase.yml`。要讓 Metabase 成功連上 MySQL，得先解決兩件事：
+
+**第一件事——網路：兩個 compose 檔預設是兩個隔離的網路。** 每個 compose 檔啟動時會建立自己的網路，容器只能跟**同一個網路**裡的容器互通。`docker-compose-local.yml` 的 mysql 在它自己的預設網路裡；Metabase 的 compose 則宣告使用外部網路 `my_network`。兩邊要通，就把 mysql 也接上 `my_network`——`docker network connect` 做的就是這件事（一個容器可以同時掛在多個網路上，接上新網路不影響原本的）：
+
+```
+docker-compose-local.yml 的預設網路        my_network（外部網路）
+┌─────────────────────────┐         ┌──────────────────┐
+│  mysql      phpmyadmin  │         │     metabase     │
+└─────┬───────────────────┘         └────────┬─────────┘
+      │                                      │
+      └── docker network connect ──► 接上後 mysql 同時在兩個網路，
+                                     metabase 才找得到它
+```
+
+**第二件事——設定庫：Metabase 只會自己建「表」，不會建 database 和帳號。** 上一節說過設定庫 `metabasedb` 放在 MySQL。Metabase 第一次啟動時會在裡面自動建立它需要的所有表，但 `metabasedb` 這個 database 本身、和連線用的帳號 `metabase_app`，MySQL 不會憑空生出來——要先用 root 跑一段 SQL 準備好。這就是啟動 Metabase 之前得先動 MySQL 的原因。
+
+兩件事都處理完才能起 Metabase，所以順序固定：**MySQL 就緒（Step 1）→ 建設定庫與帳號 → 接網路 → 起 Metabase**。順序反了，Metabase 開機連不到設定庫，容器會直接結束。完整指令：
 
 ```bash
 # 1. 建立設定庫與專用帳號（IF NOT EXISTS：重複執行沒有副作用）
