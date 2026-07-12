@@ -6,23 +6,65 @@
 
 ## 做完這一篇，你會做到
 
-1. 用 FastAPI 把 MySQL 裡的股價開成三支 REST API。
-2. 用瀏覽器打開自動生成的互動式 API 文件（Swagger UI），直接在網頁上試打 API。
-3. 看懂參數化查詢為什麼能防 SQL Injection。
-4. 分得清資料的三種出口：BI（人）、倉儲（分析）、API（程式）。
+1. 說得出 API 是什麼、常見的 Web API 風格差在哪，以及 Django / Flask / FastAPI 怎麼選。
+2. 用 FastAPI 把 MySQL 裡的股價開成三支 REST API。
+3. 用瀏覽器打開自動生成的互動式 API 文件（Swagger UI），直接在網頁上試打 API。
+4. 看懂參數化查詢為什麼能防 SQL Injection。
+5. 分得清資料的三種出口：BI（人）、倉儲（分析）、API（程式）。
 
 ---
 
-## 先搞懂：為什麼需要 API 這個出口
+## 先搞懂：API 是什麼
+
+API（Application Programming Interface，應用程式介面）是**程式與程式之間約定好的溝通方式**：定義「怎麼呼叫、要給什麼參數、會回什麼結果」，呼叫方不需要知道內部怎麼實作。
+
+其實你從第 2 章就一直在用 API——爬蟲打的 FinMind 就是：約定是「GET 這個網址、帶 `dataset` 和 `stock_id` 參數，回 JSON 格式的股價」。FinMind 內部用什麼資料庫、怎麼撈的，你不知道也不需要知道——這就是介面的意義：**只約定輸入輸出，不暴露內部**。
+
+「API」一詞的範圍很廣——pandas 的 `read_sql()` 也是一種 API（函式庫的介面）。本篇講的是 **Web API**：走 HTTP 協定、跨網路呼叫的那種。前面的章節你是「呼叫別人的 API」（消費方），本篇換到另一邊：「把自己的資料開成 API」（提供方）。
+
+## 常見的 Web API 風格
+
+| 風格 | 溝通方式 | 特點 | 常見場景 |
+|------|---------|------|---------|
+| **REST** | HTTP 動詞（GET/POST/PUT/DELETE）＋路徑表達資源，多用 JSON | 最普及、工具鏈最全，瀏覽器和 curl 都能直接打 | 絕大多數公開 API——FinMind 就是 REST |
+| **GraphQL** | 單一端點，客戶端用查詢語言指定要哪些欄位 | 一次拿齊、不多不少；伺服器端實作較複雜 | 前端需求多變的產品（GitHub API v4）|
+| **gRPC** | HTTP/2 ＋ Protobuf 二進位格式 | 效能高、強型別；瀏覽器不能直接打 | 微服務之間的內部通訊 |
+| **WebSocket** | 連線建立後保持雙向通道 | 伺服器可主動推送資料 | 即時場景：聊天室、即時股價報價 |
+
+本篇做的是 **REST**——跟你打了十幾章的 FinMind 同一種風格，只是角色從呼叫方變成提供方。
+
+## 為什麼我們的系統需要 API 這個出口
 
 想像你做了一個「台股看盤網頁」。網頁的 JavaScript 要拿股價，選項有：
 
 - ❌ **直接連 MySQL**：等於把資料庫帳密放進前端程式碼，任何人打開開發者工具就拿到你的 root 密碼。
 - ✅ **透過 API**：前端只能呼叫你**開放的那幾個查詢**，資料庫躲在 API 後面，帳密不外洩、查詢範圍你控制。
 
-這就是 API 的本質：**資料庫的守門員**。外界不碰資料庫本體，只能走你開的門。
+這就是 API 在資料系統裡的角色：**資料庫的守門員**。外界不碰資料庫本體，只能走你開的門。
 
-**FastAPI** 是目前 Python 生態最流行的 API 框架：寫法極簡、自動生成互動式文件、效能好。
+## Python 用什麼寫 API：Django vs Flask vs FastAPI
+
+Python 生態最常見的三個 Web 框架：
+
+| | **Django**（2005）| **Flask**（2010）| **FastAPI**（2018）|
+|---|---|---|---|
+| 定位 | 全功能框架（batteries included）| 微框架，核心極小 | 現代 API 框架 |
+| 內建 | ORM、後台管理、認證、模板引擎全包 | 只有路由與請求處理，其餘自己拼裝 | 型別驗證、自動文件；ORM 等自選 |
+| 寫 API | 要加 Django REST Framework | 要加 flask-restful 等擴充 | 原生就是為 API 設計 |
+| 非同步 | 3.0 起支援 ASGI | 原生同步（WSGI）| 原生 ASGI，async 是一等公民 |
+| 適合 | 完整網站：內容管理、會員系統、後台 | 小型服務、高自由度組裝 | 純 API 服務、微服務、ML model serving |
+
+選型參考：要做「整個網站」→ Django；要極簡自由拼裝 → Flask；要做「資料 API 服務」→ FastAPI。本課的需求是把 MySQL 資料開成查詢端點——標準的 FastAPI 場景。
+
+## FastAPI 是什麼
+
+2018 年發布，架在兩個成熟套件之上：**Starlette**（處理 HTTP 的 ASGI 框架）＋ **Pydantic**（用型別註記做資料驗證）。三個招牌能力，後面的程式碼全會用到：
+
+1. **型別註記＝自動驗證**：參數宣告成 `limit: int = Query(30, ge=1, le=1000)`，解析、轉型、範圍檢查框架全做，驗證邏輯一行都不用寫
+2. **自動生成互動式文件**：從型別註記生成 OpenAPI 規格，`/docs` 直接開出 Swagger UI（Step 4 會看到）
+3. **原生 async**：需要高併發時把函式改成 `async def` 即可（本篇教學版用同步寫法就夠）
+
+FastAPI 本身只負責「定義」API，實際跑起來需要 ASGI 伺服器 **uvicorn**——這就是 Step 2 指令 `uv run uvicorn api.main:app` 的由來。
 
 ---
 
@@ -222,7 +264,6 @@ docker compose -f docker-compose-local.yml down
 - **三個出口的分工，現在完整了**：Metabase 給人看（第 8 章）、BigQuery 給大規模分析（第 14 章）、API 給程式呼叫（本篇）。三者都只是「讀取 MySQL 的不同姿勢」——上游的爬蟲 pipeline 一行都不用改。這就是分層架構的威力。
 - **為什麼 API 不直接讓外界下任意 SQL？** 因為 API 的價值就在「限制」：只開放安全的、設計過的查詢。權限控制、流量限制、輸入驗證都在這層做。
 - **正式部署還缺什麼？** 本篇是教學版。上線前至少還要：認證（API key / OAuth）、rate limiting、CORS 設定、用 gunicorn+uvicorn workers 跑多行程。這些是後端工程的下一步。
-- **FastAPI 和 Flask 的差別？** Flask 更老牌、生態大；FastAPI 靠型別註記自動做驗證和文件、原生支援 async。新專案多半選 FastAPI。
 
 ---
 
@@ -272,7 +313,9 @@ docker compose -f docker-compose-local.yml down
 
 ## 這一篇你學到了
 
+- API 是程式之間約定好的介面；Web API 以 REST 最普及——呼叫 FinMind 和本篇提供的服務都是 REST。
 - API 是資料的第三個出口：給程式用、資料庫的守門員。
+- Python 三大框架分工：Django 做完整網站、Flask 極簡拼裝、FastAPI 專攻 API 服務。
 - FastAPI 三件套：路由裝飾器、型別註記（自動驗證）、自動文件。
 - 參數化查詢是防 SQL Injection 的鐵律。
 - SQL → DataFrame → JSON，全是你已經會的積木。
