@@ -82,12 +82,12 @@ MongoDB 是目前使用最廣的**文件式（Document）資料庫**：資料以
 
 手冊05 大局觀那張表的 NoSQL 欄位列了四個名字，各代表一類：
 
-| 類型 | 資料長相 | 代表系統 | 適合場景 | 
+| 類型 | 資料長相 | 代表系統 | 適合場景 |
 |------|----------|---------|---------|
-| 文件式 Document | JSON 文件（dict）| **MongoDB**、CouchDB | 結構多變的半結構化資料：爬蟲結果、商品目錄、log | 
-| 鍵值式 Key-Value | key → value，整個資料庫像一個大 dict | **Redis**、DynamoDB | 快取、session、排行榜——用 key 直取最快，但只能用 key 查 | 手
-| 寬欄式 Wide-Column | 表格外形，但每列欄位可不同、按欄儲存 | **Cassandra**、HBase | 寫入量極大的時序資料：IoT 感測、訊息紀錄 | 
-| 圖形式 Graph | 節點＋邊，關係本身就是資料 | **Neo4j** | 關係查詢：社群網絡、推薦系統、金流追蹤 | 
+| 文件式 Document | JSON 文件（dict）| **MongoDB**、CouchDB | 結構多變的半結構化資料：爬蟲結果、商品目錄、log |
+| 鍵值式 Key-Value | key → value，整個資料庫像一個大 dict | **Redis**、DynamoDB | 快取、session、排行榜——用 key 直取最快，但只能用 key 查 |
+| 寬欄式 Wide-Column | 表格外形，但每列欄位可不同、按欄儲存 | **Cassandra**、HBase | 寫入量極大的時序資料：IoT 感測、訊息紀錄 |
+| 圖形式 Graph | 節點＋邊，關係本身就是資料 | **Neo4j** | 關係查詢：社群網絡、推薦系統、金流追蹤 |
 
 四類的共同點：各自放棄「固定 schema + JOIN + 強約束」的一部分，換取特定場景的擴展性或速度。選型時先問「資料長什麼樣、怎麼查」，再對表挑類型——不是「NoSQL 比較新所以比較好」。
 
