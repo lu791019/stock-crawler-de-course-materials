@@ -56,7 +56,46 @@
 
 ---
 
-## 4. 動手：同一支爬蟲，落地改 MongoDB
+## 4. 認識 MongoDB — 動手前先知道它是什麼
+
+### MongoDB 是什麼
+
+MongoDB 是目前使用最廣的**文件式（Document）資料庫**：資料以「文件」為單位儲存，一份文件就是一個 JSON 格式的物件（內部以 BSON 二進位格式存放，額外支援日期、二進位等型別）——對 Python 來說，就是一個 dict。這跟爬蟲的資料形態直接對應：FinMind API 回來的就是 dict 的 list，寫入 MongoDB 不需要先定義表格結構，dict 進去就是一份文件。
+
+名詞跟 MySQL 一一對應：
+
+| MySQL | MongoDB | 說明 |
+|-------|---------|------|
+| database 資料庫 | database 資料庫 | 名稱相同，都是最上層容器 |
+| table 表 | collection 集合 | 一群文件的容器，不用先定義欄位 |
+| row 列 | document 文件 | 一筆資料；每份文件的欄位可以不同 |
+| column 欄位 | field 欄位 | 不用預先宣告，寫入時自帶 |
+| primary key 主鍵 | `_id` | 每份文件都有 `_id`，不給就自動產生 |
+| index 索引 | index 索引 | 概念相同，也支援 unique |
+
+查詢與擴展的機制：
+
+- **查詢**用 JSON 條件描述，例如 `find({stock_id: "2330"})`；聚合分析用 aggregation pipeline（`$match`、`$group`，對應 SQL 的 WHERE、GROUP BY）——動手段和 `example/pymongo.ipynb` 都會操作到
+- **擴展**靠兩個內建機制：replica set（複本集，多台存同一份資料，提供容錯與讀取分流）和 sharding（分片，資料切段分散到多台）。第 3 節說 MongoDB「天生為水平擴展設計」，指的就是這兩個機制；本課用單機一台，不涉及這部分
+
+### NoSQL 不是只有 MongoDB — 四大類型
+
+手冊05 大局觀那張表的 NoSQL 欄位列了四個名字，各代表一類：
+
+| 類型 | 資料長相 | 代表系統 | 適合場景 | 課程對應 |
+|------|----------|---------|---------|---------|
+| 文件式 Document | JSON 文件（dict）| **MongoDB**、CouchDB | 結構多變的半結構化資料：爬蟲結果、商品目錄、log | 本補充的動手段 |
+| 鍵值式 Key-Value | key → value，整個資料庫像一個大 dict | **Redis**、DynamoDB | 快取、session、排行榜——用 key 直取最快，但只能用 key 查 | 手冊10 CeleryExecutor 部署用 Redis 當 Celery broker |
+| 寬欄式 Wide-Column | 表格外形，但每列欄位可不同、按欄儲存 | **Cassandra**、HBase | 寫入量極大的時序資料：IoT 感測、訊息紀錄 | 第 2 節 CAP 表的 CP（HBase）/ AP（Cassandra）例子 |
+| 圖形式 Graph | 節點＋邊，關係本身就是資料 | **Neo4j** | 關係查詢：社群網絡、推薦系統、金流追蹤 | （本課未使用）|
+
+四類的共同點：各自放棄「固定 schema + JOIN + 強約束」的一部分，換取特定場景的擴展性或速度。選型時先問「資料長什麼樣、怎麼查」，再對表挑類型——不是「NoSQL 比較新所以比較好」。
+
+本課的動手段選 MongoDB：文件式跟爬蟲回來的 dict 直接對應、不用轉換，最能呈現「同一份資料、兩種落地」的差異。
+
+---
+
+## 5. 動手：同一支爬蟲，落地改 MongoDB
 
 ### 啟動（跟其他服務完全同款的管理方式）
 
@@ -294,7 +333,7 @@ docker compose -f docker-compose-local.yml down    # mongodb volume 保留資料
 
 ---
 
-## 5. 什麼時候選誰
+## 6. 什麼時候選誰
 
 | 情境 | 選 | 原因 |
 |------|-----|------|
