@@ -161,6 +161,8 @@ docker exec mysql mysql -uroot -p1234 -e "
 CREATE DATABASE IF NOT EXISTS metabasedb;
 CREATE USER IF NOT EXISTS 'metabase_app'@'%' IDENTIFIED BY '1234';
 GRANT ALL PRIVILEGES ON metabasedb.* TO 'metabase_app'@'%';"
+#    '帳號'@'%' 的 @ 後面是「允許從哪裡連入」，% = 任何主機都接受
+#    （Metabase 從另一個容器連入，來源是容器 IP，所以不能限 localhost）
 
 # 2. 建立外部網路（建過就跳過）
 docker network create my_network
@@ -173,6 +175,8 @@ docker network connect my_network mysql
 docker compose -f metabase/docker-compose-metabase.yml up -d
 ```
 
+> 💡 **`@` 是 MySQL 帳號的來源限制**。MySQL 的帳號識別不是只有名字，而是「使用者名 + 連入來源」的組合：`'metabase_app'@'%'` 和 `'metabase_app'@'localhost'` 是**兩個不同的帳號**，可以各有密碼與權限。`%` 是萬用字元，任何來源都接受。本課用 `%` 的原因：Metabase 從另一個容器連入，來源是 Docker 網路裡的容器 IP（容器重建後會變動），限成 `localhost` 就連不進來。正式環境可收緊為子網段（如 `@'172.18.0.%'`）。排錯提示：帳密正確但來源不符時，錯誤訊息是 `Access denied for user 'xxx'@'實際來源'`——看 `@` 後面顯示的來源就知道被哪一層擋下。
+>
 > 💡 `metabase_app` 對 `metabasedb` 是完整讀寫權限（`GRANT ALL ... ON metabasedb.*`）——Metabase 要在裡面自己建表。它跟 Step 3.5 的唯讀帳號 `metabase_ro` 用途不同：一個管設定庫、一個管資料來源，權限範圍也互不重疊。
 >
 > 💡 `docker-compose-all.yml`（第 13 章）把所有服務放在同一網路，並在 MySQL volume 初始化時自動建 `metabasedb`，上面的步驟 1-3 都不需要。
