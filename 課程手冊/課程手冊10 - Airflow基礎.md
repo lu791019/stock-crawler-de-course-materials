@@ -55,7 +55,7 @@
 | `airflow-webserver` | Web UI（port 8080）|
 | `airflow-scheduler` | 排程器（掃描 DAG、依 cron 觸發、分派 task）|
 
-> **等等，為什麼又多一個 Postgres？我們不是有 MySQL 了嗎？** 兩個資料庫的用途完全不同：**PostgreSQL 是 Airflow 自己的內部資料庫**（存工作流的狀態，就像 Metabase 用 H2 存自己的設定）；**MySQL 是我們的業務資料庫**（存股價）。Airflow 官方預設且支援最完整的是 Postgres，所以照用。兩個各管各的，互不相干：
+> **等等，為什麼又多一個 Postgres？我們不是有 MySQL 了嗎？** 兩個資料庫的用途完全不同：**PostgreSQL 是 Airflow 自己的內部資料庫**（存工作流的狀態，就像第 8 章 Metabase 用 `metabasedb` 存自己的設定）；**MySQL 是我們的業務資料庫**（存股價）。Airflow 官方預設且支援最完整的是 Postgres，所以照用。兩個各管各的，互不相干：
 >
 > ```
 > Airflow（狀態存 PostgreSQL）→ 排程觸發 → 爬蟲程式 → 股價寫入 MySQL

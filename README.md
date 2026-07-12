@@ -480,7 +480,7 @@ FROM ubuntu:22.04               ← 從乾淨的 Ubuntu 開始
 | --- | --- |
 | `airflow/docker-compose-airflow.yml` | Airflow LocalExecutor 版（開發用）|
 | `airflow/docker-compose-airflow-celery.yml` | Airflow CeleryExecutor 版（+Redis+Worker，生產架構示範）|
-| `metabase/docker-compose-metabase.yml` | Metabase（內建 H2 存設定，MySQL 只當資料來源）|
+| `metabase/docker-compose-metabase.yml` | Metabase（設定庫放 MySQL 的 `metabasedb`，資料來源為 `mydb`）|
 
 ### 命名規則小抄
 

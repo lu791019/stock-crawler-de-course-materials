@@ -56,6 +56,8 @@ services:
       - '3306:3306'
     volumes:
       - mysql-data:/var/lib/mysql
+      # volume 第一次建立時自動建 Metabase 設定庫（既有 volume 不會重跑）
+      - ./metabase/init-metabase-appdb.sql:/docker-entrypoint-initdb.d/init-metabase-appdb.sql
     healthcheck:
       test: mysqladmin ping -h localhost -uroot -p1234
       interval: 10s
@@ -200,10 +202,17 @@ services:
     container_name: metabase
     ports:
       - 3000:3000
+    # 設定庫放 MySQL 的 metabasedb（由 init-metabase-appdb.sql 在 volume 初始化時建立）
     environment:
-      MB_DB_FILE: /metabase-data/metabase.db
-    volumes:
-      - metabase-data:/metabase-data
+      MB_DB_TYPE: mysql
+      MB_DB_HOST: mysql
+      MB_DB_PORT: 3306
+      MB_DB_DBNAME: metabasedb
+      MB_DB_USER: metabase_app
+      MB_DB_PASS: "1234"
+    depends_on:
+      mysql:
+        condition: service_healthy
     healthcheck:
       test: curl --fail -I http://localhost:3000/api/health || exit 1
       interval: 15s
@@ -243,4 +252,3 @@ volumes:
   mysql-data:
   mongodb:
   airflow-postgres-data:
-  metabase-data:

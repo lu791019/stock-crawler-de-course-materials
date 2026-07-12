@@ -5,12 +5,18 @@ services:
     hostname: metabase
     ports:
       - 3000:3000
-    # Metabase 使用內建 H2 資料庫存設定（免依賴外部 DB）
-    # 啟動後在 Web UI 設定 → 新增資料庫 → 填 MySQL 連線資訊即可查詢股價資料
-    volumes:
-      - metabase-data:/metabase-data      # 持久化 Metabase 設定（dashboard、帳號等）
+    # 設定庫（application database）放 MySQL 的 metabasedb —— production 慣用做法
+    # 啟動前置（順序固定，見課程手冊08 Step 2）：
+    #   1. MySQL 已啟動（docker-compose-local.yml）
+    #   2. metabasedb 資料庫與 metabase_app 帳號已建立
+    #   3. MySQL 已接上 my_network（docker network connect my_network mysql）
     environment:
-      MB_DB_FILE: /metabase-data/metabase.db
+      MB_DB_TYPE: mysql
+      MB_DB_HOST: mysql          # Docker 網路內的服務名，不是 127.0.0.1
+      MB_DB_PORT: 3306
+      MB_DB_DBNAME: metabasedb   # 設定庫，跟資料來源 mydb 是不同 database
+      MB_DB_USER: metabase_app   # 設定庫專用帳號（完整讀寫，Metabase 要自己建表）
+      MB_DB_PASS: "1234"
     networks:
       - my_network
     healthcheck:
@@ -18,9 +24,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-
-volumes:
-  metabase-data:
 
 networks:
   my_network:
