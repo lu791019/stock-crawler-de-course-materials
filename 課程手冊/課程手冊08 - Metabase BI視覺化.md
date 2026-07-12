@@ -11,6 +11,7 @@
 3. 把多張圖組合成一個 Dashboard。
 4. 用 SQL 模式下自訂查詢，並把 MySQL 的 VIEW 拿來做圖。
 5. 分得清「Metabase 自己的設定」和「它查詢的資料來源」是兩個不同的資料庫。
+6. 直接查設定庫 `metabasedb`，對照出自己的每個操作存成了哪些資料。
 
 ---
 
@@ -346,6 +347,45 @@ ORDER BY trade_date;
 
 > 💡 這個 VIEW 用 `ROW_NUMBER()` 對「同股票同日期」去重——如果你的表裡有第 5 章重跑造成的重複資料，VIEW 查出來的仍是乾淨的。這是「不動原始資料、用查詢層清理」的實務手法，第 14 章 BigQuery 會再用一次。
 
+### Step 11（進階）：查設定庫——每個操作都變成了資料
+
+Step 2 建的 `metabasedb`，做到這裡已經累積了本章所有操作的紀錄。用 root 直接查它，把「設定庫」從概念變成查得到的資料（`--default-character-set=utf8mb4` 讓中文名稱正常顯示，少了它中文會變 `?`）：
+
+```bash
+docker exec mysql mysql -uroot -p1234 --default-character-set=utf8mb4 metabasedb -e "
+SELECT id, name FROM report_dashboard;                                -- 你建的 Dashboard
+SELECT id, name, display FROM report_card ORDER BY id DESC LIMIT 5;  -- 你存的 Question 與圖表類型
+SELECT dashboard_id, card_id, \`row\`, col, size_x, size_y
+  FROM report_dashboardcard;                                          -- 卡片在 Dashboard 上的版面
+SELECT context, card_id, COUNT(*) AS runs
+  FROM query_execution GROUP BY context, card_id;                     -- 查詢執行紀錄
+"
+```
+
+操作與表的對照：
+
+| 你做過的事 | 存在哪張表 | 存了什麼 |
+|-----------|-----------|---------|
+| 存 Question（Step 5-7、9）| `report_card` | 查詢定義＋圖表類型。點選式存的是 MBQL（Metabase 的查詢中間格式）；SQL 模式存的是原生 SQL 字串，原文可在 `dataset_query` 欄位裡看到 |
+| 建 Dashboard（Step 8）| `report_dashboard` | 名稱、擁有者、建立時間 |
+| 把卡加進 Dashboard、拖拉排版（Step 8）| `report_dashboardcard` | 哪張卡掛在哪個 Dashboard、位置座標（`row`/`col`）與尺寸（`size_x`/`size_y`）——編輯模式拖拉卡片，改的就是這幾個數字 |
+| 每一次查詢執行 | `query_execution` | 誰、透過哪張卡、跑了幾毫秒。SQL 編輯器裡**沒存檔**就執行的查詢，`card_id` 是 NULL、context 是 `ad-hoc`——留紀錄、不留定義 |
+| 建管理員帳號（Step 3）、收藏集（Step 5）| `core_user`、`collection` | 帳號與資料夾結構 |
+
+> 💡 新版 Metabase 內建一組 E-commerce 範例內容（Examples 收藏集），所以 `report_card` 裡會先有幾十筆不是你建的資料——用 `ORDER BY id DESC` 或名稱分辨自己的。
+
+對照出完整的資料流向——打開一次 Dashboard，三個資料庫動作各自發生：
+
+```
+打開 Dashboard
+    │
+    ├─► 讀 metabasedb：拿 Dashboard 與 Question 的定義（metabase_app）
+    ├─► 查 mydb：即時執行查詢拿股價數據（metabase_ro，唯讀）→ 結果回傳瀏覽器畫圖，不落地
+    └─► 寫 metabasedb：留下 query_execution 執行紀錄（metabase_app）
+```
+
+`mydb` 全程只被 SELECT——「設定庫存定義與紀錄、資料來源只被讀」在這裡有完整的證據。
+
 ---
 
 ## 檢查你是不是真的做到了
@@ -358,13 +398,14 @@ ORDER BY trade_date;
 | 4 | SQL 模式查得到資料 | 點選式之外你還有 SQL 這條路 |
 | 5 | VIEW 同步後能拿來做圖 | DB 端的查詢層可以被 BI 直接用 |
 | 6 | 重啟 Metabase 容器後 Dashboard 還在 | 設定庫在 MySQL 裡，容器本身無狀態 |
+| 7 | `metabasedb` 查得到你的 Dashboard、卡片與查詢紀錄 | 設定庫存的是定義與紀錄，內容隨操作累積 |
 
 ---
 
 ## 想再深入一點
 
 - **BI 工具把「查詢能力」下放給非技術同事。** 有了 Metabase，原本要工程師寫 SQL 才做得到的「看某段期間某股走勢」，業務或主管自己拉一拉就有了。工程師不必逐一處理這類查詢需求。
-- **Metabase 的圖表底下其實還是 SQL。** 你用滑鼠拉的每一個問題，Metabase 都會翻譯成一段 SQL 去查 MySQL。它也有「原生查詢」模式讓你直接寫 SQL。所以 BI 不是取代 SQL，而是幫你把常用查詢包成好點的介面。
+- **Metabase 的圖表底下其實還是 SQL。** 你用滑鼠拉的每一個問題，Metabase 都會翻譯成一段 SQL 去查 MySQL。它也有「原生查詢」模式讓你直接寫 SQL。所以 BI 不是取代 SQL，而是幫你把常用查詢包成好點的介面。Step 11 查 `report_card` 的 `dataset_query` 欄位就能看到這件事的實體：點選式的問題存成 MBQL 中間格式（執行時才翻譯成 SQL），SQL 模式的問題存的就是你寫的原文。
 - **Metabase 容器是無狀態的。** 設定全部存在 MySQL 的 `metabasedb`，容器裡沒有任何需要保留的資料——刪掉 Metabase 容器再重建，只要 `MB_DB_*` 指回同一個設定庫，Dashboard 原封不動。反過來說，設定的存亡跟著 MySQL 的 volume：對 MySQL 用 `down -v`，股價資料和 Dashboard 會一起消失。「狀態集中到資料庫、應用程式本身無狀態」是伺服器應用的常見設計，方便隨時汰換或擴充應用容器。
 
 ---
@@ -386,6 +427,10 @@ ORDER BY trade_date;
 **Q4：什麼時候用點選式、什麼時候切到 SQL 模式？**
 
 日常的篩選、彙總、分組，點選式就夠、而且做出來的問題別人容易改。遇到複雜邏輯（多表 JOIN、視窗函數、CASE WHEN）點選式做不出來，就切 SQL 模式。實務上兩者混用：SQL 高手寫好複雜查詢存起來，其他人拿去改篩選條件。
+
+**Q5：`metabase_app` 和 `metabase_ro` 可以合併成一個帳號嗎？**
+
+功能上可行（一個帳號同時給 `metabasedb` 讀寫和 `mydb` 唯讀，甚至直接用 root），但兩個帳號各自對應一種需求：設定庫要能建表寫入、資料來源只需要讀。合併成高權限帳號後，BI 對業務資料就有了寫入能力——Step 3.5 用權限層擋下 `DELETE` 的保護跟著消失。分開是最小權限原則的實際應用：每個連線只拿它需要的權限。
 
 ---
 
