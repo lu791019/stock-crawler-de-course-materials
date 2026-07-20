@@ -297,8 +297,10 @@ curl "http://localhost:8000/stocks/2330/prices?limit=5000"
 
 | 家族 | 語意 | 常見成員 | 說明 |
 |:----:|------|---------|------|
+| **1xx** | **資訊** | **101** Switching Protocols | 切換協定——WebSocket 握手就是靠它：先用 HTTP 發升級請求，伺服器回 101 後連線切成 WebSocket（風格表提到的「先 HTTP 握手再升級」）|
 | **2xx** | **成功** | **200** OK | 查詢成功、回傳資料——本篇每次正常回應都是它 |
 | | | **201** Created | 新增成功（POST 建立資源後回的，本篇沒開 POST 所以不會遇到）|
+| | | **202** Accepted | 收到了、但還沒處理完——概念上就是 Celery `.delay()`：任務收進佇列，還沒真的跑完 |
 | | | **204** No Content | 成功但沒有回傳內容（常見於 DELETE：刪成功，沒東西要回）|
 | **3xx** | **重新導向** | **301** Moved Permanently | 資源永久搬家了，以後都打新網址（搜尋引擎會跟著改）|
 | | | **302** Found | 資源暫時搬家，下次還是打原來的（登入後跳轉常用）|
@@ -307,6 +309,7 @@ curl "http://localhost:8000/stocks/2330/prices?limit=5000"
 | | | **401** Unauthorized | 沒帶認證（API key / token 沒給或過期）|
 | | | **403** Forbidden | 有認證但沒權限（你的帳號不允許做這件事）|
 | | | **404** Not Found | 資源不存在——本篇查 9999 時 `raise HTTPException(404)` |
+| | | **405** Method Not Allowed | 端點只開 GET，你卻 POST 過去——FastAPI 自動擋（學員表單送錯方法時會遇到）|
 | | | **422** Unprocessable Entity | 參數驗證不過——本篇 `limit=5000` 被 FastAPI 自動擋 |
 | | | **429** Too Many Requests | 被限流了（「上線前還缺什麼」提到的 rate limiting 回的就是這個）|
 | **5xx** | **提供方的錯** | **500** Internal Server Error | 程式有 bug、或 DB 掛了沒處理到 |
