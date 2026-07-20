@@ -63,6 +63,11 @@
 
 > 💡 **時間格式模擬器**：cron 表達式不確定寫得對不對，丟到 [crontab.guru](https://crontab.guru/) 驗證——貼上表達式，它會用白話告訴你「什麼時候會跑」和下一次執行時間。
 
+兩個補充：
+
+- crontab 還支援簡寫：`@hourly`（每小時）、`@daily`（每天 0 點）、`@reboot`（開機時跑一次）……crontab.guru 頁面下方就列著這些寫法。
+- **Windows 沒有 cron**：Windows 內建的對應工具是「工作排程器（Task Scheduler）」。WSL 裡的 Linux 有 `crontab` 指令，但 cron 服務預設不會啟動、WSL 一關排程也跟著停。所以本課不用系統 cron 排任務——排程放在 Python 層（本章的 APScheduler）或專門的排程服務（第 10 章的 Airflow），在哪個作業系統上行為都一致。
+
 ---
 
 ## 先認識工具：APScheduler 是什麼
@@ -134,11 +139,12 @@ scheduler.start()
 
 一段一段看：
 
-- `BackgroundScheduler(timezone="Asia/Taipei")`：建立一個「背景執行」的排程器，時區設台北（不設的話排程時間會跑掉）。
+- `BackgroundScheduler(timezone="Asia/Taipei")`：建立一個「背景執行」的排程器，時區明寫台北。**不設的話會用系統時區**——容器和雲端主機的系統時區常常是 UTC，跟台北差 8 小時：你以為排的是 18:00，實際卻在台北時間凌晨 2 點跑。所以排程程式一律明寫時區；第 10 章 Airflow 的設定裡也會看到同一件事（`AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Taipei`）。
 - `add_job(...)`：註冊一個定時工作。`trigger="cron"` 表示用 cron 風格排程：
   - 工作 A 用 `second="*/5"`：每 5 秒跑一次。這個是**故意放的教學用工作**，讓你上課當下就看到排程在動，不用真的等 12 小時。
   - 工作 B 用 `hour="*/12", minute="0", second="0"`：每 12 小時的整點跑一次真正的爬蟲。
 - `coalesce=True`：如果程式當機、錯過了好幾次排程，醒來只補跑一次，不會一次爆發一堆。
+- 順帶一提：如果上一輪還沒跑完、下一輪時間又到了，APScheduler 預設同一個工作**最多同時一個實例**（`max_instances=1`），新的那輪會被跳過並在 log 印警告。所以排程間隔要抓得比任務執行時間長。
 
 ### 為什麼結尾有一個 `while True: sleep`
 
@@ -166,6 +172,17 @@ scheduler.start()          # 這一行會「卡住」主執行緒，之後的程
 
 - **`BackgroundScheduler`**：在背景執行緒跑，`start()` 之後主程式可以繼續做別的事（所以要自己寫 `while True` 保持存活）。
 - **`BlockingScheduler`**：`start()` 會**卡住**主執行緒，程式就停在那裡專心當排程器（所以不需要 `while True`）。適合「這支程式就是專門在跑排程」的情況，例如丟進一個容器單獨跑。
+
+---
+
+## 排程在跑了，執行狀態去哪看？
+
+本章開頭列過排程工具的第四項基本功能：「能夠查看工作執行狀態」。老實檢查一下手上這兩個工具：
+
+- **cron**：預設只能翻系統 log（Ubuntu 在 `/var/log/syslog`，`grep CRON` 過濾），只記「有沒有執行」，指令失敗了不會主動通知你。
+- **APScheduler**：只有你自己用 `logger` 印的訊息。哪天跑過、哪次失敗、失敗了要不要補——全部要自己寫程式處理。
+
+也就是說，這兩個工具都只做好了前三項（時間設定、命令設定、管理多個排程），第四項「查看執行狀態」都很弱。**這正是下一章 Airflow 要解決的問題**：每次執行都有紀錄、每個步驟都有 log、失敗能在網頁上單獨重跑。
 
 ---
 
@@ -248,6 +265,10 @@ I/O 密集（大部分時間在等網路）。這種任務可以開遠高於核�
 
 因為 Background 是在背景執行緒跑，主程式一結束它就被收掉，所以要用 `while True` 讓主程式一直活著。Blocking 的 `start()` 本身就會卡住主執行緒、讓程式停在那裡，主程式不會結束，所以不需要額外保活。
 
+**Q4：Celery 不是自帶排程器（Celery Beat）嗎？為什麼這章用 APScheduler？**
+
+可以用 Beat——它做的事一樣：定時把任務丟進佇列。本課選 APScheduler 有兩個理由：一是它是**通用**排程套件，不綁 Celery，之後在任何 Python 專案（就算沒有 Celery）都能用同一套；二是它的觸發器概念（cron / interval / date）跟下一章 Airflow 的排程設定一脈相承。Beat 的用法需要時查官方文件就好——分工概念跟本章完全相同：排程器發任務、worker 執行。
+
 ---
 
 ## 換你試試看
@@ -270,6 +291,19 @@ trigger="cron", minute="*/1", second="0", coalesce=True,
 
 把 `second="*/5"` 改成 `second="*/10"`，重跑，確認間隔真的變成 10 秒。這讓你熟悉 cron 欄位的寫法（秒 / 分 / 時 / 星期），之後要排「每天收盤後跑一次」就會寫了。
 
+**練習 4：換一種觸發器——interval**
+
+把 hello_world 的觸發方式從 cron 改成固定間隔：
+
+```python
+scheduler.add_job(
+    id="hello_world", func=hello_world,
+    trigger="interval", seconds=10,
+)
+```
+
+重跑，確認一樣是每 10 秒一次。差別在語意：**cron 適合「指定時刻」**（每天 18:00、每週一 8 點），**interval 適合「固定頻率」**（每 10 秒、每 30 分鐘）——「每 10 秒」用 interval 寫比 cron 的 `second="*/10"` 更直白。做完這題，三種觸發器裡最常用的兩種你都摸過了。
+
 ---
 
 ## 卡住了？常見錯誤這樣排
@@ -285,9 +319,11 @@ trigger="cron", minute="*/1", second="0", coalesce=True,
 
 ## 這一章你學到了
 
+- crontab 的「分 時 日 月 星期 指令」五欄位語法；Windows 對應工具是工作排程器，不是 cron。
 - 排程器是鬧鐘，定時呼叫 `.delay()`，執行仍交給 Celery。
-- cron 觸發 + `coalesce` 是常用組合。
+- cron 觸發 + `coalesce` 是常用組合；排程程式一律明寫時區。
 - Background 要保活、Blocking 會卡住主執行緒；I/O 密集任務適合開高併發。
+- cron 和 APScheduler 都看不到執行歷史——這是下一章 Airflow 的核心賣點。
 
 ## 下一章要做什麼
 
