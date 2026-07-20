@@ -139,7 +139,7 @@ scheduler.start()
 
 一段一段看：
 
-- `BackgroundScheduler(timezone="Asia/Taipei")`：建立一個「背景執行」的排程器，時區明寫台北。**不設的話會用系統時區**——容器和雲端主機的系統時區常常是 UTC，跟台北差 8 小時：你以為排的是 18:00，實際卻在台北時間凌晨 2 點跑。所以排程程式一律明寫時區；第 10 章 Airflow 的設定裡也會看到同一件事（`AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Taipei`）。
+- `BackgroundScheduler(timezone="Asia/Taipei")`：建立一個「背景執行」的排程器，時區明寫台北。**不設的話會用系統時區**——容器和雲端主機的系統時區常常是 UTC，跟台北差 8 小時：你以為排的是 18:00，實際卻在台北時間凌晨 2 點跑。所以排程程式一律明寫時區。
 - `add_job(...)`：註冊一個定時工作。`trigger="cron"` 表示用 cron 風格排程：
   - 工作 A 用 `second="*/5"`：每 5 秒跑一次。這個是**故意放的教學用工作**，讓你上課當下就看到排程在動，不用真的等 12 小時。
   - 工作 B 用 `hour="*/12", minute="0", second="0"`：每 12 小時的整點跑一次真正的爬蟲。
