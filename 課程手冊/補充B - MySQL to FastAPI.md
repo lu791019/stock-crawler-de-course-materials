@@ -54,6 +54,25 @@ Web API 有很多種風格，差別主要在**資料怎麼傳送**：誰發起�
 
 本篇做的是 **REST**——跟你打了十幾章的 FinMind 同一種風格，只是角色從呼叫方變成提供方。
 
+### REST 的動作語彙：HTTP 動詞
+
+REST 的一句請求由兩部分組成：**動詞**（對資源做什麼）＋**路徑**（哪個資源）。常用動詞五個：
+
+| 動詞 | 語意 | 對應資料操作 | 範例（假想的完整股價服務）|
+|------|------|:---:|--------------------------|
+| **GET** | 查詢，不改變資料 | Read | `GET /stocks/2330/prices` 查 2330 的股價 |
+| **POST** | 新增一筆資源 | Create | `POST /stocks` 新增一支股票 |
+| **PUT** | 整筆覆蓋更新 | Update | `PUT /stocks/2330` 用整包新資料取代 2330 |
+| **PATCH** | 部分欄位更新 | Update | `PATCH /stocks/2330` 只改其中幾個欄位 |
+| **DELETE** | 刪除資源 | Delete | `DELETE /stocks/2330` 刪掉 2330 |
+
+兩個設計慣例值得記：
+
+- **GET 是「安全」的**：只讀不寫，打幾次都不會改變伺服器上的資料——所以瀏覽器網址列、搜尋引擎爬蟲都只發 GET。
+- **冪等在 HTTP 層重演**（手冊06 的概念）：GET / PUT / DELETE 重複執行結果不變（刪掉的東西再刪一次，狀態還是「已刪除」）；**POST 不冪等**——重送一次就多建一筆。這就是付款頁警告「請勿重複點擊送出」的原因。
+
+本篇的 API 只開 **GET**：這個服務定位是「資料的查詢出口」，寫入由爬蟲 pipeline 負責（第 5、6 章），不開放外界寫入——**開放哪些動詞本身就是權限設計**。
+
 ## 為什麼我們的系統需要 API 這個出口
 
 想像你做了一個「台股看盤網頁」。網頁的 JavaScript 要拿股價，選項有：
@@ -105,7 +124,44 @@ urlpatterns = [
 
 啟動：`python manage.py runserver`。函式和路徑分在兩個檔案，是 Django 專案結構的約定；要做完整 REST API（序列化、權限、分頁）通常還要再裝 Django REST Framework。
 
-> ⚠️ 注意兩件事：①本課環境**沒有安裝 Django**（`uv sync` 不會裝）；②這兩段程式碼**不能存成兩個散檔直接跑**——`views.py` 和 `urls.py` 必須放在 `django-admin startproject` 產生的專案結構裡才有效。這正是表格說的「全功能框架」的代價：連開一支最簡單的 API 都要先有專案骨架。想自己試的話：`pip install django` → `django-admin startproject demo` → 把兩段程式碼放進對應檔案。
+> ⚠️ 兩個前提：①本課環境**沒有安裝 Django**（`uv sync` 不會裝）；②這兩段程式碼**不能存成兩個散檔直接跑**——必須放進 `django-admin startproject` 產生的專案結構裡。這正是表格說的「全功能框架」的代價：連開一支最簡單的 API 都要先有專案骨架。
+
+想自己完整跑一次的話，照下面四步（找一個**課程專案以外**的資料夾做）：
+
+```bash
+# ① 開一個獨立環境裝 Django（不要裝進課程專案）
+python3 -m venv djenv && source djenv/bin/activate
+pip install django
+
+# ② 生成專案骨架
+django-admin startproject demo
+```
+
+`startproject` 會生出這個結構——兩段範例程式碼要搬去的位置標了 ★：
+
+```
+demo/
+├── manage.py            ← 指令入口：runserver、migrate 都靠它
+└── demo/                ← 專案套件（跟外層資料夾同名，第一次看容易搞混）
+    ├── __init__.py
+    ├── settings.py      ← 全專案設定：資料庫、時區、掛了哪些 app
+    ├── urls.py          ← ★ 用上面的 urls.py 範例「整檔取代」
+    ├── views.py         ← ★ 新建這個檔，內容就是上面的 views.py 範例
+    ├── asgi.py          ← 部署用入口（ASGI 伺服器）
+    └── wsgi.py          ← 部署用入口（WSGI 伺服器）
+```
+
+```bash
+# ③ 搬程式碼：在 demo/demo/ 裡新建 views.py、整檔取代 urls.py
+
+# ④ 啟動，另開終端機打打看
+cd demo
+python manage.py runserver          # 預設 http://127.0.0.1:8000
+curl http://127.0.0.1:8000/stocks
+# → {"stocks": ["2330", "2317", "2454"]}
+```
+
+補充：正式的 Django 專案不會把 `views.py` 直接放在專案套件裡，而是 `python manage.py startapp stocks` 建獨立的 app 再掛進 `settings.py`——那套結構屬於 Django 的課程範圍，這裡只走到「同一支 API 實際跑起來」為止。
 
 **Flask** —— 單一檔案就能跑，路徑用裝飾器直接綁在函式上：
 
@@ -138,6 +194,14 @@ def list_stocks():
 ```
 
 啟動：`uvicorn app:app --reload`。回傳 dict 自動轉 JSON；打開 `http://localhost:8000/docs` 就有互動式文件，一行文件都不用寫。
+
+FastAPI 這段有三個常被跳過的名詞，先說清楚：
+
+- **uvicorn 是什麼？** FastAPI 只負責「定義 API」（哪些路徑、收什麼參數、怎麼處理），它自己**不會聽網路連線**。實際開 port、接收 HTTP 請求、把請求交給 app 處理的是 **uvicorn**——一個 ASGI 伺服器。Django 和 Flask 都內建了開發伺服器（`manage.py runserver`、`flask run`），FastAPI 把伺服器拆出去獨立，所以啟動指令是 `uvicorn` 開頭。
+  - `uvicorn app:app` 的讀法是「**檔名:變數名**」——去 `app.py` 裡找那個叫 `app` 的 FastAPI 物件。本課主線的 `uvicorn api.main:app` 同理：`api/main.py` 裡的 `app`
+  - `--reload`：開發模式，存檔自動重啟；上線不開
+- **`/docs` 是什麼？** FastAPI 從路由和型別註記自動生成 OpenAPI 規格，再用 Swagger UI 渲染成可互動試打的網頁。兩個名詞的關係和試打操作，在後面 Step 4 有完整說明
+- **撈資料一定要 ORM 嗎？** 不用。FastAPI 不綁定資料層（表格裡「ORM 等自選」的意思）：本篇主線手寫 SQL（`api/main.py`），文末附錄有同一組端點的 ORM 版（`api/main_orm.py`），兩種寫法的差異對照見附錄
 
 三段程式碼放在一起看：**核心模式相同**——一個函式處理請求、一條路徑對到一個函式，差別在框架幫你做多少事。這也是為什麼會了其中一個，換另一個的學習成本不高。
 
@@ -471,6 +535,7 @@ uv run uvicorn api.main_orm:app --reload --port 8001
 ## 這一篇你學到了
 
 - API 是程式之間約定好的介面；Web API 風格按傳送方式分三類——一問一答（REST/SOAP/GraphQL/gRPC）、持續連線推送（WebSocket/SSE/MQTT）、反向回呼（Webhook）。其中 REST 最普及——呼叫 FinMind 和本篇提供的服務都是 REST。
+- REST 用「HTTP 動詞＋路徑」表達操作：GET 查、POST 增、PUT/PATCH 改、DELETE 刪；GET/PUT/DELETE 冪等、POST 不冪等。本篇只開 GET——開放哪些動詞就是權限設計。
 - API 是資料的第三個出口：給程式用、資料庫的守門員。
 - Python 三大框架分工：Django 做完整網站、Flask 極簡拼裝、FastAPI 專攻 API 服務。
 - FastAPI 三件套：路由裝飾器、型別註記（自動驗證）、自動文件。
