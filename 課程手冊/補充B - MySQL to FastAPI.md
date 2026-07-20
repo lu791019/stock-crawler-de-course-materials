@@ -201,7 +201,7 @@ FastAPI 這段有三個常被跳過的名詞，先說清楚：
   - `uvicorn app:app` 的讀法是「**檔名:變數名**」——去 `app.py` 裡找那個叫 `app` 的 FastAPI 物件。本課主線的 `uvicorn api.main:app` 同理：`api/main.py` 裡的 `app`
   - `--reload`：開發模式，存檔自動重啟；上線不開
 - **`/docs` 是什麼？** FastAPI 從路由和型別註記自動生成 OpenAPI 規格，再用 Swagger UI 渲染成可互動試打的網頁。兩個名詞的關係和試打操作，在後面 Step 4 有完整說明
-- **撈資料一定要 ORM 嗎？** 不用。FastAPI 不綁定資料層（表格裡「ORM 等自選」的意思）：本篇主線手寫 SQL（`api/main.py`），文末附錄有同一組端點的 ORM 版（`api/main_orm.py`），兩種寫法的差異對照見附錄
+- **撈資料一定要 ORM 嗎？** 不用。FastAPI 不綁定資料層（表格裡「ORM 等自選」的意思）：本篇主線手寫 SQL（`api/main.py`），文末「附錄一」有同一組端點的 ORM 版（`api/main_orm.py`），兩種寫法的差異對照也在那裡
 
 三段程式碼放在一起看：**核心模式相同**——一個函式處理請求、一條路徑對到一個函式，差別在框架幫你做多少事。這也是為什麼會了其中一個，換另一個的學習成本不高。
 
@@ -639,7 +639,7 @@ uv run uvicorn api.main_orm:app --reload --port 8001
 
 ## 附錄二：用 Streamlit 給 API 加一個看盤頁面（選讀）
 
-> 「為什麼需要 API」那節畫了一個願景：台股看盤網頁。這個附錄用 Streamlit 把它做出來——repo 附完整可跑的 `example/stock_dashboard.py`。
+> 「為什麼我們的系統需要 API 這個出口」那節畫了一個願景：台股看盤網頁。這個附錄用 Streamlit 把它做出來——repo 附完整可跑的 `example/stock_dashboard.py`。
 
 ### Streamlit 是什麼？跟前面三個框架有什麼不同？
 
@@ -717,7 +717,7 @@ uv run streamlit run example/stock_dashboard.py
 
 ### 一個架構提醒：Streamlit 也能直連 MySQL，但別這樣做
 
-Streamlit 寫 `pd.read_sql` 直連資料庫**能動**，很多專題也真的這樣寫。但回頭看「為什麼需要 API」那節的論證：直連代表 DB 帳密進了前端專案、查詢範圍沒有守門。走 API 的版本才是完整的分層：
+Streamlit 寫 `pd.read_sql` 直連資料庫**能動**，很多專題也真的這樣寫。但回頭看「為什麼我們的系統需要 API 這個出口」那節的論證：直連代表 DB 帳密進了前端專案、查詢範圍沒有守門。走 API 的版本才是完整的分層：
 
 ```
 MySQL ← api/main.py（守門員）← stock_dashboard.py（呼叫方）← 瀏覽器裡的你
