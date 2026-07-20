@@ -81,6 +81,8 @@ Python 生態最常見的三個 Web 框架：
 
 光看表格感受不深，拿最簡單的需求當比較基準：開一支 `GET /stocks`，回傳股票清單 JSON。
 
+> **這一段用看的就好，不用跟做。** 本篇的動手實作只有 FastAPI 版（後面的 `api/main.py`）。Django 和 Flask 的範例是給你對照寫法用的——本篇不會帶你建這兩個框架的環境，想自己試的話照各段最後的說明。
+
 **Django** —— 要先 `django-admin startproject` 建專案結構，至少動兩個檔案：`views.py` 寫處理函式、`urls.py` 註冊路徑：
 
 ```python
@@ -103,6 +105,8 @@ urlpatterns = [
 
 啟動：`python manage.py runserver`。函式和路徑分在兩個檔案，是 Django 專案結構的約定；要做完整 REST API（序列化、權限、分頁）通常還要再裝 Django REST Framework。
 
+> ⚠️ 注意兩件事：①本課環境**沒有安裝 Django**（`uv sync` 不會裝）；②這兩段程式碼**不能存成兩個散檔直接跑**——`views.py` 和 `urls.py` 必須放在 `django-admin startproject` 產生的專案結構裡才有效。這正是表格說的「全功能框架」的代價：連開一支最簡單的 API 都要先有專案骨架。想自己試的話：`pip install django` → `django-admin startproject demo` → 把兩段程式碼放進對應檔案。
+
 **Flask** —— 單一檔案就能跑，路徑用裝飾器直接綁在函式上：
 
 ```python
@@ -116,7 +120,9 @@ def list_stocks():
     return jsonify({"stocks": ["2330", "2317", "2454"]})
 ```
 
-啟動：`flask --app app run`。沒有專案結構的負擔，但參數驗證、API 文件都要自己處理（或另裝擴充套件）。
+啟動：`flask --app app run`（預設開在 http://localhost:5000 ）。沒有專案結構的負擔，但參數驗證、API 文件都要自己處理（或另裝擴充套件）。
+
+> 想自己試的話：flask 已包含在本課依賴裡（`uv sync` 會裝），找個空資料夾把上面存成 `app.py` 就能跑。但本篇不會帶做——實作留給 FastAPI 版。
 
 **FastAPI** —— 寫法跟 Flask 幾乎一樣，但多送三樣東西：自動文件（`/docs`）、型別驗證、原生 async：
 
@@ -313,7 +319,31 @@ curl http://localhost:8000/stocks/9999/latest
 
 瀏覽器開 **http://localhost:8000/docs** 。
 
-你會看到 Swagger UI：三支 API 全部列出、每個參數的型別和說明、還能**直接在網頁上填參數按 Execute 試打**。這份文件你一行都沒寫——FastAPI 從你的型別註記自動生成。
+**先搞清楚兩個名詞**，很多人把它們混在一起：
+
+- **OpenAPI**：一種描述 REST API 的**標準格式**（JSON）——這個服務有哪些端點、每個端點收什麼參數、參數什麼型別、回應長什麼樣。它只是一份規格文件，不是網頁。這個標準的前身就叫 Swagger，所以兩個詞常混用。
+- **Swagger UI**：把 OpenAPI 規格**渲染成互動網頁**的工具——讓你用點的看文件、用填的試打 API。
+
+FastAPI 的生成鏈是三層，你可以逐一打開驗證：
+
+```
+你的程式碼（路由 + 型別註記）
+    ↓ FastAPI 自動生成
+http://localhost:8000/openapi.json   ← OpenAPI 規格本體（一大包 JSON）
+    ↓ 用兩種介面渲染
+http://localhost:8000/docs     ← Swagger UI（可互動試打）
+http://localhost:8000/redoc    ← ReDoc（純閱讀版，不能試打）
+```
+
+**在 /docs 上試打一支 API 的操作**：
+
+1. 點開 `GET /stocks/{stock_id}/prices` 這一列展開
+2. 按右上角 **Try it out**——參數欄位變成可輸入
+3. 填 `stock_id` = `2330`、`limit` = `5`
+4. 按 **Execute**
+5. 往下看結果區：Swagger UI 幫你組好的 **curl 指令**、實際打的 **Request URL**、以及**回應的 JSON**——跟你 Step 3 手打 curl 是同一件事，只是變成點按
+
+這份文件你一行都沒寫——FastAPI 從路由和型別註記自動生成。這帶來一個重要性質：**文件永遠跟程式碼同步**。傳統手寫 API 文件最大的問題是「程式改了、文件忘了改」，自動生成把這個問題整個消掉。實務上 /docs 也是前後端協作的介面契約：後端把 /docs 網址丟給前端，前端就知道每支 API 怎麼呼叫、會回什麼。
 
 > ✅ 在 /docs 頁面成功試打一次 `/stocks/{stock_id}/prices`，這一篇就完成了。
 
