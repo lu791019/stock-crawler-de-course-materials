@@ -197,7 +197,7 @@ def list_stocks():
 
 FastAPI 這段有三個常被跳過的名詞，先說清楚：
 
-- **uvicorn 是什麼？** FastAPI 只負責「定義 API」（哪些路徑、收什麼參數、怎麼處理），它自己**不會聽網路連線**。實際開 port、接收 HTTP 請求、把請求交給 app 處理的是 **uvicorn**——一個 ASGI 伺服器。Django 和 Flask 都內建了開發伺服器（`manage.py runserver`、`flask run`），FastAPI 把伺服器拆出去獨立，所以啟動指令是 `uvicorn` 開頭。
+- **uvicorn 是什麼？** FastAPI 只負責「定義 API」（哪些路徑、收什麼參數、怎麼處理），它自己**不會聽網路連線**。實際開 port、接收 HTTP 請求、把請求交給 app 處理的是 **uvicorn**——一個 ASGI 伺服器（ASGI 是什麼？「想再深入一點」有「WSGI 與 ASGI」專節）。Django 和 Flask 都內建了開發伺服器（`manage.py runserver`、`flask run`），FastAPI 把伺服器拆出去獨立，所以啟動指令是 `uvicorn` 開頭。
   - `uvicorn app:app` 的讀法是「**檔名:變數名**」——去 `app.py` 裡找那個叫 `app` 的 FastAPI 物件。本課主線的 `uvicorn api.main:app` 同理：`api/main.py` 裡的 `app`
   - `--reload`：開發模式，存檔自動重啟；上線不開
 - **`/docs` 是什麼？** FastAPI 從路由和型別註記自動生成 OpenAPI 規格，再用 Swagger UI 渲染成可互動試打的網頁。兩個名詞的關係和試打操作，在後面 Step 4 有完整說明
@@ -493,6 +493,37 @@ docker compose -f docker-compose-local.yml down
 **什麼時候改用 `async def` 才划算？** 兩個條件要同時成立：①改用支援 async 的函式庫（HTTP 用 `httpx`、MySQL 用 `asyncmy`、SQLAlchemy 有 async engine）；②場景真的是高併發 IO 等待——例如一支端點要打三個外部 API 再彙整結果，async 版可以三個同時等，而不是排隊等。
 
 一句話總結：**阻塞的程式碼配 `def`，有 `await` 的程式碼配 `async def`**——放錯邊才是災難。
+
+### WSGI 與 ASGI：伺服器和 Python 程式之間的介面標準
+
+前面出現過兩個沒展開的名詞：框架表寫 Flask「原生同步（WSGI）」、FastAPI「原生 ASGI」。這節把它們講完整。
+
+**它們是什麼？** WSGI（**W**eb **S**erver **G**ateway **I**nterface）和 ASGI（**A**synchronous **S**erver **G**ateway **I**nterface）是「網頁伺服器」與「Python 應用程式」之間的**介面標準**：規定伺服器收到 HTTP 請求後用什麼格式交給 Python 程式、程式用什麼格式把回應交回去。
+
+**為什麼需要這層標準？** 三個理由：
+
+1. **翻譯**：網頁伺服器（Nginx、Apache）不懂 Python，兩邊需要一份約定好的溝通格式
+2. **拆分關注點**：網路流量端（連線管理、HTTPS、靜態檔案）和應用邏輯端（你寫的端點）各管各的，各自專注自己的強項
+3. **可替換**：只要符合同一標準，伺服器和框架可以自由組合——Flask 換成 Django，gunicorn 照跑不誤，不被特定組合綁死
+
+**兩者的差別：同步 vs 非同步**（上一節事件迴圈的概念直接接上）
+
+| | **WSGI** | **ASGI** |
+|---|---|---|
+| 處理模型 | 同步：一個請求佔住一個執行緒/行程，直到回應完成 | 非同步：事件迴圈，單執行緒掛著多個等待中的請求 |
+| I/O 密集場景 | 等資料庫、等外部 API 時執行緒閒置空等，高併發時成為瓶頸 | 等待時先服務別的請求，空檔被填滿 |
+| 連線形態 | 一來一往：請求→回應→結束 | 連線可持續存在、雙向傳輸——WebSocket / SSE 這些長連線靠的就是它 |
+| 對應伺服器 | gunicorn、uWSGI | **uvicorn**、hypercorn |
+| 代表框架 | Flask（原生）、Django（傳統路線）| FastAPI（原生）、Django 3.0+ |
+
+**框架對號入座**（把前面的知識收攏）：
+
+- **Flask**：原生 WSGI。2.0 之後「可以寫」`async def` view，但底層還是 WSGI，拿不到 ASGI 的併發好處
+- **Django**：3.0 起**兩條都通**——還記得 Django 搬運步驟那棵目錄樹裡 `wsgi.py` 和 `asgi.py` **並存**嗎？那就是證據：要走哪條，就把哪個入口檔交給對應的伺服器
+- **FastAPI**：原生 ASGI——這就是啟動指令是 `uvicorn` 開頭的根本原因
+- 下一節上線清單的 `gunicorn -k uvicorn.workers.UvicornWorker`：gunicorn 當行程管理者、裡面每個 worker 是 uvicorn——兩派的混合部署法
+
+**ASGI 的長連線怎麼運作？** WSGI 的模型裡「一問一答」就是全部；ASGI 的連線建立後持續存在，訊息隨時雙向流動。沒有「一問一答」的配對，雙方就得約定**事件格式**：每則訊息自帶「這是什麼事件、內容是什麼」（常用 JSON 描述），收到的一方按事件類型分派處理——這叫**事件驅動**架構，跟第 1 章 RabbitMQ 的「訊息帶著任務內容」是同一族思路。彈性很大，代價是事件格式要先設計好、有限度地規範，否則後續維護困難。
 
 ### 上線前還缺什麼？（概念版檢查清單）
 
