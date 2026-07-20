@@ -420,6 +420,54 @@ docker compose -f docker-compose-local.yml down
 
 ---
 
+## 附錄：同一組 API 的 ORM 版（選讀）
+
+> 本篇主線用「手寫 SQL」撈資料。這個附錄提供另一條路線的完整對照：**ORM**。用看的就好，想動手的話 repo 裡有完整可跑的檔案。
+
+### 先分清楚：我們主線用了 SQLAlchemy，但沒用它的 ORM
+
+SQLAlchemy 這個套件分兩層：
+
+| 層 | 主線有沒有用 | 用來做什麼 |
+|----|:---:|-----------|
+| **Core**（`create_engine`、`text()`）| ✅ 有 | 管連線池、安全執行你手寫的 SQL |
+| **ORM**（`Session`、Model class）| ❌ 沒有 | 把 table 變成 Python class，讓你不寫 SQL |
+
+ORM（Object-Relational Mapping）把 **table 映射成 class、每一列映射成物件**：查詢用 Python 方法鏈寫，SQL 由框架生成；拿回來的不是 DataFrame，是有屬性的 Python 物件（`row.close` 而不是 `df["close"]`）。
+
+### repo 附了完整可跑的 ORM 版：`api/main_orm.py`
+
+四支端點跟主線的 `api/main.py` **一模一樣**（含 Swagger 上可填的 `stock_id`、`start_date`、`end_date`、`limit` 參數），只是撈資料的寫法全部換成 ORM。可以跟 SQL 版**同時開、互不干擾**：
+
+```bash
+# 視窗 1：SQL 版（主線）
+uv run uvicorn api.main:app --reload --port 8000
+
+# 視窗 2：ORM 版（附錄）
+uv run uvicorn api.main_orm:app --reload --port 8001
+```
+
+開兩個瀏覽器分頁：http://localhost:8000/docs 和 http://localhost:8001/docs ，
+對同一支 API 填同樣的參數按 Execute——**回應完全相同**，差的只是伺服器內部怎麼組查詢。
+
+### 兩版的關鍵差異（對著兩個檔案看）
+
+| | SQL 版 `api/main.py` | ORM 版 `api/main_orm.py` |
+|---|---|---|
+| 前置成本 | 零——會 SQL 就能動 | 要先定義 `StockPrice` Model class，欄位跟表一一對應 |
+| 動態加條件 | 拼 SQL 字串 + params dict | `.where()` 一路往上疊 |
+| 拿回的東西 | DataFrame，一行 `to_dict` 轉 JSON | `StockPrice` 物件，要自己轉 dict |
+| 防注入 | `:佔位符` 參數化 | 生成的 SQL 本來就參數化——**兩邊都安全** |
+| 聚合查詢（/stocks）| `GROUP BY` 直接寫 | `func.count()` / `func.min()` 組出同一句 SQL |
+
+一個 ORM 特有的細節：ORM 規定 Model 一定要宣告主鍵，但 mock 表沒設主鍵——沒關係，主鍵宣告在 Model 上就好（`date` + `stock_id` 一天一股一筆，天然唯一）。
+
+### 什麼時候會選 ORM？
+
+主線選手寫 SQL 的理由：本課一路都是 SQL（第 5 章、Metabase、BigQuery），查詢型態是「讀取＋聚合」，`pd.read_sql` 直通 DataFrame。反過來，**CRUD 為主的業務系統**（會員、訂單）、物件關聯多、團隊不想維護 SQL 字串時，ORM 是主流選擇——Django 內建的就是一套 ORM，Django 世界幾乎不手寫 SQL。
+
+---
+
 ## 這一篇你學到了
 
 - API 是程式之間約定好的介面；Web API 風格按傳送方式分三類——一問一答（REST/SOAP/GraphQL/gRPC）、持續連線推送（WebSocket/SSE/MQTT）、反向回呼（Webhook）。其中 REST 最普及——呼叫 FinMind 和本篇提供的服務都是 REST。
