@@ -24,12 +24,33 @@ API（Application Programming Interface，應用程式介面）是**程式與程
 
 ## 常見的 Web API 風格
 
-| 風格 | 溝通方式 | 特點 | 常見場景 |
+Web API 有很多種風格，差別主要在**資料怎麼傳送**：誰發起、走什麼格式、連線是一次性還是持續的。先看八種常見風格：
+
+| 風格 | 傳送方式 | 特點 | 常見場景 |
 |------|---------|------|---------|
-| **REST** | HTTP 動詞（GET/POST/PUT/DELETE）＋路徑表達資源，多用 JSON | 最普及、工具鏈最全，瀏覽器和 curl 都能直接打 | 絕大多數公開 API——FinMind 就是 REST |
-| **GraphQL** | 單一端點，客戶端用查詢語言指定要哪些欄位 | 一次拿齊、不多不少；伺服器端實作較複雜 | 前端需求多變的產品（GitHub API v4）|
-| **gRPC** | HTTP/2 ＋ Protobuf 二進位格式 | 效能高、強型別；瀏覽器不能直接打 | 微服務之間的內部通訊 |
-| **WebSocket** | 連線建立後保持雙向通道 | 伺服器可主動推送資料 | 即時場景：聊天室、即時股價報價 |
+| **REST** | 客戶端發 HTTP 請求 → 伺服器回應（一問一答）；HTTP 動詞（GET/POST/PUT/DELETE）＋路徑表達資源，多用 JSON | 最普及、工具鏈最全，瀏覽器和 curl 都能直接打 | 絕大多數公開 API——FinMind 就是 REST |
+| **SOAP** | 一問一答；訊息包在 XML 信封（Envelope）裡，規格由 WSDL 文件嚴格定義 | 規範完整（安全、交易、重試都有標準），但笨重、開發慢 | 銀行、金流、保險等老牌企業系統 |
+| **GraphQL** | 一問一答；單一端點，客戶端用查詢語言指定要哪些欄位 | 一次拿齊、不多不少；伺服器端實作較複雜 | 前端需求多變的產品（GitHub API v4）|
+| **gRPC** | 一問一答為主，也支援雙向串流；HTTP/2 ＋ Protobuf 二進位格式 | 效能高、強型別；瀏覽器不能直接打 | 微服務之間的內部通訊 |
+| **WebSocket** | 先 HTTP 握手，之後升級成**持續的雙向通道**，雙方隨時可傳 | 伺服器可主動推送，延遲低；連線管理成本高 | 即時場景：聊天室、即時股價報價 |
+| **SSE**（Server-Sent Events） | 一條 HTTP 連線保持開著，**伺服器單向持續推送** | 比 WebSocket 簡單，瀏覽器原生支援自動重連；只能伺服器→客戶端 | 即時通知、看板更新、LLM 逐字輸出（ChatGPT 的打字效果就是 SSE）|
+| **Webhook** | 方向反過來：你留一個網址給對方，**事件發生時對方主動 POST 給你**（回呼） | 不用一直輪詢問「有沒有新資料」；你得開一個能被打到的端點 | 付款完成通知、GitHub push 觸發 CI |
+| **MQTT** | 發布/訂閱：發送方把訊息交給 **broker**，訂閱方從 broker 收——雙方互不認識 | 極輕量、省電省頻寬；需要多架一個 broker | IoT 感測器、車聯網（和第 1 章的 RabbitMQ 同屬訊息佇列家族）|
+
+八種看似複雜，按**傳送方式**分只有三類：
+
+1. **一問一答**（REST / SOAP / GraphQL / gRPC）——客戶端問一次、伺服器答一次，答完連線就結束。差別只在訊息格式和查詢彈性。
+2. **持續連線推送**（WebSocket / SSE / MQTT）——連線建好後一直開著，伺服器有新資料就推過來，不用客戶端反覆問。
+3. **反向回呼**（Webhook）——平常沒有連線，事件發生時**對方**才發起請求打到你留的網址。
+
+**想看動圖比較？** 這幾份視覺化資源把上面的傳送方式畫成了動畫和圖解：
+
+- [Top 6 Most Popular API Architecture Styles（ByteByteGo，YouTube 動畫）](https://www.youtube.com/watch?v=4vLxWqE94l4)——SOAP/REST/GraphQL/gRPC/WebSocket/Webhook 六種風格的動畫比較，6 分鐘
+- [API Architectural Styles 圖解（ByteByteGo blog）](https://blog.bytebytego.com/p/ep49-api-architectural-styles)——同主題的靜態總覽圖
+- [API 風格比較 cheatsheet（ByteByteGo）](https://bytebytego.com/guides/a-cheatsheet-on-comparing-api-architectural-styles/)——一張表比完各風格的格式、效能、適用場景
+- [Polling vs Long Polling vs SSE vs WebSockets vs Webhooks（AlgoMaster）](https://blog.algomaster.io/p/polling-vs-long-polling-vs-sse-vs-websockets-webhooks)——「持續連線推送」三兄弟＋Webhook 的逐格圖解
+- [短輪詢/長輪詢/SSE/WebSocket 圖解（ByteByteGo）](https://bytebytego.com/guides/shortlong-polling-sse-websocket/)——四種即時傳送方式的時序圖
+- [MQTT Pub/Sub 架構圖解（HiveMQ MQTT Essentials Part 2）](https://www.hivemq.com/blog/mqtt-essentials-part2-publish-subscribe/)——發布/訂閱模式的官方圖解系列
 
 本篇做的是 **REST**——跟你打了十幾章的 FinMind 同一種風格，只是角色從呼叫方變成提供方。
 
@@ -55,6 +76,64 @@ Python 生態最常見的三個 Web 框架：
 | 適合 | 完整網站：內容管理、會員系統、後台 | 小型服務、高自由度組裝 | 純 API 服務、微服務、ML model serving |
 
 選型參考：要做「整個網站」→ Django；要極簡自由拼裝 → Flask；要做「資料 API 服務」→ FastAPI。本課的需求是把 MySQL 資料開成查詢端點——標準的 FastAPI 場景。
+
+### 同一支 API，三個框架分別怎麼寫
+
+光看表格感受不深，拿最簡單的需求當比較基準：開一支 `GET /stocks`，回傳股票清單 JSON。
+
+**Django** —— 要先 `django-admin startproject` 建專案結構，至少動兩個檔案：`views.py` 寫處理函式、`urls.py` 註冊路徑：
+
+```python
+# views.py
+from django.http import JsonResponse
+
+def list_stocks(request):
+    return JsonResponse({"stocks": ["2330", "2317", "2454"]})
+```
+
+```python
+# urls.py
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path("stocks", views.list_stocks),
+]
+```
+
+啟動：`python manage.py runserver`。函式和路徑分在兩個檔案，是 Django 專案結構的約定；要做完整 REST API（序列化、權限、分頁）通常還要再裝 Django REST Framework。
+
+**Flask** —— 單一檔案就能跑，路徑用裝飾器直接綁在函式上：
+
+```python
+# app.py
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+@app.route("/stocks")
+def list_stocks():
+    return jsonify({"stocks": ["2330", "2317", "2454"]})
+```
+
+啟動：`flask --app app run`。沒有專案結構的負擔，但參數驗證、API 文件都要自己處理（或另裝擴充套件）。
+
+**FastAPI** —— 寫法跟 Flask 幾乎一樣，但多送三樣東西：自動文件（`/docs`）、型別驗證、原生 async：
+
+```python
+# app.py
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/stocks")
+def list_stocks():
+    return {"stocks": ["2330", "2317", "2454"]}
+```
+
+啟動：`uvicorn app:app --reload`。回傳 dict 自動轉 JSON；打開 `http://localhost:8000/docs` 就有互動式文件，一行文件都不用寫。
+
+三段程式碼放在一起看：**核心模式相同**——一個函式處理請求、一條路徑對到一個函式，差別在框架幫你做多少事。這也是為什麼會了其中一個，換另一個的學習成本不高。
 
 ## FastAPI 是什麼
 
@@ -313,7 +392,7 @@ docker compose -f docker-compose-local.yml down
 
 ## 這一篇你學到了
 
-- API 是程式之間約定好的介面；Web API 以 REST 最普及——呼叫 FinMind 和本篇提供的服務都是 REST。
+- API 是程式之間約定好的介面；Web API 風格按傳送方式分三類——一問一答（REST/SOAP/GraphQL/gRPC）、持續連線推送（WebSocket/SSE/MQTT）、反向回呼（Webhook）。其中 REST 最普及——呼叫 FinMind 和本篇提供的服務都是 REST。
 - API 是資料的第三個出口：給程式用、資料庫的守門員。
 - Python 三大框架分工：Django 做完整網站、Flask 極簡拼裝、FastAPI 專攻 API 服務。
 - FastAPI 三件套：路由裝飾器、型別註記（自動驗證）、自動文件。
