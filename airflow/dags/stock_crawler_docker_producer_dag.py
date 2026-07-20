@@ -31,7 +31,9 @@ with DAG(
     )
 
     DOCKER_IMAGE = "stock-crawler:latest"
-    DOCKER_COMMAND = "uv run python -m crawler.producer_crawler_finmind"
+    # 跑第 3 章的多佇列 producer：任務用 apply_async(queue=...) 分流到 twse / tpex
+    # （worker 池是 -Q twse / -Q tpex 的分流版，發到預設佇列的任務不會被消費）
+    DOCKER_COMMAND = "uv run python -m crawler.producer_multi_queue"
     DOCKER_NETWORK = "my_network"
 
     docker_crawler_task = DockerOperator(
@@ -39,7 +41,13 @@ with DAG(
         image=DOCKER_IMAGE,
         command=DOCKER_COMMAND,
         network_mode=DOCKER_NETWORK,
-        environment={"TZ": "Asia/Taipei"},
+        # 臨時容器不會讀 .env，連線資訊要在這裡明給
+        # RABBITMQ_HOST 不設的話預設 127.0.0.1（容器自己），會 Connection refused
+        environment={
+            "TZ": "Asia/Taipei",
+            "RABBITMQ_HOST": "rabbitmq",
+            "MYSQL_HOST": "mysql",
+        },
         auto_remove=True,
     )
 

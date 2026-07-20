@@ -17,8 +17,13 @@ STOCK_IDS = [
 
 
 def trigger_stock_crawler(stock_id):
-    """觸發股票爬蟲任務"""
-    crawler_finmind.delay(stock_id=stock_id)
+    """觸發股票爬蟲任務
+
+    worker 池是 -Q twse / -Q tpex 的分流版（第 3 章），
+    .delay() 會發到預設佇列、沒有 worker 消費，
+    所以這裡用 apply_async 指定 queue（清單內都是上市標的 → twse）
+    """
+    crawler_finmind.apply_async(kwargs={"stock_id": stock_id}, queue="twse")
 
 
 default_args = {

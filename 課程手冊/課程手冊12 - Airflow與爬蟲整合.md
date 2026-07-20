@@ -7,10 +7,12 @@
 ## 做完這一章，你會做到
 
 1. 跑 `stock_crawler_dag`：Airflow 直接呼叫爬蟲，10 支股票寫進 MySQL。
-2. 跑 `stock_crawler_producer_dag`：Airflow 只發任務，Celery worker 執行——觀察兩層分工。
-3. 跑 `stock_crawler_etl_dag`：爬蟲 + 建 VIEW + 建實體表的完整 ETL。
-4. 分得清 LocalExecutor 與 CeleryExecutor，看出後者怎麼回扣你學過的 Celery。
-5. 會用 Airflow UI 的 Graph / Grid / Logs 監控與除錯。
+2. 跑 `stock_crawler_twse_tpex_dag`：上市/上櫃分組扇出、平行爬取、匯合——實務最常見的 DAG 形狀。
+3. 跑 `stock_crawler_producer_dag`：Airflow 只發任務，Celery worker 執行——觀察兩層分工。
+4. 跑 `stock_crawler_docker_producer_dag`：連發任務的程式都容器化——DockerOperator 的實戰應用。
+5. 跑 `stock_crawler_etl_dag`：爬蟲 + 建 VIEW + 建實體表的完整 ETL。
+6. 分得清 LocalExecutor 與 CeleryExecutor，看出後者怎麼回扣你學過的 Celery。
+7. 會用 Airflow UI 的 Graph / Grid / Logs 監控與除錯。
 
 ---
 
@@ -19,7 +21,7 @@
 | | `stock_crawler_dag`（直接呼叫）| `stock_crawler_producer_dag`（透過 Celery）|
 |---|---|---|
 | 誰執行爬蟲 | Airflow 自己的 worker 行程 | 獨立的 Celery worker 池 |
-| DAG 的 task 做什麼 | 跑 `crawler_finmind(stock_id)` | 跑 `crawler_finmind.delay(stock_id)`（只發任務）|
+| DAG 的 task 做什麼 | 跑 `crawler_finmind(stock_id)` | 用 `apply_async(queue=...)` 發任務（只發不做）|
 | DAG 等不等結果 | 等（爬完 task 才變綠）| 不等（發完就綠，fire and forget）|
 | 需要哪些服務 | Airflow + MySQL | Airflow + MySQL + RabbitMQ + Celery worker |
 | 適合 | 量小、流程單純 | 量大、要把執行負載跟編排分開、worker 可獨立 scale |
@@ -33,7 +35,9 @@
 | 檔案 | 角色 | 說明 |
 |------|------|------|
 | `airflow/dags/stock_crawler_dag.py` | 串法一 | 直接呼叫 `crawler_finmind` 爬 10 支股票 |
-| `airflow/dags/stock_crawler_producer_dag.py` | 串法二 | 透過 `.delay()` 發任務給 Celery |
+| `airflow/dags/stock_crawler_twse_tpex_dag.py` | 串法一延伸 | 上市/上櫃**雙分組**平行爬取後匯合 |
+| `airflow/dags/stock_crawler_producer_dag.py` | 串法二 | `apply_async(queue="twse")` 發任務給 Celery |
+| `airflow/dags/stock_crawler_docker_producer_dag.py` | 串法三 | DockerOperator 起容器跑第 3 章多佇列 producer |
 | `airflow/dags/stock_crawler_etl_dag.py` | 完整 ETL | 爬蟲 + `crawler/mysql.py` 建 VIEW / 實體表 |
 | `airflow/dags/stock_crawler_etl_bigquery_dag.py` | 雲端 ETL | MySQL → BigQuery（需第 14 章 GCP 憑證）|
 | `crawler/mysql.py` | 工具模組 | `create_view` / `create_table_from_view` |
@@ -85,7 +89,14 @@ with DAG(
 - `trigger_rule="all_success"`：end 要等**全部**爬取成功才跑。
 - 依賴鏈 `start >> branch >> [10 個平行] >> end`：Graph 上就是一張扇形圖。
 
-> 對比 `stock_crawler_producer_dag`：幾乎一樣，只是 callable 換成一個包了 `.delay()` 的小函式。一字之差，執行的地方就從「Airflow 裡面」變成「Celery worker 池」。
+> 對比 `stock_crawler_producer_dag`：幾乎一樣，只是 callable 換成一個發任務的小函式：
+>
+> ```python
+> def trigger_stock_crawler(stock_id):
+>     crawler_finmind.apply_async(kwargs={"stock_id": stock_id}, queue="twse")
+> ```
+>
+> 一個函式之差，執行的地方就從「Airflow 裡面」變成「Celery worker 池」。**注意用的是 `apply_async(queue="twse")` 而不是 `.delay()`**：worker 池是第 3 章的分流版，只聽 `twse` / `tpex` 佇列——`.delay()` 發到預設佇列會沒有人消費，任務永遠卡在 RabbitMQ 裡。發任務時要跟 worker 聽的佇列對上，這是分流架構的紀律（清單裡十支都是上市標的，所以都進 `twse`）。
 
 ---
 
@@ -138,6 +149,71 @@ docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
 
 > ✅ 10 支股票各有數百筆，就過關。
 
+### 串法一延伸：`stock_crawler_twse_tpex_dag`（分組扇出＋匯合）
+
+`stock_crawler_dag` 是「一組全平行」——10 支股票不分類、齊頭並進。實務的清單常常**有分類**：上市 / 上櫃、來源 A / 來源 B、日資料 / 月資料……這時 DAG 的慣用形狀是**每類一個分組節點，組內平行，最後匯合**：
+
+```
+                 ┌─ twse_branch ─┬─ crawl_twse_2330 ─┐
+                 │               ├─ crawl_twse_2317 ─┤
+start_crawler ───┤               └─ crawl_twse_2454 ─┼─── end_crawler
+                 │               ┌─ crawl_tpex_6488 ─┤
+                 └─ tpex_branch ─┼─ crawl_tpex_3105 ─┤
+                                 └─ crawl_tpex_8069 ─┘
+```
+
+核心程式碼只比 `stock_crawler_dag` 多一層迴圈：
+
+```python
+STOCK_GROUPS = {
+    "twse": ["2330", "2317", "2454"],  # 上市
+    "tpex": ["6488", "3105", "8069"],  # 上櫃
+}
+
+for market, stock_ids in STOCK_GROUPS.items():
+    branch = DummyOperator(task_id=f"{market}_branch")
+
+    crawl_tasks = []
+    for stock_id in stock_ids:
+        task = PythonOperator(
+            task_id=f"crawl_{market}_{stock_id}",
+            python_callable=crawler_finmind,
+            op_args=[stock_id],
+        )
+        crawl_tasks.append(task)
+
+    start_task >> branch >> crawl_tasks >> end_task
+```
+
+逐段白話：
+
+- **dict 分組 + 兩層迴圈**：外層迴圈每個市場生一個分組節點、內層迴圈生組內的爬取 task。之後要加第三組（例如 ETF），只要在 dict 加一個 key——圖形自動長出第三把扇子，一行依賴都不用改。
+- **分組節點是 `DummyOperator`**：不做事，純粹把圖整理清楚——第 11 章積木 5 的實戰應用。
+- **分組概念你早就會**：第 3 章多佇列分流把任務分進 `twse` / `tpex` **佇列**，這裡是把 task 分進兩個**圖形分支**——同一個分類思維，一次用在執行層、一次用在編排層。
+- `trigger_rule="all_success"` 的 end 同時接住兩組——**任何一組有一支失敗，end 就不跑**，你會在 Graph 上一眼看到是哪一組的哪一支紅了。
+
+跑起來：
+
+```bash
+docker exec airflow-webserver airflow dags unpause stock_crawler_twse_tpex_dag
+docker exec airflow-webserver airflow dags trigger stock_crawler_twse_tpex_dag
+```
+
+**觀察：**
+
+1. Graph 上是兩把扇子：`start → 兩個 branch → 各三支平行 → end`。
+2. 六個爬取 task **同時**起跑——分組只是圖形上的整理，不影響平行度。
+
+**驗證上櫃資料入庫**（上櫃三支是第一次爬，之前資料庫裡沒有）：
+
+```bash
+docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
+  "SELECT stock_id, COUNT(*) AS cnt FROM TaiwanStockPrice \
+   WHERE stock_id IN ('6488','3105','8069') GROUP BY stock_id"
+```
+
+> ✅ 三支上櫃股票各有數百筆，代表分組扇出的每一條路都真的跑到了。
+
 ### 串法二：`stock_crawler_producer_dag`（Airflow 指揮、Celery 幹活）
 
 先把 Celery worker 池起來（第 3 章的網路版 worker）：
@@ -157,11 +233,63 @@ docker exec airflow-webserver airflow dags trigger stock_crawler_producer_dag
 
 | 看哪裡 | 你會看到 | 為什麼 |
 |--------|---------|--------|
-| Airflow Graph | 10 個 task **秒變綠** | 它們只是 `.delay()` 發任務，不等爬完 |
+| Airflow Graph | 10 個 task **秒變綠** | 它們只是發任務進佇列，不等爬完 |
 | Flower (5555) | 10 筆 `crawler_finmind` 任務陸續 SUCCESS | 真正的執行在 Celery worker |
 | worker log | `docker compose -f compose-advanced/docker-compose-worker-network.yml logs crawler_twse \| tail -20` | 看到 DataFrame + succeeded |
 
 > ✅ 「Airflow 全綠了，Flower 還在跑」——這個時間差就是兩層分工的鐵證。Airflow 是總指揮，Celery 是施工隊。
+
+### 串法三：`stock_crawler_docker_producer_dag`（連發任務的程式也容器化）
+
+串法二的發任務程式碼跑在 **Airflow 的 Python 環境裡**——這表示 Airflow image 必須裝著 `crawler` 模組和它的所有依賴。串法三把這個耦合也拆掉：**用第 11 章積木 4 的 DockerOperator，起一個臨時容器來跑 producer**，Airflow 本身完全不需要認識爬蟲的程式碼：
+
+```python
+docker_crawler_task = DockerOperator(
+    task_id="docker_stock_crawler",
+    image="stock-crawler:latest",                             # 第 3 章 build 的爬蟲 image
+    command="uv run python -m crawler.producer_multi_queue",  # 第 3 章的多佇列 producer
+    network_mode="my_network",                                # 跟 RabbitMQ / MySQL 同網路
+    environment={
+        "TZ": "Asia/Taipei",
+        "RABBITMQ_HOST": "rabbitmq",
+        "MYSQL_HOST": "mysql",
+    },
+    auto_remove=True,                                         # 跑完即刪，不留屍體
+)
+```
+
+三個關鍵設定，各對應一個會踩的坑：
+
+- **`environment` 必須明給連線資訊**：這個臨時容器不是 compose 起的，不會讀 `.env`、也沒有 compose 檔幫你塞環境變數。漏了 `RABBITMQ_HOST`，容器內預設連 `127.0.0.1`（容器自己），直接 Connection refused。
+- **`network_mode="my_network"`**：不掛進同一個網路，`rabbitmq` 這個名字解析不到。
+- **`command` 跑的是第 3 章的 `producer_multi_queue`**：它用 `apply_async(queue=...)` 把任務分流到 `twse` / `tpex` 佇列——跟 worker 池聽的佇列對上（串法二講過的同一條紀律）。
+
+執行鏈變成四層：**Airflow（編排）→ Docker 臨時容器（producer）→ RabbitMQ（佇列）→ Celery worker（執行）**。每一層都是你學過的積木，這支 DAG 只是把它們接起來。
+
+跑起來：
+
+```bash
+docker exec airflow-webserver airflow dags unpause stock_crawler_docker_producer_dag
+docker exec airflow-webserver airflow dags trigger stock_crawler_docker_producer_dag
+```
+
+**觀察：**
+
+1. `docker_stock_crawler` 的 Logs 裡有 producer 的輸出（send task 訊息）——DockerOperator 會把容器的 stdout 接回 Airflow log。
+2. `docker ps -a` 看不到那個臨時容器——`auto_remove=True` 跑完就清掉了。
+3. Flower / worker log 看到任務被 twse、tpex worker 分別消化。
+
+**驗證資料入庫**（`producer_multi_queue` 發的是 2330 → twse、00679B → tpex）：
+
+```bash
+docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
+  "SELECT stock_id, COUNT(*) AS cnt FROM TaiwanStockPrice \
+   WHERE stock_id IN ('2330','00679B') GROUP BY stock_id"
+```
+
+> ✅ 兩支各有數百筆——尤其 `00679B` 走的是 tpex 佇列，它有資料代表分流的兩條路都通了。
+
+**什麼時候選串法三？** 當爬蟲跟 Airflow 的依賴想徹底分離時：爬蟲換 Python 版本、加套件、改程式碼，都只要重 build 爬蟲 image，Airflow image 一動不動。代價是多管一個 image 和 docker.sock 掛載——第 11 章積木 4 講過的取捨，在真實 pipeline 再看一次。
 
 ### 完整 ETL：`stock_crawler_etl_dag`
 
@@ -232,9 +360,11 @@ docker compose -f airflow/docker-compose-airflow-celery.yml up -d
 | # | 你應該看到 | 它證明了什麼 |
 |---|-----------|-------------|
 | 1 | `stock_crawler_dag` 10 個 task 綠、MySQL 有 10 支股票 | Airflow 能直接指揮爬蟲 |
-| 2 | producer_dag 秒綠、Flower 陸續 SUCCESS | 編排層與執行層分工 |
-| 3 | ETL DAG 產出 VIEW + 實體表 | 一條 DAG 涵蓋完整 ETL |
-| 4 | 失敗的 task 能單獨 Clear 重跑 | 編排引擎的核心價值 |
+| 2 | twse_tpex_dag 兩組同時平行、上櫃三支入庫 | 分組扇出＋匯合的 DAG 形狀 |
+| 3 | producer_dag 秒綠、Flower 陸續 SUCCESS | 編排層與執行層分工 |
+| 4 | docker_producer_dag 成功、`00679B` 入庫 | DockerOperator 跑 producer、佇列分流兩條路都通 |
+| 5 | ETL DAG 產出 VIEW + 實體表 | 一條 DAG 涵蓋完整 ETL |
+| 6 | 失敗的 task 能單獨 Clear 重跑 | 編排引擎的核心價值 |
 
 ---
 
@@ -246,7 +376,7 @@ docker compose -f airflow/docker-compose-airflow-celery.yml up -d
 
 **Q2：串法二時，Airflow 的 task 全綠是不是代表爬蟲成功了？**
 
-**不是。** task 綠只代表「`.delay()` 發送成功」——訊息進了 RabbitMQ。爬蟲真正的成敗要看 Flower / worker log / MySQL 資料。這是 fire-and-forget 模式的代價：編排層看不到執行結果。要嚴謹追蹤就得（a）用串法一、（b）讓 DAG 再加一步「驗證資料筆數」、或（c）用 CeleryExecutor 把執行結果接回 Airflow。
+**不是。** task 綠只代表「任務發送成功」——訊息進了 RabbitMQ。爬蟲真正的成敗要看 Flower / worker log / MySQL 資料。這是 fire-and-forget 模式的代價：編排層看不到執行結果。要嚴謹追蹤就得（a）用串法一、（b）讓 DAG 再加一步「驗證資料筆數」、或（c）用 CeleryExecutor 把執行結果接回 Airflow。
 
 **Q3：LocalExecutor 和 CeleryExecutor 的關係，像你前面學過的哪兩章？**
 
@@ -264,7 +394,11 @@ LocalExecutor 像第 9 章：單機、自己的行程做事。CeleryExecutor 像
 
 在 `stock_crawler_producer_dag` 的最後加一個 PythonOperator，用 `crawler/mysql.py` 的 `query_to_dataframe` 查 `TaiwanStockPrice` 筆數並 print。這樣「發完任務」之後 DAG 會多一步「確認資料有進來」，弭平 Q2 講的盲區。
 
-**練習 3：對照 APScheduler 和 Airflow**
+**練習 3：幫 twse_tpex_dag 加第三組**
+
+在 `STOCK_GROUPS` 加一組 `"etf": ["0050", "0056", "00713"]`，重新觸發，確認 Graph 自動長出第三把扇子、三組同時平行。體會「加一組 = 加一個 key」——這就是用迴圈生 task 的威力，手刻 task 做不到這麼輕鬆。
+
+**練習 4：對照 APScheduler 和 Airflow**
 
 把你第 9 章寫的 APScheduler 排程，和這章的 `stock_crawler_dag` 放在一起，列出三件「Airflow 做得到、APScheduler 做不到」的事。這個對照會讓你真正理解為什麼生產環境要用 Airflow。
 
@@ -276,6 +410,8 @@ LocalExecutor 像第 9 章：單機、自己的行程做事。CeleryExecutor 像
 |-------------|------|--------|
 | DAG 抓不到 `crawler` 模組 | volume 沒掛好 `../crawler` | 從 stock-crawler 根目錄啟動 compose |
 | producer_dag 發了但沒人做 | Celery worker 沒開 | `docker compose -f compose-advanced/docker-compose-worker-network.yml up -d` |
+| 發了任務、worker 也開著，但佇列一直堆積 | 佇列對不上：發到預設佇列，worker 只聽 `-Q twse`/`tpex` | 發送端用 `apply_async(queue=...)` 指定 worker 聽的佇列；`rabbitmqctl list_queues name messages consumers` 看哪條佇列有訊息沒消費者 |
+| docker_producer 的容器 Connection refused | 臨時容器沒讀 .env，`RABBITMQ_HOST` 預設 127.0.0.1 | DockerOperator 的 `environment` 明給 `RABBITMQ_HOST` / `MYSQL_HOST` |
 | worker 連不上 rabbitmq | 不在同一個 my_network | 確認 rabbitmq / worker compose 都掛 my_network |
 | ETL 的 create_view 失敗 | MySQL host 不對 | Airflow 容器內要用 `MYSQL_HOST=mysql`（compose 已設）|
 | BigQuery DAG 跑不動 | 需要 GCP 憑證 | 接第 14 章的 GCP 設定，沒帳號先跳過 |
@@ -295,7 +431,9 @@ docker compose -f compose-advanced/mysql.yml down
 
 ## 這一章你學到了
 
-- 兩種串法：Airflow 直接做（簡單）vs Airflow 指揮 Celery（分工、可擴充）。
+- 三種串法：Airflow 直接做（簡單）、指揮 Celery（分工、可擴充）、DockerOperator 跑 producer（依賴徹底分離）。
+- 發任務要跟 worker 聽的佇列對上：分流版 worker 只聽 `-Q` 指定的佇列，`apply_async(queue=...)` 指定、`.delay()` 進預設佇列會沒人消費。
+- 分組扇出＋匯合：dict 分組 + 兩層迴圈生 task，加一組只要加一個 key。
 - 「Airflow 全綠 ≠ 爬蟲成功」——fire-and-forget 要自己補驗證。
 - ETL DAG 讓「爬取 → 清理 → 分析表」變成一張可補跑、可監控的圖。
 - LocalExecutor / CeleryExecutor：你學過的單機與分散式，在編排層重演。
