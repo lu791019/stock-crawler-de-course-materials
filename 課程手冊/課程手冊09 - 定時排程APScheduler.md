@@ -70,7 +70,7 @@
 
 ---
 
-## 先認識工具：APScheduler 是什麼
+## 從 cron 到 APScheduler
 
 cron 很好用，但它到點只能執行一條 **shell 指令**。我們要做的事是「到點呼叫 Celery 任務的 `.delay()`」——這是 Python 程式裡的函式呼叫，用 cron 就得繞一圈（包一支腳本再讓 cron 執行它）。這一章改用 **APScheduler**（**A**dvanced **P**ython **Scheduler**）：Python 的排程套件，在程式裡註冊「什麼時間、執行哪個函式」，它到點自動呼叫。專案的 `pyproject.toml` 已列入 `apscheduler==3.10.4`，`uv sync` 過就能用，不需另外安裝。
 
@@ -78,7 +78,7 @@ cron 很好用，但它到點只能執行一條 **shell 指令**。我們要做�
 
 - **跑在你的程式行程內（in-process）**：它不是獨立服務。你的 Python 程式活著，排程才活著；程式一關，排程就停（本章結尾的常見錯誤表會再遇到這件事）。
 - **跟 cron 的差別**：cron 是作業系統層級，到點執行一條 shell 指令；APScheduler 在程式內排程，到點呼叫一個 **Python 函式**——能直接使用程式裡的物件。另外 APScheduler 的 cron 觸發器比 crontab 多一個 `second` 欄位（crontab 最小單位是分鐘），所以排得出「每 5 秒」這種工作。
-- **三種觸發器（trigger）**：`cron`（指定時刻，例如每天 18:00）、`interval`（固定間隔，例如每 30 秒一次）、`date`（一次性，指定某個時間點跑一次）。本章全部用 `cron`——上一節學的五欄位語法直接沿用。
+- **三種觸發器（trigger）**：`cron`（指定時刻，例如每天 18:00）、`interval`（固定間隔，例如每 30 秒一次）、`date`（一次性，指定某個時間點跑一次）。本章主線用 `cron`——上一節學的五欄位語法直接沿用；章末練習 4 會讓你試 `interval`，感受兩者語意的差別。
 
 ---
 
@@ -320,6 +320,7 @@ scheduler.add_job(
 ## 這一章你學到了
 
 - crontab 的「分 時 日 月 星期 指令」五欄位語法；Windows 對應工具是工作排程器，不是 cron。
+- cron 是系統層排程、到點跑一條 shell 指令；APScheduler 是程式內排程、到點呼叫 Python 函式，所以能直接觸發 `.delay()`，還多了 `second` 欄位。
 - 排程器是鬧鐘，定時呼叫 `.delay()`，執行仍交給 Celery。
 - cron 觸發 + `coalesce` 是常用組合；排程程式一律明寫時區。
 - Background 要保活、Blocking 會卡住主執行緒；I/O 密集任務適合開高併發。
