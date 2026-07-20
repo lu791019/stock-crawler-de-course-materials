@@ -129,12 +129,13 @@ urlpatterns = [
 想自己完整跑一次的話，照下面四步（找一個**課程專案以外**的資料夾做）：
 
 ```bash
-# ① 開一個獨立環境裝 Django（不要裝進課程專案）
-python3 -m venv djenv && source djenv/bin/activate
-pip install django
+# ① 開一個獨立的 uv 專案裝 Django（跟本課同一套工具，但不要裝進課程專案）
+mkdir django-demo && cd django-demo
+uv init          # 生成 pyproject.toml（附帶的 main.py、README.md 這裡用不到，可忽略）
+uv add django    # 跟本課裝套件同一套做法：寫進 pyproject.toml 並裝進 .venv
 
 # ② 生成專案骨架
-django-admin startproject demo
+uv run django-admin startproject demo
 ```
 
 `startproject` 會生出這個結構——兩段範例程式碼要搬去的位置標了 ★：
@@ -156,10 +157,12 @@ demo/
 
 # ④ 啟動，另開終端機打打看
 cd demo
-python manage.py runserver          # 預設 http://127.0.0.1:8000
-curl http://127.0.0.1:8000/stocks
+uv run python manage.py runserver   # uv run 會自動往上找到 django-demo 的環境
+curl http://127.0.0.1:8000/stocks   # runserver 預設開在 8000
 # → {"stocks": ["2330", "2317", "2454"]}
 ```
+
+`runserver` 啟動的是 **Django 內建的開發用 WSGI 伺服器**——角色等同 Flask 的 `flask run`、FastAPI 的 `uvicorn --reload`：只供開發（改檔自動重載）。上線不用它，而是把 `wsgi.py` 或 `asgi.py` 入口交給 gunicorn / uvicorn 這類正式伺服器（兩種入口的差別見「想再深入一點」的「WSGI 與 ASGI」節）。
 
 補充：正式的 Django 專案不會把 `views.py` 直接放在專案套件裡，而是 `python manage.py startapp stocks` 建獨立的 app 再掛進 `settings.py`——那套結構屬於 Django 的課程範圍，這裡只走到「同一支 API 實際跑起來」為止。
 
