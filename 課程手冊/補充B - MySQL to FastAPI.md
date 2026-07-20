@@ -316,6 +316,16 @@ def get_prices(
 - **參數化查詢（最重要）**：SQL 裡寫 `:stock_id` 佔位符、值放在 `params` dict——**絕不把使用者輸入用 f-string 拼進 SQL**。如果拼字串，有人傳 `stock_id = "2330' OR '1'='1"` 就能改寫你的查詢（SQL Injection）。參數化讓輸入永遠只是「值」，不可能變成 SQL 語法。
 - **`HTTPException(404)`**：查無資料回標準的 404 + 錯誤訊息，呼叫端好處理。API 的錯誤也要是「設計過的」。
 
+**路徑參數 vs 查詢參數，怎麼選？** 這支端點同時用了兩種，差異值得停下來看清楚：
+
+| | 路徑參數 `{stock_id}` | 查詢參數 `?limit=5` |
+|---|---|---|
+| 放什麼 | 資源的**身分**——你在指名「哪一個」 | 對結果的**修飾**——篩選、排序、分頁 |
+| 少了它會怎樣 | 網址不成立（`/stocks//prices` 沒有意義）| 有預設值，不給也能跑（`limit` 預設 30）|
+| 在這支端點 | `/stocks/2330/prices`——2330 是主角 | `?start_date=...&limit=5`——只是查詢條件 |
+
+判斷口訣：**指名資源用路徑，過濾結果用查詢字串**。對照一下：FinMind 把股票代碼放查詢參數（`?data_id=2330`）也能運作——這是設計風格的差異，REST 慣例偏好把資源身分放進路徑，讓網址讀起來像一句話：「2330 這支股票的 prices」。
+
 ### ⑤ 最新一筆
 
 ```python
@@ -377,7 +387,29 @@ curl "http://localhost:8000/stocks/2330/prices?start_date=2025-06-01&end_date=20
 # 查不存在的股票 → 404
 curl http://localhost:8000/stocks/9999/latest
 # → {"detail":"找不到 9999 的資料"}
+
+# 參數超出範圍 → 422（limit 上限是 1000，一行驗證邏輯都沒寫，FastAPI 自動擋）
+curl "http://localhost:8000/stocks/2330/prices?limit=5000"
+# → {"detail":[{"type":"less_than_equal","loc":["query","limit"],
+#      "msg":"Input should be less than or equal to 1000","input":"5000","ctx":{"le":1000}}]}
 ```
+
+最後那個 422 值得多看一眼：錯誤訊息精確指出**哪個參數**（`["query","limit"]`）、**什麼規則沒過**（≤1000）、**你給了什麼**（5000）——這是 `Query(30, ge=1, le=1000)` 那行型別註記自動換來的。
+
+### 看懂 API 回的狀態碼
+
+上面幾發 curl 已經蒐集到三種狀態碼了。狀態碼是 HTTP 的通用語言，第一位數字就分好了陣營：
+
+| 狀態碼 | 意思 | 本篇哪裡遇到 | 誰的責任 |
+|--------|------|------------|---------|
+| **200** OK | 成功 | 每次查詢成功 | — |
+| **404** Not Found | 資源不存在 | 查 9999——我們自己 `raise HTTPException(404)` | 呼叫方（查了不存在的東西）|
+| **422** Unprocessable Entity | 參數驗證不過 | `limit=5000`——FastAPI 自動回 | 呼叫方（參數不合規則）|
+| **500** Internal Server Error | 伺服器內部錯誤 | 程式有 bug、或 DB 掛了沒處理到 | 提供方（我們的鍋）|
+
+記法：**2xx 成功；4xx 呼叫方的錯**（改請求再試）；**5xx 提供方的錯**（呼叫方等修就好）。再注意一個分層：**404 是我們設計的**（業務邏輯：查無此股票）、**422 是框架送的**（機械規則：參數不合法）——好的 API 讓兩層錯誤各司其職。
+
+> 想看一次 HTTP 往返的完整報文（request/response 的 headers、狀態列），加 `-v`：`curl -v http://localhost:8000/`。報文結構屬於網路基礎課的範圍，這裡知道「curl -v 看得到」就夠。
 
 ### Step 4：打開自動生成的互動式文件（FastAPI 的招牌）
 
@@ -409,6 +441,17 @@ http://localhost:8000/redoc    ← ReDoc（純閱讀版，不能試打）
 
 這份文件你一行都沒寫——FastAPI 從路由和型別註記自動生成。這帶來一個重要性質：**文件永遠跟程式碼同步**。傳統手寫 API 文件最大的問題是「程式改了、文件忘了改」，自動生成把這個問題整個消掉。實務上 /docs 也是前後端協作的介面契約：後端把 /docs 網址丟給前端，前端就知道每支 API 怎麼呼叫、會回什麼。
 
+**試打 API 的工具不只 curl 和 /docs**，實務上依場景選：
+
+| 工具 | 形態 | 適合場景 |
+|------|------|---------|
+| **curl** | 指令列 | 快速一次性測試、寫進文件和腳本 |
+| **Swagger UI**（/docs）| 內建網頁 | 開發中自測、丟給前端當契約 |
+| **[Postman](https://www.postman.com/)** | 桌面 App | 把請求存成集合、團隊共用、寫自動化測試——業界最普及 |
+| **[HTTPie](https://httpie.io/)** | 指令列 | 語法比 curl 直覺（`http :8000/stocks`），輸出自動上色 |
+
+工作流程通常是：開發時用 /docs 自測 → 要重複測、跨團隊共用時進 Postman → 寫進 CI 或文件時用 curl。
+
 > ✅ 在 /docs 頁面成功試打一次 `/stocks/{stock_id}/prices`，這一篇就完成了。
 
 ### Step 5：收工
@@ -436,7 +479,51 @@ docker compose -f docker-compose-local.yml down
 
 - **三個出口的分工，現在完整了**：Metabase 給人看（第 8 章）、BigQuery 給大規模分析（第 14 章）、API 給程式呼叫（本篇）。三者都只是「讀取 MySQL 的不同姿勢」——上游的爬蟲 pipeline 一行都不用改。這就是分層架構的威力。
 - **為什麼 API 不直接讓外界下任意 SQL？** 因為 API 的價值就在「限制」：只開放安全的、設計過的查詢。權限控制、流量限制、輸入驗證都在這層做。
-- **正式部署還缺什麼？** 本篇是教學版。上線前至少還要：認證（API key / OAuth）、rate limiting、CORS 設定、用 gunicorn+uvicorn workers 跑多行程。這些是後端工程的下一步。
+
+### 為什麼主線全用 `def`，不用 `async def`？
+
+框架比較表寫 FastAPI「async 是一等公民」，但 `api/main.py` 四支端點全是普通 `def`——這不是偷懶，是正確選擇。理由值得完整講一次：
+
+**async 解決什麼問題？** 傳統模型是「一個請求佔一個執行緒」，請求在等資料庫回覆時，執行緒就閒著空等。async 模型改成單執行緒**事件迴圈**：程式跑到「要等待 IO」的地方（`await`）就先放手，去服務別的請求，等 IO 好了再回來接著跑——高併發時不用開幾千個執行緒，就能同時掛著幾千個等待中的請求。
+
+**關鍵規則：`async def` 裡只能放「不會卡住」的操作。** `pd.read_sql`、`time.sleep`、`requests.get` 這些**同步阻塞**呼叫，放進 `async def` 會把整個事件迴圈卡死——不是只有這個請求變慢，是**所有**請求一起排隊等你。這是 async 最常見的誤用。
+
+**FastAPI 對 `def` 的處理很聰明**：你寫普通 `def`，它自動把函式丟到執行緒池（threadpool）裡跑，不佔事件迴圈。所以本篇的選擇是對的——`pd.read_sql` 是同步阻塞，配 `def` 讓 FastAPI 幫你隔離。
+
+**什麼時候改用 `async def` 才划算？** 兩個條件要同時成立：①改用支援 async 的函式庫（HTTP 用 `httpx`、MySQL 用 `asyncmy`、SQLAlchemy 有 async engine）；②場景真的是高併發 IO 等待——例如一支端點要打三個外部 API 再彙整結果，async 版可以三個同時等，而不是排隊等。
+
+一句話總結：**阻塞的程式碼配 `def`，有 `await` 的程式碼配 `async def`**——放錯邊才是災難。
+
+### 上線前還缺什麼？（概念版檢查清單）
+
+本篇是教學版。下面每一項都是上線前的必修，這裡講清楚概念，實作屬於後端工程的下一步：
+
+**CORS（跨來源資源共享）**——瀏覽器有「同源政策」：A 網域載入的網頁，預設**不准**用 JavaScript 去打 B 網域的 API。所以你的看盤網頁（`https://myapp.com`）打你的 API（`https://api.myapp.com`）會被瀏覽器擋下——注意是**瀏覽器**在擋，所以 curl 和 `requests` 從來不會遇到這問題（它們不是瀏覽器）。解法是 API 端明白宣告「我允許哪些網域的網頁來打」：
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://myapp.com"],   # 白名單，不要偷懶寫 ["*"]
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+```
+
+**分頁（pagination）**——`limit` 只是第一步。資料一多，呼叫方需要「翻頁」：
+- **offset 分頁**：`?limit=30&offset=60` 拿第三頁。直覺，但翻到深頁時資料庫還是得掃過前面所有列，愈翻愈慢
+- **cursor 分頁**：帶上一頁最後一筆的鍵值當起點（股價場景就是 `?after_date=2025-06-01`），資料庫直接從索引定位。大表的標準做法
+
+**版本管理**——路徑加前綴：`/v1/stocks/...`。原因：API 一公開就有人依賴它，你改了回傳格式就是弄壞別人的程式。`/v1` `/v2` 並行，讓舊呼叫方有時間搬家再下線 v1。從第一天就加 `/v1`，成本最低。
+
+**認證**（概念即可）——兩條主流路線：**API key**（呼叫方申請一把金鑰，每次請求放在 header 帶上來，簡單、適合服務對服務）；**OAuth 2.0**（交給授權伺服器發 token，複雜但標準，適合「代表使用者」的場景）。共同原則：金鑰放 header、走 HTTPS，絕不放網址（網址會進 log）。
+
+**Rate limiting**——防止單一呼叫方把你打爆：限制「每個 key 每分鐘最多 N 次」，超過回 `429 Too Many Requests`。常見做法：`slowapi` 套件、或在反向代理（Nginx）層做。第 2 章你打 FinMind 被限流過——現在你是提供方，換你限別人了。
+
+**那 POST 呢？**（概念即可）——本篇刻意不開寫入：寫入由爬蟲 pipeline 負責，動詞的取捨就是權限設計。真要開 POST 的話有三件事跟 GET 不同：資料放 **request body**（不是網址）、body 的格式用 Pydantic model 定義（跟 `Query` 同一套驗證體系）、成功回 **201 Created**——而且開放寫入的端點必定要配認證。
+
+**多行程部署**——`uvicorn` 開發模式是單行程。上線用 `gunicorn` 管多個 uvicorn worker（`gunicorn -k uvicorn.workers.UvicornWorker -w 4`），吃滿多核心、單一 worker 掛了自動重啟。
 
 ---
 
@@ -470,6 +557,24 @@ docker compose -f docker-compose-local.yml down
 
 把 `/stocks/{stock_id}/prices` 的表名換成第 8 章建的 `vw_stock_price_daily`（欄位名要對應調整）。這讓你體會：API 查「清理過的 VIEW」而不是原始表，是實務上常見的組合——髒資料在 DB 層就擋掉了。
 
+**練習 4：用第 2 章的 requests 當呼叫方**
+
+第 2 章你用 `requests` 打 FinMind（呼叫方），本篇你開了自己的 API（提供方）。現在讓兩個角色會合——用你早就會的呼叫方式，打自己開的服務：
+
+```python
+import requests
+
+r = requests.get(
+    "http://localhost:8000/stocks/2330/prices",
+    params={"limit": 3},
+    timeout=5,
+)
+print(r.status_code)   # 200
+print(r.json())        # 跟 curl 拿到的一模一樣
+```
+
+跟第 2 章打 FinMind 的程式碼放在一起看：**同一個模式**——網址、params、拿 JSON。差別只有一個：這次網址後面的服務是你自己寫的。做完這題，「呼叫方」和「提供方」兩邊你都站過了。
+
 ---
 
 ## 卡住了？常見錯誤這樣排
@@ -484,7 +589,7 @@ docker compose -f docker-compose-local.yml down
 
 ---
 
-## 附錄：同一組 API 的 ORM 版（選讀）
+## 附錄一：同一組 API 的 ORM 版（選讀）
 
 > 本篇主線用「手寫 SQL」撈資料。這個附錄提供另一條路線的完整對照：**ORM**。用看的就好，想動手的話 repo 裡有完整可跑的檔案。
 
@@ -532,6 +637,96 @@ uv run uvicorn api.main_orm:app --reload --port 8001
 
 ---
 
+## 附錄二：用 Streamlit 給 API 加一個看盤頁面（選讀）
+
+> 「為什麼需要 API」那節畫了一個願景：台股看盤網頁。這個附錄用 Streamlit 把它做出來——repo 附完整可跑的 `example/stock_dashboard.py`。
+
+### Streamlit 是什麼？跟前面三個框架有什麼不同？
+
+**Streamlit 是「用純 Python 做資料網頁」的框架**：不寫 HTML、不寫 JavaScript、不寫 CSS，一支 Python 腳本就是一個網頁。它跟 Django / Flask / FastAPI **不在同一個賽道**：
+
+| | Django / Flask / FastAPI | Streamlit |
+|---|---|---|
+| 做什麼 | **服務**：網站後端、API | **資料應用的前端頁面** |
+| 使用者是誰 | 程式（API）或完整網站訪客 | 看數據的人：儀表板、內部工具、demo |
+| 你要會 | 路由、請求處理，正式網站還要前端三件套 | 只要 Python |
+| 典型場景 | 產品後端 | PoC、資料探索、專題展示 |
+
+所以「專案用 Streamlit」跟「本篇教 FastAPI」不衝突——它們常常**一起出現**：Streamlit 當前端、FastAPI 當資料出口。
+
+### 最重要的概念：整個腳本會重跑
+
+Streamlit 的執行模型跟「伺服器等請求」完全不同：**使用者每做一次互動（換下拉選單、按按鈕），整支腳本就從第一行重新跑一次**。這讓你可以用「寫直述腳本」的思路做互動網頁，但也帶來一個代價：不加快取的話，每次互動都會重打一次 API / 重查一次資料庫。解法是 `@st.cache_data`——同參數的呼叫在 TTL 內直接回快取。
+
+### 完整範例：`example/stock_dashboard.py`
+
+```python
+import pandas as pd
+import requests
+import streamlit as st
+
+API = "http://localhost:8000"
+
+
+# Streamlit 每次互動都「整個腳本從頭重跑」——用 cache 避免重複打 API
+@st.cache_data(ttl=60)
+def fetch_json(url: str, params: dict | None = None):
+    r = requests.get(url, params=params, timeout=5)
+    r.raise_for_status()  # 非 2xx 直接拋錯，不讓壞回應往下走
+    return r.json()
+
+
+st.title("台股看盤板")
+
+# 跟第 2 章打 FinMind 同一套 requests——只是這次打的是自己開的 API
+stocks = fetch_json(f"{API}/stocks")
+stock_ids = [str(s["stock_id"]) for s in stocks]
+
+stock_id = st.selectbox("選一支股票", stock_ids)
+
+prices = fetch_json(f"{API}/stocks/{stock_id}/prices", params={"limit": 120})
+df = pd.DataFrame(prices).sort_values("date")
+
+latest = df.iloc[-1]
+st.metric("最新收盤", f'{latest["close"]}', delta=float(latest["spread"]))
+st.line_chart(df.set_index("date")["close"])
+```
+
+不到 30 行，逐個元件看它做了什麼：
+
+| 程式碼 | 畫面上長什麼樣 |
+|--------|--------------|
+| `st.title(...)` | 頁面大標題 |
+| `st.selectbox("選一支股票", stock_ids)` | 下拉選單；**選了新股票 → 整支腳本重跑 → 圖跟著換**，這就是互動的全部原理 |
+| `st.metric(..., delta=...)` | 數字卡片，delta 自動紅綠標漲跌——第 8 章 Metabase 的數字卡片，這裡三行就有 |
+| `st.line_chart(...)` | 收盤價走勢圖，直接吃 DataFrame |
+
+### 怎麼跑
+
+```bash
+# streamlit 不在本課依賴裡，要先自行安裝
+uv add streamlit          # 或 pip install streamlit
+
+# 視窗 1：API 先跑著（Streamlit 是呼叫方，沒有 API 就沒有資料）
+uv run uvicorn api.main:app --port 8000
+
+# 視窗 2：起前端頁面
+uv run streamlit run example/stock_dashboard.py
+# 瀏覽器自動開 http://localhost:8501
+```
+
+### 一個架構提醒：Streamlit 也能直連 MySQL，但別這樣做
+
+Streamlit 寫 `pd.read_sql` 直連資料庫**能動**，很多專題也真的這樣寫。但回頭看「為什麼需要 API」那節的論證：直連代表 DB 帳密進了前端專案、查詢範圍沒有守門。走 API 的版本才是完整的分層：
+
+```
+MySQL ← api/main.py（守門員）← stock_dashboard.py（呼叫方）← 瀏覽器裡的你
+```
+
+前端專案裡只有一個 API 網址，沒有任何資料庫帳密——這就是本篇從頭講到尾的架構，第一次完整閉環。
+
+---
+
 ## 這一篇你學到了
 
 - API 是程式之間約定好的介面；Web API 風格按傳送方式分三類——一問一答（REST/SOAP/GraphQL/gRPC）、持續連線推送（WebSocket/SSE/MQTT）、反向回呼（Webhook）。其中 REST 最普及——呼叫 FinMind 和本篇提供的服務都是 REST。
@@ -540,4 +735,6 @@ uv run uvicorn api.main_orm:app --reload --port 8001
 - Python 三大框架分工：Django 做完整網站、Flask 極簡拼裝、FastAPI 專攻 API 服務。
 - FastAPI 三件套：路由裝飾器、型別註記（自動驗證）、自動文件。
 - 參數化查詢是防 SQL Injection 的鐵律。
+- 狀態碼分陣營：2xx 成功、4xx 呼叫方的錯、5xx 提供方的錯；404 是我們設計的、422 是 FastAPI 自動驗證擋的。
+- 路徑參數放資源身分、查詢參數放過濾條件；阻塞程式碼配 `def`、`await` 程式碼配 `async def`。
 - SQL → DataFrame → JSON，全是你已經會的積木。
