@@ -18,18 +18,18 @@
 
 很多人以為 Airflow 和 Celery 是二選一，其實在這套架構裡它們是**上下層分工**：
 
-- **Airflow = 總指揮 / 編排層**：決定「什麼時候跑、有哪些步驟、誰先誰後、失敗怎麼補跑」，還提供網頁 UI 看歷史。
+- **Airflow = 編排層**：決定「什麼時候跑、有哪些步驟、誰先誰後、失敗怎麼補跑」，還提供網頁 UI 看歷史。
 - **Celery = 執行層**：真正把分散式的活幹掉。
 
-證據就在專案裡：`stock_crawler_producer_dag` 這支 DAG，是在 Airflow 裡呼叫 Celery 的 `.delay()` 把任務發到 RabbitMQ——**Airflow 負責指揮、Celery 負責幹活**（第 12 章會實際跑）。
+證據就在專案裡：`stock_crawler_producer_dag` 這支 DAG，是在 Airflow 裡呼叫 Celery 的 `.delay()` 把任務發到 RabbitMQ——**Airflow 負責編排、Celery 負責執行**（第 12 章會實際跑）。
 
 用一句話定位三個角色：
 
 - 第 9 章 APScheduler = 陽春鬧鐘（只會定時觸發，沒有歷史、沒有依賴管理、沒有 UI）。
-- Airflow = 專業總指揮（排程 + 依賴 + 重試 + 補跑 + UI）。
+- Airflow = 專業編排引擎（排程 + 依賴 + 重試 + 補跑 + UI）。
 - Celery 從頭到尾都是底層的執行引擎。
 
-**所以 Airflow 取代的是 APScheduler，Celery 依然在最底層幹活。**
+**所以 Airflow 取代的是 APScheduler，Celery 依然在最底層執行任務。**
 
 ---
 
@@ -308,7 +308,7 @@ docker exec airflow-webserver airflow dags list
 
 ## 這一章你學到了
 
-- Airflow 是編排總指揮，取代 APScheduler；Celery 仍是底層執行引擎。
+- Airflow 是編排引擎，取代 APScheduler；Celery 仍是底層執行引擎。
 - Airflow 四件套：Postgres（狀態）、init（初始化）、webserver（UI）、scheduler（排程）。
 - DAG = Operator + `>>` 依賴，一張有向無環圖。
 - 每次執行都有紀錄和 log，失敗可以單獨補跑——這是生產級編排的核心價值。

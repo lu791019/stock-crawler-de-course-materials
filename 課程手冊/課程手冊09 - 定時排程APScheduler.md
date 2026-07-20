@@ -76,9 +76,9 @@ cron 很好用，但它到點只能執行一條 **shell 指令**。我們要做�
 
 三個定位重點：
 
-- **跑在你的程式行程內（in-process）**：它不是獨立服務。你的 Python 程式活著，排程才活著；程式一關，排程就停（本章結尾的常見錯誤表會再遇到這件事）。
+- **跑在你的程式行程內（in-process）**：它不是獨立服務。排程只在你的 Python 程式執行期間有效；程式一關，排程就停（本章結尾的常見錯誤表會再遇到這件事）。
 - **跟 cron 的差別**：cron 是作業系統層級，到點執行一條 shell 指令；APScheduler 在程式內排程，到點呼叫一個 **Python 函式**——能直接使用程式裡的物件。另外 APScheduler 的 cron 觸發器比 crontab 多一個 `second` 欄位（crontab 最小單位是分鐘），所以排得出「每 5 秒」這種工作。
-- **三種觸發器（trigger）**：`cron`（指定時刻，例如每天 18:00）、`interval`（固定間隔，例如每 30 秒一次）、`date`（一次性，指定某個時間點跑一次）。本章主線用 `cron`——上一節學的五欄位語法直接沿用；章末練習 4 會讓你試 `interval`，感受兩者語意的差別。
+- **三種觸發器（trigger）**：`cron`（指定時刻，例如每天 18:00）、`interval`（固定間隔，例如每 30 秒一次）、`date`（一次性，指定某個時間點跑一次）。本章主線用 `cron`——上一節學的五欄位語法直接沿用；章末練習 4 會用 `interval` 對照兩者的語意差別。
 
 ---
 
@@ -143,7 +143,7 @@ scheduler.start()
 - `add_job(...)`：註冊一個定時工作。`trigger="cron"` 表示用 cron 風格排程：
   - 工作 A 用 `second="*/5"`：每 5 秒跑一次。這個是**故意放的教學用工作**，讓你上課當下就看到排程在動，不用真的等 12 小時。
   - 工作 B 用 `hour="*/12", minute="0", second="0"`：每 12 小時的整點跑一次真正的爬蟲。
-- `coalesce=True`：如果程式當機、錯過了好幾次排程，醒來只補跑一次，不會一次爆發一堆。
+- `coalesce=True`：如果程式當機、錯過了好幾次排程，恢復後只補跑一次，不會連續補跑多次。
 - 順帶一提：如果上一輪還沒跑完、下一輪時間又到了，APScheduler 預設同一個工作**最多同時一個實例**（`max_instances=1`），新的那輪會被跳過並在 log 印警告。所以排程間隔要抓得比任務執行時間長。
 
 ### 為什麼結尾有一個 `while True: sleep`
@@ -155,7 +155,7 @@ if __name__ == "__main__":
         time.sleep(600)   # 保持主程式存活
 ```
 
-因為 `BackgroundScheduler` 是在**背景執行緒**跑的，如果主程式跑完就結束，背景的排程器也會跟著被收掉。這個 `while True: sleep` 是為了讓主程式一直活著，排程器才能持續運作。（下面會看到 `BlockingScheduler` 就不需要這一段。）
+因為 `BackgroundScheduler` 是在**背景執行緒**跑的，如果主程式跑完就結束，背景的排程器也會跟著被收掉。這個 `while True: sleep` 是為了讓主程式持續執行，排程器才能持續運作。（下面會看到 `BlockingScheduler` 就不需要這一段。）
 
 ---
 
@@ -171,7 +171,7 @@ scheduler.start()          # 這一行會「卡住」主執行緒，之後的程
 差別是：
 
 - **`BackgroundScheduler`**：在背景執行緒跑，`start()` 之後主程式可以繼續做別的事（所以要自己寫 `while True` 保持存活）。
-- **`BlockingScheduler`**：`start()` 會**卡住**主執行緒，程式就停在那裡專心當排程器（所以不需要 `while True`）。適合「這支程式就是專門在跑排程」的情況，例如丟進一個容器單獨跑。
+- **`BlockingScheduler`**：`start()` 會**卡住**主執行緒，程式停在該行，只執行排程工作（所以不需要 `while True`）。適合「這支程式就是專門在跑排程」的情況，例如丟進一個容器單獨跑。
 
 ---
 
@@ -229,13 +229,13 @@ uv run crawler/scheduler_print.py
 
 你**不用**手動下 producer。等排程時間到（工作 B 是每 12 小時，教學時可以先把它的 `hour` 暫時改成 `"*"`、`minute="*/1"` 讓它每分鐘跑，方便看效果），就會自動有任務進 RabbitMQ、worker 開始抓。
 
-### Step 4：試試 blocking 版，感受差別
+### Step 4：跑 blocking 版，觀察差別
 
 ```bash
 uv run crawler/scheduler_blocking.py
 ```
 
-在 `scheduler.start()` 後面加一行 `print("這行會執行嗎？")`，你會發現它**永遠不會被印出**——因為 `start()` 卡住了主執行緒。這就是 blocking 的意思。
+在 `scheduler.start()` 後面加一行 `print("這行會執行嗎？")`，它**不會被印出**——因為 `start()` 卡住了主執行緒。這就是 blocking 的意思。
 
 ---
 
@@ -263,7 +263,7 @@ I/O 密集（大部分時間在等網路）。這種任務可以開遠高於核�
 
 **Q3：`BackgroundScheduler` 為什麼要在結尾加 `while True: sleep`，`BlockingScheduler` 卻不用？**
 
-因為 Background 是在背景執行緒跑，主程式一結束它就被收掉，所以要用 `while True` 讓主程式一直活著。Blocking 的 `start()` 本身就會卡住主執行緒、讓程式停在那裡，主程式不會結束，所以不需要額外保活。
+因為 Background 是在背景執行緒跑，主程式一結束它就被收掉，所以要用 `while True` 讓主程式持續執行。Blocking 的 `start()` 本身就會卡住主執行緒、讓程式停在那裡，主程式不會結束，所以不需要額外保活。
 
 **Q4：Celery 不是自帶排程器（Celery Beat）嗎？為什麼這章用 APScheduler？**
 
@@ -312,7 +312,7 @@ scheduler.add_job(
 |-------------|------|--------|
 | 排程時間跑掉、對不上 | 沒設時區 | 加 `timezone="Asia/Taipei"` |
 | 關掉終端機排程就停 | APScheduler 跟著程式生命週期 | 正式環境要用容器 / systemd 常駐（這也是第 10 章 Airflow 的動機之一）|
-| 錯過排程被瘋狂補跑 | 沒設 coalesce | 加 `coalesce=True` |
+| 錯過排程後連續補跑多次 | 沒設 coalesce | 加 `coalesce=True` |
 | Background 版一啟動就結束 | 少了保活迴圈 | 結尾加 `while True: time.sleep(...)` |
 
 ---

@@ -298,4 +298,4 @@ XCom 的值存在 Airflow 的 metadata DB（Postgres）裡，塞大資料會把 
 
 ## 下一章要做什麼
 
-積木都齊了。**下一章把 Airflow 接上你的爬蟲 pipeline：兩種串法（直接呼叫 vs 透過 Celery）、加上 ETL 的完整 DAG——前面所有章節在這裡合體。**
+積木都齊了。**下一章把 Airflow 接上你的爬蟲 pipeline：兩種串法（直接呼叫 vs 透過 Celery）、加上 ETL 的完整 DAG——前面所有章節在下一章整合起來。**

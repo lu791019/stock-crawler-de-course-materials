@@ -1,6 +1,6 @@
-# 第 12 章：Airflow 接上爬蟲 pipeline — 兩種串法與完整 ETL
+# 第 12 章：Airflow 接上爬蟲 pipeline — 三種串法與完整 ETL
 
-> 積木都齊了，這一章合體：讓 Airflow 指揮你的台股爬蟲。你會跑兩種串法——「Airflow 自己做」和「Airflow 指揮 Celery 做」——並理解它們各自適合什麼場景。前面所有章節在這裡會合。
+> 積木都齊了，這一章整合：讓 Airflow 接上你的台股爬蟲。你會跑三種串法——「Airflow 自己做」、「Airflow 指揮 Celery 做」、「連發任務的程式都容器化」——並理解它們各自適合什麼場景。前面所有章節在這裡會合。
 
 ---
 
@@ -16,7 +16,7 @@
 
 ---
 
-## 先搞懂：同一件事的兩種串法
+## 先搞懂：同一件事的兩種基本串法（串法三是串法二的容器化變形，後面介紹）
 
 | | `stock_crawler_dag`（直接呼叫）| `stock_crawler_producer_dag`（透過 Celery）|
 |---|---|---|
@@ -26,7 +26,7 @@
 | 需要哪些服務 | Airflow + MySQL | Airflow + MySQL + RabbitMQ + Celery worker |
 | 適合 | 量小、流程單純 | 量大、要把執行負載跟編排分開、worker 可獨立 scale |
 
-> **為什麼要多繞一層 Celery？** 直接呼叫簡單，但爬蟲會佔住 Airflow 的執行資源；量一大，Airflow 忙著爬蟲就顧不了編排。改成 `.delay()`，Airflow 只負責「觸發和監控」，實際負載交給 Celery worker 池——而那個池子你第 3 章就會 scale 了。
+> **為什麼要多繞一層 Celery？** 直接呼叫簡單，但爬蟲會佔住 Airflow 的執行資源；量一大，Airflow 忙著爬蟲就顧不了編排。改成發任務進佇列，Airflow 只負責「觸發和監控」，實際負載交給 Celery worker 池——而那個池子你第 3 章就會 scale 了。
 
 ---
 
@@ -187,7 +187,7 @@ for market, stock_ids in STOCK_GROUPS.items():
 
 逐段白話：
 
-- **dict 分組 + 兩層迴圈**：外層迴圈每個市場生一個分組節點、內層迴圈生組內的爬取 task。之後要加第三組（例如 ETF），只要在 dict 加一個 key——圖形自動長出第三把扇子，一行依賴都不用改。
+- **dict 分組 + 兩層迴圈**：外層迴圈每個市場生一個分組節點、內層迴圈生組內的爬取 task。之後要加第三組（例如 ETF），只要在 dict 加一個 key——圖上自動多出第三組扇形分支，一行依賴都不用改。
 - **分組節點是 `DummyOperator`**：不做事，純粹把圖整理清楚——第 11 章積木 5 的實戰應用。
 - **分組概念你早就會**：第 3 章多佇列分流把任務分進 `twse` / `tpex` **佇列**，這裡是把 task 分進兩個**圖形分支**——同一個分類思維，一次用在執行層、一次用在編排層。
 - `trigger_rule="all_success"` 的 end 同時接住兩組——**任何一組有一支失敗，end 就不跑**，你會在 Graph 上一眼看到是哪一組的哪一支紅了。
@@ -201,7 +201,7 @@ docker exec airflow-webserver airflow dags trigger stock_crawler_twse_tpex_dag
 
 **觀察：**
 
-1. Graph 上是兩把扇子：`start → 兩個 branch → 各三支平行 → end`。
+1. Graph 上是兩組扇形分支：`start → 兩個 branch → 各三支平行 → end`。
 2. 六個爬取 task **同時**起跑——分組只是圖形上的整理，不影響平行度。
 
 **驗證上櫃資料入庫**（上櫃三支是第一次爬，之前資料庫裡沒有）：
@@ -214,7 +214,7 @@ docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
 
 > ✅ 三支上櫃股票各有數百筆，代表分組扇出的每一條路都真的跑到了。
 
-### 串法二：`stock_crawler_producer_dag`（Airflow 指揮、Celery 幹活）
+### 串法二：`stock_crawler_producer_dag`（Airflow 指揮、Celery 執行）
 
 先把 Celery worker 池起來（第 3 章的網路版 worker）：
 
@@ -229,15 +229,15 @@ docker exec airflow-webserver airflow dags unpause stock_crawler_producer_dag
 docker exec airflow-webserver airflow dags trigger stock_crawler_producer_dag
 ```
 
-**觀察（這是本章最有意思的一段）：**
+**觀察（本章的核心對照）：**
 
 | 看哪裡 | 你會看到 | 為什麼 |
 |--------|---------|--------|
-| Airflow Graph | 10 個 task **秒變綠** | 它們只是發任務進佇列，不等爬完 |
+| Airflow Graph | 10 個 task **立即變綠** | 它們只是發任務進佇列，不等爬完 |
 | Flower (5555) | 10 筆 `crawler_finmind` 任務陸續 SUCCESS | 真正的執行在 Celery worker |
 | worker log | `docker compose -f compose-advanced/docker-compose-worker-network.yml logs crawler_twse \| tail -20` | 看到 DataFrame + succeeded |
 
-> ✅ 「Airflow 全綠了，Flower 還在跑」——這個時間差就是兩層分工的鐵證。Airflow 是總指揮，Celery 是施工隊。
+> ✅ 「Airflow 全綠了，Flower 還在跑」——這個時間差直接顯示兩層分工：Airflow 負責編排，Celery 負責執行。
 
 ### 串法三：`stock_crawler_docker_producer_dag`（連發任務的程式也容器化）
 
@@ -254,7 +254,7 @@ docker_crawler_task = DockerOperator(
         "RABBITMQ_HOST": "rabbitmq",
         "MYSQL_HOST": "mysql",
     },
-    auto_remove=True,                                         # 跑完即刪，不留屍體
+    auto_remove=True,                                         # 容器跑完自動刪除
 )
 ```
 
@@ -326,7 +326,7 @@ docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
 docker compose -f airflow/docker-compose-airflow-celery.yml up -d
 ```
 
-這個版本額外啟動 Redis + Celery Worker。你學過的 Celery 在這裡以「Airflow 的執行引擎」身分再登場一次。
+這個版本額外啟動 Redis + Celery Worker。你學過的 Celery 在這裡以「Airflow 的執行引擎」身分再次出現。
 
 | | LocalExecutor | CeleryExecutor |
 |---|---|---|
@@ -361,7 +361,7 @@ docker compose -f airflow/docker-compose-airflow-celery.yml up -d
 |---|-----------|-------------|
 | 1 | `stock_crawler_dag` 10 個 task 綠、MySQL 有 10 支股票 | Airflow 能直接指揮爬蟲 |
 | 2 | twse_tpex_dag 兩組同時平行、上櫃三支入庫 | 分組扇出＋匯合的 DAG 形狀 |
-| 3 | producer_dag 秒綠、Flower 陸續 SUCCESS | 編排層與執行層分工 |
+| 3 | producer_dag 立即全綠、Flower 陸續 SUCCESS | 編排層與執行層分工 |
 | 4 | docker_producer_dag 成功、`00679B` 入庫 | DockerOperator 跑 producer、佇列分流兩條路都通 |
 | 5 | ETL DAG 產出 VIEW + 實體表 | 一條 DAG 涵蓋完整 ETL |
 | 6 | 失敗的 task 能單獨 Clear 重跑 | 編排引擎的核心價值 |
@@ -388,7 +388,7 @@ LocalExecutor 像第 9 章：單機、自己的行程做事。CeleryExecutor 像
 
 **練習 1：故意讓一支股票失敗，再單獨補跑**
 
-把 `stock_crawler_dag` 裡某個股票代碼改成不存在的（例如 `"9999999"`），觸發後那個 task 會失敗、end 卡住。改回正確代碼，然後在 UI 上**只 Clear 那一個失敗的 task**，看整條 DAG 接著完成。這是「只補跑失敗那一步」——APScheduler 做不到、Airflow 的招牌能力。
+把 `stock_crawler_dag` 裡某個股票代碼改成不存在的（例如 `"9999999"`），觸發後那個 task 會失敗、end 卡住。改回正確代碼，然後在 UI 上**只 Clear 那一個失敗的 task**，看整條 DAG 接著完成。這是「只補跑失敗那一步」——APScheduler 做不到、Airflow 的核心能力。
 
 **練習 2：幫 producer_dag 加一步驗證**
 
@@ -396,7 +396,7 @@ LocalExecutor 像第 9 章：單機、自己的行程做事。CeleryExecutor 像
 
 **練習 3：幫 twse_tpex_dag 加第三組**
 
-在 `STOCK_GROUPS` 加一組 `"etf": ["0050", "0056", "00713"]`，重新觸發，確認 Graph 自動長出第三把扇子、三組同時平行。體會「加一組 = 加一個 key」——這就是用迴圈生 task 的威力，手刻 task 做不到這麼輕鬆。
+在 `STOCK_GROUPS` 加一組 `"etf": ["0050", "0056", "00713"]`，重新觸發，確認 Graph 自動多出第三組扇形分支、三組同時平行。確認「加一組 = 加一個 key」——迴圈生 task 的擴充只改資料，逐一手寫 task 則要同步改依賴設定。
 
 **練習 4：對照 APScheduler 和 Airflow**
 
