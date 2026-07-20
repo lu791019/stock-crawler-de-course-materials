@@ -96,119 +96,9 @@ Python 生態最常見的三個 Web 框架：
 
 選型參考：要做「整個網站」→ Django；要極簡自由拼裝 → Flask；要做「資料 API 服務」→ FastAPI。本課的需求是把 MySQL 資料開成查詢端點——標準的 FastAPI 場景。
 
-### 同一支 API，三個框架分別怎麼寫
+同一支 `GET /stocks`，三個框架的寫法差在「框架幫你做多少事」：**Django** 要先建專案骨架、函式和路徑分兩個檔；**Flask** 單檔就跑；**FastAPI** 單檔還附自動文件。三者「一條路徑對到一個處理函式」的核心模式相同——會了其中一個，換另一個的學習成本不高。
 
-光看表格感受不深，拿最簡單的需求當比較基準：開一支 `GET /stocks`，回傳股票清單 JSON。
-
-注意：三個範例回的都是**寫死在程式碼裡的三支假股票，不連資料庫**——刻意把 MySQL、SQL、pandas 全部剝掉，讓比較只聚焦在一件事：**這個框架怎麼把「路徑」接到「處理函式」**。真正連 MySQL 撈資料的完整版，只做 FastAPI（本篇主線的 `api/main.py`）。
-
-> **這一段用看的就好，不用跟做。** 本篇的動手實作只有 FastAPI 版（後面的 `api/main.py`）。Django 和 Flask 的範例是給你對照寫法用的——本篇不會帶你建這兩個框架的環境，想自己試的話照各段最後的說明。
-
-**Django** —— 要先 `django-admin startproject` 建專案結構，至少動兩個檔案：`views.py` 寫處理函式、`urls.py` 註冊路徑：
-
-```python
-# views.py
-from django.http import JsonResponse
-
-def list_stocks(request):
-    return JsonResponse({"stocks": ["2330", "2317", "2454"]})
-```
-
-```python
-# urls.py
-from django.urls import path
-from . import views
-
-urlpatterns = [
-    path("stocks", views.list_stocks),
-]
-```
-
-啟動：`python manage.py runserver`。函式和路徑分在兩個檔案，是 Django 專案結構的約定；要做完整 REST API（序列化、權限、分頁）通常還要再裝 Django REST Framework。
-
-> ⚠️ 兩個前提：①本課環境**沒有安裝 Django**（`uv sync` 不會裝）；②這兩段程式碼**不能存成兩個散檔直接跑**——必須放進 `django-admin startproject` 產生的專案結構裡。這正是表格說的「全功能框架」的代價：連開一支最簡單的 API 都要先有專案骨架。
-
-想自己完整跑一次的話，照下面四步（找一個**課程專案以外**的資料夾做）：
-
-```bash
-# ① 開一個獨立的 uv 專案裝 Django（跟本課同一套工具，但不要裝進課程專案）
-mkdir django-demo && cd django-demo
-uv init          # 生成 pyproject.toml（附帶的 main.py、README.md 這裡用不到，可忽略）
-uv add django    # 跟本課裝套件同一套做法：寫進 pyproject.toml 並裝進 .venv
-
-# ② 生成專案骨架
-uv run django-admin startproject demo
-```
-
-`startproject` 會生出這個結構——兩段範例程式碼要搬去的位置標了 ★：
-
-```
-demo/
-├── manage.py            ← 指令入口：runserver、migrate 都靠它
-└── demo/                ← 專案套件（跟外層資料夾同名，第一次看容易搞混）
-    ├── __init__.py
-    ├── settings.py      ← 全專案設定：資料庫、時區、掛了哪些 app
-    ├── urls.py          ← ★ 用上面的 urls.py 範例「整檔取代」
-    ├── views.py         ← ★ 新建這個檔，內容就是上面的 views.py 範例
-    ├── asgi.py          ← 部署用入口（ASGI 伺服器）
-    └── wsgi.py          ← 部署用入口（WSGI 伺服器）
-```
-
-```bash
-# ③ 搬程式碼：在 demo/demo/ 裡新建 views.py、整檔取代 urls.py
-
-# ④ 啟動，另開終端機打打看
-cd demo
-uv run python manage.py runserver   # uv run 會自動往上找到 django-demo 的環境
-curl http://127.0.0.1:8000/stocks   # runserver 預設開在 8000
-# → {"stocks": ["2330", "2317", "2454"]}
-```
-
-`runserver` 啟動的是 **Django 內建的開發用 WSGI 伺服器**——角色等同 Flask 的 `flask run`、FastAPI 的 `uvicorn --reload`：只供開發（改檔自動重載）。上線不用它，而是把 `wsgi.py` 或 `asgi.py` 入口交給 gunicorn / uvicorn 這類正式伺服器（兩種入口的差別見「想再深入一點」的「WSGI 與 ASGI」節）。
-
-補充：正式的 Django 專案不會把 `views.py` 直接放在專案套件裡，而是 `python manage.py startapp stocks` 建獨立的 app 再掛進 `settings.py`——那套結構屬於 Django 的課程範圍，這裡只走到「同一支 API 實際跑起來」為止。
-
-**Flask** —— 單一檔案就能跑，路徑用裝飾器直接綁在函式上：
-
-```python
-# app.py
-from flask import Flask, jsonify
-
-app = Flask(__name__)
-
-@app.route("/stocks")
-def list_stocks():
-    return jsonify({"stocks": ["2330", "2317", "2454"]})
-```
-
-啟動：`flask --app app run`（預設開在 http://localhost:5000 ）。沒有專案結構的負擔，但參數驗證、API 文件都要自己處理（或另裝擴充套件）。
-
-> 想自己試的話：flask 已包含在本課依賴裡（`uv sync` 會裝），找個空資料夾把上面存成 `app.py` 就能跑。但本篇不會帶做——實作留給 FastAPI 版。
-
-**FastAPI** —— 寫法跟 Flask 幾乎一樣，但多送三樣東西：自動文件（`/docs`）、型別驗證、原生 async：
-
-```python
-# app.py
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/stocks")
-def list_stocks():
-    return {"stocks": ["2330", "2317", "2454"]}
-```
-
-啟動：`uvicorn app:app --reload`。回傳 dict 自動轉 JSON；打開 `http://localhost:8000/docs` 就有互動式文件，一行文件都不用寫。
-
-FastAPI 這段有三個常被跳過的名詞，先說清楚：
-
-- **uvicorn 是什麼？** FastAPI 只負責「定義 API」（哪些路徑、收什麼參數、怎麼處理），它自己**不會聽網路連線**。實際開 port、接收 HTTP 請求、把請求交給 app 處理的是 **uvicorn**——一個 ASGI 伺服器（ASGI 是什麼？「想再深入一點」有「WSGI 與 ASGI」專節）。Django 和 Flask 都內建了開發伺服器（`manage.py runserver`、`flask run`），FastAPI 把伺服器拆出去獨立，所以啟動指令是 `uvicorn` 開頭。
-  - `uvicorn app:app` 的讀法是「**檔名:變數名**」——去 `app.py` 裡找那個叫 `app` 的 FastAPI 物件。本課主線的 `uvicorn api.main:app` 同理：`api/main.py` 裡的 `app`
-  - `--reload`：開發模式，存檔自動重啟；上線不開
-- **`/docs` 是什麼？** FastAPI 從路由和型別註記自動生成 OpenAPI 規格，再用 Swagger UI 渲染成可互動試打的網頁。兩個名詞的關係和試打操作，在後面 Step 4 有完整說明
-- **撈資料一定要 ORM 嗎？** 不用。FastAPI 不綁定資料層（表格裡「ORM 等自選」的意思）：本篇主線手寫 SQL（`api/main.py`），文末「附錄一」有同一組端點的 ORM 版（`api/main_orm.py`），兩種寫法的差異對照也在那裡
-
-三段程式碼放在一起看：**核心模式相同**——一個函式處理請求、一條路徑對到一個函式，差別在框架幫你做多少事。這也是為什麼會了其中一個，換另一個的學習成本不高。
+> 想看三框架寫同一支 API 的完整對照（三段可跑程式碼、Django 從零 `uv` install＋專案結構樹）→ 文末「**附錄三：三框架同一支 API 的完整對照**」。本篇主線接下來只做 FastAPI。
 
 ## FastAPI 是什麼
 
@@ -760,6 +650,122 @@ MySQL ← api/main.py（守門員）← stock_dashboard.py（呼叫方）← 瀏
 ```
 
 前端專案裡只有一個 API 網址，沒有任何資料庫帳密——這就是本篇從頭講到尾的架構，第一次完整閉環。
+
+---
+
+## 附錄三：三框架同一支 API 的完整對照（選讀）
+
+> 主線只做 FastAPI。這個附錄把同一支 `GET /stocks` 用 Django / Flask / FastAPI 各寫一遍，讓你對照三個框架的寫法差異。用看的就好，不用跟做。
+
+拿最簡單的需求當比較基準：開一支 `GET /stocks`，回傳股票清單 JSON。
+
+注意：三個範例回的都是**寫死在程式碼裡的三支假股票，不連資料庫**——刻意把 MySQL、SQL、pandas 全部剝掉，讓比較只聚焦在一件事：**這個框架怎麼把「路徑」接到「處理函式」**。真正連 MySQL 撈資料的完整版，只做 FastAPI（本篇主線的 `api/main.py`）。
+
+**Django** —— 要先 `django-admin startproject` 建專案結構，至少動兩個檔案：`views.py` 寫處理函式、`urls.py` 註冊路徑：
+
+```python
+# views.py
+from django.http import JsonResponse
+
+def list_stocks(request):
+    return JsonResponse({"stocks": ["2330", "2317", "2454"]})
+```
+
+```python
+# urls.py
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path("stocks", views.list_stocks),
+]
+```
+
+啟動：`python manage.py runserver`。函式和路徑分在兩個檔案，是 Django 專案結構的約定；要做完整 REST API（序列化、權限、分頁）通常還要再裝 Django REST Framework。
+
+> ⚠️ 兩個前提：①本課環境**沒有安裝 Django**（`uv sync` 不會裝）；②這兩段程式碼**不能存成兩個散檔直接跑**——必須放進 `django-admin startproject` 產生的專案結構裡。這正是表格說的「全功能框架」的代價：連開一支最簡單的 API 都要先有專案骨架。
+
+想自己完整跑一次的話，照下面四步（找一個**課程專案以外**的資料夾做）：
+
+```bash
+# ① 開一個獨立的 uv 專案裝 Django（跟本課同一套工具，但不要裝進課程專案）
+mkdir django-demo && cd django-demo
+uv init          # 生成 pyproject.toml（附帶的 main.py、README.md 這裡用不到，可忽略）
+uv add django    # 跟本課裝套件同一套做法：寫進 pyproject.toml 並裝進 .venv
+
+# ② 生成專案骨架
+uv run django-admin startproject demo
+```
+
+`startproject` 會生出這個結構——兩段範例程式碼要搬去的位置標了 ★：
+
+```
+demo/
+├── manage.py            ← 指令入口：runserver、migrate 都靠它
+└── demo/                ← 專案套件（跟外層資料夾同名，第一次看容易搞混）
+    ├── __init__.py
+    ├── settings.py      ← 全專案設定：資料庫、時區、掛了哪些 app
+    ├── urls.py          ← ★ 用上面的 urls.py 範例「整檔取代」
+    ├── views.py         ← ★ 新建這個檔，內容就是上面的 views.py 範例
+    ├── asgi.py          ← 部署用入口（ASGI 伺服器）
+    └── wsgi.py          ← 部署用入口（WSGI 伺服器）
+```
+
+```bash
+# ③ 搬程式碼：在 demo/demo/ 裡新建 views.py、整檔取代 urls.py
+
+# ④ 啟動，另開終端機打打看
+cd demo
+uv run python manage.py runserver   # uv run 會自動往上找到 django-demo 的環境
+curl http://127.0.0.1:8000/stocks   # runserver 預設開在 8000
+# → {"stocks": ["2330", "2317", "2454"]}
+```
+
+`runserver` 啟動的是 **Django 內建的開發用 WSGI 伺服器**——角色等同 Flask 的 `flask run`、FastAPI 的 `uvicorn --reload`：只供開發（改檔自動重載）。上線不用它，而是把 `wsgi.py` 或 `asgi.py` 入口交給 gunicorn / uvicorn 這類正式伺服器（兩種入口的差別見「想再深入一點」的「WSGI 與 ASGI」節）。
+
+補充：正式的 Django 專案不會把 `views.py` 直接放在專案套件裡，而是 `python manage.py startapp stocks` 建獨立的 app 再掛進 `settings.py`——那套結構屬於 Django 的課程範圍，這裡只走到「同一支 API 實際跑起來」為止。
+
+**Flask** —— 單一檔案就能跑，路徑用裝飾器直接綁在函式上：
+
+```python
+# app.py
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+@app.route("/stocks")
+def list_stocks():
+    return jsonify({"stocks": ["2330", "2317", "2454"]})
+```
+
+啟動：`flask --app app run`（預設開在 http://localhost:5000 ）。沒有專案結構的負擔，但參數驗證、API 文件都要自己處理（或另裝擴充套件）。
+
+> 想自己試的話：flask 已包含在本課依賴裡（`uv sync` 會裝），找個空資料夾把上面存成 `app.py` 就能跑。但本篇不會帶做——實作留給 FastAPI 版。
+
+**FastAPI** —— 寫法跟 Flask 幾乎一樣，但多送三樣東西：自動文件（`/docs`）、型別驗證、原生 async：
+
+```python
+# app.py
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/stocks")
+def list_stocks():
+    return {"stocks": ["2330", "2317", "2454"]}
+```
+
+啟動：`uvicorn app:app --reload`。回傳 dict 自動轉 JSON；打開 `http://localhost:8000/docs` 就有互動式文件，一行文件都不用寫。
+
+FastAPI 這段有三個常被跳過的名詞，一併說清楚：
+
+- **uvicorn 是什麼？** FastAPI 只負責「定義 API」（哪些路徑、收什麼參數、怎麼處理），它自己**不會聽網路連線**。實際開 port、接收 HTTP 請求、把請求交給 app 處理的是 **uvicorn**——一個 ASGI 伺服器（ASGI 是什麼？「想再深入一點」有「WSGI 與 ASGI」專節）。Django 和 Flask 都內建了開發伺服器（`manage.py runserver`、`flask run`），FastAPI 把伺服器拆出去獨立，所以啟動指令是 `uvicorn` 開頭。
+  - `uvicorn app:app` 的讀法是「**檔名:變數名**」——去 `app.py` 裡找那個叫 `app` 的 FastAPI 物件。本課主線的 `uvicorn api.main:app` 同理：`api/main.py` 裡的 `app`
+  - `--reload`：開發模式，存檔自動重啟；上線不開
+- **`/docs` 是什麼？** FastAPI 從路由和型別註記自動生成 OpenAPI 規格，再用 Swagger UI 渲染成可互動試打的網頁。兩個名詞的關係和試打操作，在主線 Step 4 有完整說明
+- **撈資料一定要 ORM 嗎？** 不用。FastAPI 不綁定資料層（框架表裡「ORM 等自選」的意思）：本篇主線手寫 SQL（`api/main.py`），「附錄一」有同一組端點的 ORM 版（`api/main_orm.py`），兩種寫法的差異對照也在那裡
+
+三段程式碼放在一起看：**核心模式相同**——一個函式處理請求、一條路徑對到一個函式，差別在框架幫你做多少事。
 
 ---
 
