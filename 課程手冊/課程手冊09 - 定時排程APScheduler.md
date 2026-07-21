@@ -94,9 +94,9 @@ cron 很好用，但它到點只能執行一條 **shell 指令**。我們要做�
 
 | 檔案 | 角色 | 說明 |
 |------|------|------|
-| `crawler/scheduler_print.py` | 排程（print 版）| 定時派送 print 版任務，方便你觀察 |
-| `crawler/scheduler.py` | 排程（正式版）| 定時派送會寫 DB 的任務 |
-| `crawler/scheduler_blocking.py` | 排程（阻塞版）| 用 `BlockingScheduler` 做對照 |
+| `crawler/scheduler_print.py` | 排程（print 版）| 定時派送「只印出、不寫資料庫」的任務，教學時先用這一版觀察流程 |
+| `crawler/scheduler.py` | 排程（正式版）| 定時派送會寫入資料庫的正式爬蟲任務，流程確認沒問題後切換到這一版 |
+| `crawler/scheduler_blocking.py` | 排程（阻塞版）| 改用 `BlockingScheduler`，作為 Background 版的對照組 |
 
 ---
 
@@ -107,10 +107,12 @@ cron 很好用，但它到點只能執行一條 **shell 指令**。我們要做�
 ```python
 from crawler.tasks_crawler_finmind import crawler_finmind
 
+# 發送一批股票的爬蟲任務。內容跟你前面手動執行的 producer 完全相同——
+# 差別只是「誰來呼叫它」：以前是你在終端機打指令，現在是排程器到點自動呼叫。
 def send_crawler_stock_price_task():
     for stock_id in ["2330", "0050", "2317", "0056", "00713"]:
-        logger.info(stock_id)
-        crawler_finmind.delay(stock_id=stock_id)   # 定時觸發 Celery 任務
+        logger.info(stock_id)  # 印出目前發送的股票代碼，方便對照 log
+        crawler_finmind.delay(stock_id=stock_id)  # 把任務訊息丟進 RabbitMQ，發完立刻返回、不等爬完
 ```
 
 這就是「鬧鐘響了要做的事」——把那批股票的任務 `.delay()` 出去。注意它做的事跟你前面手動跑的 producer 一模一樣，只是現在改由排程器來呼叫。
@@ -120,21 +122,28 @@ def send_crawler_stock_price_task():
 ```python
 from apscheduler.schedulers.background import BackgroundScheduler
 
+# timezone 一定要明寫，否則會用系統時區（容器常是 UTC，跟台北差 8 小時）
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
 
-# 工作 A：每 5 秒印一次 hello_world（純粹讓你馬上看到排程在動）
+# 工作 A：每 5 秒印一次 hello_world——教學觀察用，讓你馬上看到排程在動
 scheduler.add_job(
-    id="hello_world", func=hello_world, trigger="cron",
-    second="*/5", coalesce=True,
+    id="hello_world",    # 工作的唯一識別名稱，重複註冊同名工作會報錯
+    func=hello_world,    # 到點要執行的函式（傳函式本身，不加括號）
+    trigger="cron",      # 用 cron 風格指定時間
+    second="*/5",        # 秒數每 5 秒符合一次——這個秒欄位是系統 crontab 沒有的
+    coalesce=True,       # 錯過多次排程時，恢復後只補跑一次
 )
 
-# 工作 B：每 12 小時整點發一批爬蟲
+# 工作 B：每 12 小時的整點發一批爬蟲（正式任務）
 scheduler.add_job(
-    id="send_crawler_stock_price_task", func=send_crawler_stock_price_task,
-    trigger="cron", hour="*/12", minute="0", second="0", coalesce=True,
+    id="send_crawler_stock_price_task",
+    func=send_crawler_stock_price_task,
+    trigger="cron",
+    hour="*/12", minute="0", second="0",  # 小時每 12 小時符合一次、分和秒都是 0＝整點
+    coalesce=True,
 )
 
-scheduler.start()
+scheduler.start()  # 啟動排程器；Background 版這一行不會卡住，程式會繼續往下走
 ```
 
 一段一段看：
@@ -151,8 +160,10 @@ scheduler.start()
 ```python
 if __name__ == "__main__":
     main()
+    # 主程式一結束，背景執行緒的排程器也跟著消失——所以用無限迴圈保持主程式存活。
+    # sleep 的秒數不影響排程精準度，排程由背景執行緒自己計時。
     while True:
-        time.sleep(600)   # 保持主程式存活
+        time.sleep(600)
 ```
 
 因為 `BackgroundScheduler` 是在**背景執行緒**跑的，如果主程式跑完就結束，背景的排程器也會跟著被收掉。這個 `while True: sleep` 是為了讓主程式持續執行，排程器才能持續運作。（下面會看到 `BlockingScheduler` 就不需要這一段。）
@@ -164,8 +175,8 @@ if __name__ == "__main__":
 ```python
 from apscheduler.schedulers.blocking import BlockingScheduler
 scheduler = BlockingScheduler(timezone="Asia/Taipei")
-# ...add_job 相同...
-scheduler.start()          # 這一行會「卡住」主執行緒，之後的程式不會執行
+# ...add_job 的寫法跟 Background 版完全相同...
+scheduler.start()  # 這一行會「卡住」主執行緒：程式停在這裡專心跑排程，之後的程式碼不會被執行
 ```
 
 差別是：
@@ -243,9 +254,9 @@ uv run crawler/scheduler_blocking.py
 
 | # | 你應該看到 | 它證明了什麼 |
 |---|-----------|-------------|
-| 1 | hello_world 每 5 秒固定跳 | 排程器在定時觸發 |
-| 2 | 不手動下 producer，任務也會自動進 RabbitMQ | 自動派送成功 |
-| 3 | blocking 版 `start()` 之後的程式不執行 | 理解 blocking vs background |
+| 1 | hello_world 的訊息每 5 秒固定出現一次 | 排程器真的在照設定的時間觸發工作 |
+| 2 | 你沒有手動執行 producer，任務仍然自動進了 RabbitMQ | 定時自動派送的機制成功運作 |
+| 3 | blocking 版在 `start()` 之後的程式碼不會被執行 | 你分得清 blocking 和 background 兩種排程器的差別 |
 
 ---
 
@@ -310,21 +321,21 @@ scheduler.add_job(
 
 | 你遇到的狀況 | 原因 | 怎麼解 |
 |-------------|------|--------|
-| 排程時間跑掉、對不上 | 沒設時區 | 加 `timezone="Asia/Taipei"` |
-| 關掉終端機排程就停 | APScheduler 跟著程式生命週期 | 正式環境要用容器 / systemd 常駐（這也是第 10 章 Airflow 的動機之一）|
-| 錯過排程後連續補跑多次 | 沒設 coalesce | 加 `coalesce=True` |
-| Background 版一啟動就結束 | 少了保活迴圈 | 結尾加 `while True: time.sleep(...)` |
+| 排程時間跑掉、對不上 | 建立排程器時沒有設定時區，用到了系統時區（常常是 UTC，跟台北差 8 小時）| 建立排程器時加上 `timezone="Asia/Taipei"` |
+| 關掉終端機排程就停 | APScheduler 跑在你的程式行程裡，程式結束排程就跟著結束 | 正式環境要用容器或 systemd 讓程式常駐（這也是第 10 章 Airflow 的動機之一）|
+| 錯過排程後連續補跑多次 | 註冊工作時沒有設定 coalesce | 在 `add_job` 加上 `coalesce=True`，恢復後只會補跑一次 |
+| Background 版一啟動就結束 | 主程式跑完就退出，背景的排程器跟著被收掉 | 在檔案結尾加上 `while True: time.sleep(...)` 保持主程式存活 |
 
 ---
 
 ## 這一章你學到了
 
-- crontab 的「分 時 日 月 星期 指令」五欄位語法；Windows 對應工具是工作排程器，不是 cron。
-- cron 是系統層排程、到點跑一條 shell 指令；APScheduler 是程式內排程、到點呼叫 Python 函式，所以能直接觸發 `.delay()`，還多了 `second` 欄位。
-- 排程器是鬧鐘，定時呼叫 `.delay()`，執行仍交給 Celery。
-- cron 觸發 + `coalesce` 是常用組合；排程程式一律明寫時區。
-- Background 要保活、Blocking 會卡住主執行緒；I/O 密集任務適合開高併發。
-- cron 和 APScheduler 都看不到執行歷史——這是下一章 Airflow 的核心賣點。
+- crontab 用「分 時 日 月 星期 指令」五個欄位描述一個排程任務；Windows 沒有 cron，對應的內建工具是工作排程器（Task Scheduler）。
+- cron 是作業系統層級的排程，到點執行一條 shell 指令；APScheduler 是程式內的排程，到點呼叫一個 Python 函式，所以能直接觸發 `.delay()`，而且多了 crontab 沒有的 `second` 欄位。
+- 排程器扮演的是鬧鐘：時間到就呼叫 `.delay()` 把任務發出去，實際的爬蟲和寫入仍然交給 Celery worker 執行。
+- cron 觸發搭配 `coalesce=True` 是常用組合；排程程式一律明確寫上時區，避免系統時區是 UTC 造成排程時間對不上。
+- BackgroundScheduler 需要保活迴圈才不會跟著主程式結束；BlockingScheduler 的 `start()` 會卡住主執行緒。I/O 密集的任務適合開遠高於核心數的併發。
+- cron 和 APScheduler 都看不到執行歷史、也沒有管理介面——這正是下一章 Airflow 要解決的問題。
 
 ## 下一章要做什麼
 
