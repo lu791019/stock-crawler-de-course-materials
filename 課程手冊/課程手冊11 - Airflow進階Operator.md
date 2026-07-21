@@ -20,11 +20,11 @@
 
 | 檔案 | dag_id（UI 上看到的）| 學什麼 |
 |------|---------------------|--------|
-| `example_branch_operator_dag.py` | `example_branch_operator_dag` | 條件分支 |
-| `example_xcom_dag.py` | `example_xcom_coffee_shop_dag` | task 間傳資料 |
-| `example_trigger_dag_operator_dag.py` | `example_trigger_main_dag` ＋ `example_triggered_data_processing_dag`（一檔兩個 DAG）| DAG 觸發 DAG |
-| `example_docker_operator_dag.py` | `example_docker_operator_dag` | 容器裡跑任務 |
-| `example_dummy_tasks_dag.py` | `example_dummy_tasks_dag` | 複雜依賴結構 |
+| `example_branch_operator_dag.py` | `example_branch_operator_dag` | 讓工作流依照條件走不同的路 |
+| `example_xcom_dag.py` | `example_xcom_coffee_shop_dag` | 讓資料在 task 之間傳遞 |
+| `example_trigger_dag_operator_dag.py` | `example_trigger_main_dag` ＋ `example_triggered_data_processing_dag`（一檔兩個 DAG）| 讓一個 DAG 觸發另一個 DAG |
+| `example_docker_operator_dag.py` | `example_docker_operator_dag` | 把任務放進獨立的容器裡執行 |
+| `example_dummy_tasks_dag.py` | `example_dummy_tasks_dag` | 把複雜的依賴結構整理成能一眼讀懂的圖 |
 
 > 💡 注意：Airflow 列表顯示的是**程式裡定義的 dag_id**，不一定等於檔名（第 10 章練習 3 看過）。
 
@@ -247,12 +247,12 @@ docker exec airflow-webserver airflow dags trigger example_dummy_tasks_dag
 
 | Operator | 用途 | 重點 |
 |----------|------|------|
-| `PythonOperator` | 執行 Python 函式 | return 值自動進 XCom |
-| `BashOperator` | 執行 shell 指令 | stdout 最後一行進 XCom |
-| `BranchPythonOperator` | 條件分支 | 函式 return task_id 字串 |
-| `DummyOperator` | 佔位 / 匯合點 | 不做事，整理圖形 |
-| `TriggerDagRunOperator` | 觸發別的 DAG | 被觸發的 DAG 也要 unpause |
-| `DockerOperator` | 容器裡執行 | 需要掛 docker.sock |
+| `PythonOperator` | 執行一個 Python 函式 | 函式的 return 值會自動存進 XCom |
+| `BashOperator` | 執行一行 shell 指令 | stdout 的最後一行會自動存進 XCom |
+| `BranchPythonOperator` | 依條件決定走哪條分支 | 函式要 return 某個 task_id 字串當路標 |
+| `DummyOperator` | 當佔位節點或匯合點 | 它不執行任何事，純粹整理圖形 |
+| `TriggerDagRunOperator` | 觸發另一個 DAG | 被觸發的那個 DAG 也要先 unpause |
+| `DockerOperator` | 臨時起一個容器執行任務 | 前提是 compose 有掛載 docker.sock |
 
 ---
 
@@ -260,11 +260,11 @@ docker exec airflow-webserver airflow dags trigger example_dummy_tasks_dag
 
 | # | 你應該看到 | 它證明了什麼 |
 |---|-----------|-------------|
-| 1 | Branch：一條綠、一條粉紅（skipped）| 條件分支只走一邊 |
-| 2 | XCom 分頁看得到傳遞的資料 | task 之間能交換資料 |
-| 3 | 主 DAG 觸發子 DAG、等它完成 | 工作流可以串工作流 |
-| 4 | Docker task 的 log 是容器內輸出 | 任務可以在隔離環境跑 |
-| 5 | Dummy DAG 的分岔匯合圖 | 你能讀懂複雜依賴 |
+| 1 | Branch 的圖上一條分支是綠色、另一條是粉紅色（skipped）| 條件分支真的只走了其中一邊 |
+| 2 | 在 XCom 分頁看得到 task 傳遞的資料內容 | task 之間能夠交換資料 |
+| 3 | 主 DAG 觸發了子 DAG，並且等它跑完才繼續 | 工作流可以串接另一個工作流 |
+| 4 | Docker task 的 log 顯示的是容器內部的輸出 | 任務可以在隔離的環境裡執行 |
+| 5 | Dummy DAG 的圖上有清楚的分岔和匯合結構 | 你能讀懂比較複雜的依賴圖 |
 
 ---
 
@@ -304,21 +304,21 @@ XCom 的值存在 Airflow 的 metadata DB（Postgres）裡，塞大資料會把 
 
 | 你遇到的狀況 | 原因 | 怎麼解 |
 |-------------|------|--------|
-| Trigger 主 DAG 後子 DAG 沒動 | 子 DAG 還是 paused | 兩個都要 unpause |
-| 分支的另一條顯示粉紅色 | 那是 skipped，不是錯誤 | 正常，分支語意如此 |
-| XCom 分頁空白 | task 沒有 return 值 / 沒 push | 確認函式有 return 或 xcom_push |
-| DockerOperator 報權限錯誤 | docker.sock 沒掛載或權限不足 | 確認 compose 掛了 `/var/run/docker.sock`；不行就跳過此範例 |
-| 改了 DAG 但 UI 沒更新 | scheduler 還沒重新掃描 | 等 30~60 秒，或重啟 scheduler |
+| 觸發主 DAG 之後子 DAG 沒有動 | 子 DAG 還在 paused 狀態，觸發不會執行 | 主 DAG 和子 DAG 兩個都要 unpause |
+| 分支的另一條顯示粉紅色 | 那是 skipped 狀態，不是錯誤——分支語意下沒被選中的路就是這樣 | 這是正常現象，不需要處理 |
+| XCom 分頁是空白的 | 那個 task 的函式沒有 return 值、也沒有呼叫 xcom_push | 確認函式有 return 或有呼叫 `xcom_push` |
+| DockerOperator 報權限錯誤 | docker.sock 沒有掛載進容器，或掛載了但權限不足 | 確認 compose 有掛 `/var/run/docker.sock`；真的解不了就跳過這個範例，概念懂了即可 |
+| 改了 DAG 檔案但 UI 沒有更新 | scheduler 每隔幾十秒才重新掃描一次 dags 資料夾 | 等 30~60 秒讓它掃到，或直接重啟 scheduler |
 
 ---
 
 ## 這一章你學到了
 
-- Branch（分岔）、XCom（傳資料）、Trigger（串 DAG）、DockerOperator（隔離執行）、Dummy（整理圖形）——五塊積木。
-- `**context` 是 Airflow 注入的執行環境資訊，`task_instance` 藏在裡面——XCom 的推拉靠它。
-- XCom 傳小的，大資料走外部儲存。
-- 分支後要匯合，記得改 `trigger_rule`——預設 `all_success` 會被 skipped 的分支卡死。
-- 複雜系統拆多個 DAG 各自獨立，再用 Trigger 串起來。
+- 這一章學了五塊積木：Branch 負責分岔、XCom 負責傳資料、Trigger 負責串接 DAG、DockerOperator 負責隔離執行、Dummy 負責整理圖形。
+- `**context` 是 Airflow 執行 task 時注入的執行環境資訊，`task_instance` 就放在裡面——XCom 的推送和拉取都要靠它。
+- XCom 只適合傳小資料（參數、狀態、路徑）；大資料要寫到外部儲存，XCom 只傳「它放在哪裡」。
+- 分支之後要匯合的話，記得幫匯合節點改 `trigger_rule`——預設的 `all_success` 會因為 skipped 的分支永遠不成立，匯合節點就永遠不會執行。
+- 複雜系統應該拆成多個各自獨立的 DAG，再用 TriggerDagRunOperator 串起來，讓每個 DAG 有自己的排程、負責人和重跑策略。
 
 ## 下一章要做什麼
 

@@ -61,13 +61,13 @@
 
 | 檔案 | 角色 | 說明 |
 |------|------|------|
-| `airflow/Dockerfile` | Image 定義 | Ubuntu + Airflow 2.10 + 我們的 crawler 程式 |
-| `airflow/docker-compose-airflow.yml` | 部署（LocalExecutor）| 輕量版，適合開發，這一章用它 |
-| `airflow/docker-compose-airflow-celery-stock.yml` | 部署（CeleryExecutor 瘦身版）| 同一顆 stock-airflow image，多起 Redis + 獨立 worker（第 12 章示範）|
-| `airflow/docker-compose-airflow-celery.yml` | 部署（CeleryExecutor 官方範本）| 官方 image 完整版，留作參考（第 12 章談）|
-| `airflow/airflow.cfg` | 設定檔 | Airflow 核心設定 |
-| `airflow/dags/example_*.py` | 範例 DAG | 這一章與下一章的教材 |
-| `airflow/README.md` | 說明 | 啟動方式與 DAG 清單 |
+| `airflow/Dockerfile` | Image 定義 | 以 Ubuntu 為基底，裝好 Airflow 2.10 和我們的 crawler 程式 |
+| `airflow/docker-compose-airflow.yml` | 部署（LocalExecutor）| 輕量的部署版本，適合開發環境，這一章用它 |
+| `airflow/docker-compose-airflow-celery-stock.yml` | 部署（CeleryExecutor 瘦身版）| 用同一顆 stock-airflow image，多起 Redis 和獨立 worker，第 12 章會示範 |
+| `airflow/docker-compose-airflow-celery.yml` | 部署（CeleryExecutor 官方範本）| 官方 image 的完整版本，留作參考，第 12 章會談到 |
+| `airflow/airflow.cfg` | 設定檔 | Airflow 的核心設定檔，下面有專節說明它的角色 |
+| `airflow/dags/example_*.py` | 範例 DAG | 這一章與下一章使用的範例 DAG |
+| `airflow/README.md` | 說明 | 記錄啟動方式與 DAG 清單 |
 
 ### Airflow 由哪些服務組成
 
@@ -107,7 +107,7 @@
 
 - **Scheduler 裡藏著一個 Executor**——它是「task 交給誰執行」的機制。本章用 **LocalExecutor**：worker 就是 scheduler 自己 fork 出來的子行程，所以 `docker ps` 看不到獨立的 worker 容器（圖上的 Workers 和 Scheduler 住在同一個 `airflow-scheduler` 容器裡）。第 12 章會看到 CeleryExecutor 把 worker 拆成獨立容器、甚至跨機器。
 - **三方都讀同一個 DAG Directory**：scheduler 掃描它決定何時觸發、webserver 讀它顯示在 UI、worker 執行它的程式碼——這就是為什麼 compose 把 `airflow/dags/` 掛載進容器。
-- **概念 ↔ 容器對應**：Metadata DB = `airflow-database`、Scheduler（含 Executor 與 LocalExecutor 的 workers）= `airflow-scheduler`、Webserver = `airflow-webserver`。
+- **概念圖和實際容器的對應**：Metadata DB 對應 `airflow-database`、Scheduler（連同 Executor 和 LocalExecutor 的 workers）對應 `airflow-scheduler`、Webserver 對應 `airflow-webserver`。之後 `docker ps` 看到這三個名字，就知道各自是圖上的哪一塊。
 
 ### airflow.cfg 是什麼？
 
@@ -226,35 +226,35 @@ from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
 from airflow.operators.bash_operator import BashOperator
 
-# DAG 的預設參數：套用到裡面每一個 task
+# DAG 的預設參數：會套用到這個 DAG 裡面的每一個 task
 default_args = {
-    "owner": "data-team",
-    "retries": 1,                          # 失敗自動重試 1 次
-    "retry_delay": timedelta(minutes=1),   # 重試間隔 1 分鐘
+    "owner": "data-team",                  # 這個 DAG 的負責人（顯示在 UI 上）
+    "retries": 1,                          # task 失敗時自動重試 1 次
+    "retry_delay": timedelta(minutes=1),   # 每次重試之間間隔 1 分鐘
 }
 
 with DAG(
-    dag_id="example_first_dag",            # DAG 的唯一名字
+    dag_id="example_first_dag",            # DAG 的唯一名字，UI 列表顯示的就是它
     default_args=default_args,
-    schedule_interval="0 * * * *",         # cron：每小時整點
-    start_date=datetime(2024, 1, 1),       # 從哪天開始生效
-    catchup=False,                         # 不補跑歷史排程
+    schedule_interval="0 * * * *",         # cron 語法：每小時的整點執行一次
+    start_date=datetime(2024, 1, 1),       # 排程從這一天開始生效
+    catchup=False,                         # 不補跑 start_date 到今天之間錯過的歷史排程
 ) as dag:
 
     def hello_world():
         print("Hello from Airflow!")
 
-    start_task = PythonOperator(           # 執行一個 Python 函式
+    start_task = PythonOperator(           # PythonOperator：這一步執行一個 Python 函式
         task_id="start",
-        python_callable=hello_world,
+        python_callable=hello_world,       # 掛函式本身（不加括號），到點由 Airflow 呼叫
     )
 
-    end_task = BashOperator(               # 執行一行 shell 指令
+    end_task = BashOperator(               # BashOperator：這一步執行一行 shell 指令
         task_id="end",
         bash_command='echo "Hello from Airflow! Success"',
     )
 
-    start_task >> end_task                 # 依賴：start 做完才做 end
+    start_task >> end_task                 # 依賴方向：start 成功之後才會執行 end
 ```
 
 四個核心概念：
@@ -263,12 +263,12 @@ with DAG(
 - **Task（Operator）**：一個工作的**最小單位**（一段 function），定義「這一步做什麼」。task 就是 Operator 的一次實例化。Airflow 內建大量現成的 Operator，常用的有：
   | Operator | 做什麼 | 本課哪裡用 |
   |---|---|---|
-  | `PythonOperator` | 執行 Python function | 本章起全程 |
-  | `BashOperator` | 執行 bash 指令 | 本章起全程 |
-  | `DummyOperator` | 佔位、整理圖形 | 第 11 章 |
-  | `DockerOperator` | 起容器執行 docker image | 第 11、12 章 |
-  | GCP / AWS / Azure 系列 | 串接雲端服務 | 第 14 章 BigQuery |
-  | Slack / Email 系列 | 發通知 | （本課不用，知道有就好）|
+  | `PythonOperator` | 執行一個 Python 函式 | 從本章開始全程使用 |
+  | `BashOperator` | 執行一行 bash 指令 | 從本章開始全程使用 |
+  | `DummyOperator` | 不做事，用來佔位和整理圖形 | 第 11 章的積木範例 |
+  | `DockerOperator` | 臨時起一個容器來執行任務 | 第 11 章介紹、第 12 章實戰 |
+  | GCP / AWS / Azure 系列 | 串接各家雲端服務 | 第 14 章的 BigQuery |
+  | Slack / Email 系列 | 發送通知訊息 | 本課沒有用到，知道有這類積木就好 |
 
   這個生態系是 Airflow 的護城河之一：大部分「跟外部系統對接」的步驟都有現成積木，不用自己造。
 - **`>>`**：定義依賴方向。`a >> b` = a 成功後才跑 b。這個符號串起來的圖，就是 DAG（有向無環圖）本人。
@@ -278,10 +278,10 @@ with DAG(
 
 | 寫法 | 意思 |
 |------|------|
-| `0 * * * *` | 每小時整點 |
-| `0 18 * * 1-5` | 週一到週五 18:00（台股收盤後）|
-| `0 11,23 * * *` | 每天 11:00 和 23:00 |
-| `None` | 不自動跑，只能手動觸發 |
+| `0 * * * *` | 每小時的整點執行一次 |
+| `0 18 * * 1-5` | 週一到週五的 18:00 執行（台股收盤後）|
+| `0 11,23 * * *` | 每天的 11:00 和 23:00 各執行一次 |
+| `None` | 不自動執行，只能手動觸發 |
 
 > 跟第 9 章 APScheduler 的 `CronTrigger` 是同一套 cron 語法——你已經會了。
 
@@ -319,11 +319,11 @@ start_task >> [task1, task2, ..., task10] >> end_task
 
 | # | 你應該看到 | 它證明了什麼 |
 |---|-----------|-------------|
-| 1 | `stock-airflow:latest` build 成功 | 爬蟲程式進了 Airflow 環境 |
-| 2 | init log 出現 `User "admin" created` | metadata DB 初始化完成 |
-| 3 | UI 登入看到 DAG 列表 | webserver 正常 |
-| 4 | `example_first_dag` state = success | 排程器能執行 DAG |
-| 5 | Graph 上 10 個 task 同時變綠 | Airflow 能平行跑 task |
+| 1 | `stock-airflow:latest` 成功 build 完成 | 爬蟲程式已經被裝進 Airflow 的環境裡 |
+| 2 | init 的 log 出現 `User "admin" created` | metadata DB 初始化完成、管理帳號建好了 |
+| 3 | 打開 UI 登入後看得到 DAG 列表 | webserver 正常運作 |
+| 4 | `example_first_dag` 的 state 顯示 success | 排程器能夠正常執行 DAG |
+| 5 | Graph 上 10 個 task 同時變綠 | Airflow 能平行執行多個 task |
 
 ---
 
@@ -340,12 +340,12 @@ start_task >> [task1, task2, ..., task10] >> end_task
 
 | 你遇到的狀況 | 原因 | 怎麼解 |
 |-------------|------|--------|
-| 8080 打不開 / 衝突 | phpMyAdmin 也用 8080 | 先 `docker compose -f docker-compose-local.yml down` |
-| webserver 報 `You need to initialize the database` | webserver 比 init 先跑 | 等 init 完成後 `docker restart airflow-webserver airflow-scheduler` |
-| 一啟動就報錯少設定 | 沒有 `.env` | 先 `cp .env.example .env` |
-| DAG 列表是空的 | dags 資料夾沒掛到 | 確認從專案根目錄啟動 compose |
-| DAG 觸發了沒反應 | DAG 還是 paused | 先 unpause 再 trigger |
-| image 不存在 | 沒 build 過 | `docker build -f airflow/Dockerfile -t stock-airflow:latest .` |
+| 8080 打不開或衝突 | phpMyAdmin 也佔用 8080，兩個服務撞在同一個 port | 先執行 `docker compose -f docker-compose-local.yml down` 把 phpMyAdmin 關掉 |
+| webserver 報 `You need to initialize the database` | webserver 比 init 先啟動，資料庫還沒初始化完成 | 等 init 完成後執行 `docker restart airflow-webserver airflow-scheduler` |
+| 一啟動就報錯說缺少設定 | 專案根目錄沒有 `.env` 檔案 | 先執行 `cp .env.example .env` 建立它 |
+| DAG 列表是空的 | dags 資料夾沒有被掛載進容器 | 確認你是從專案根目錄啟動 compose 的 |
+| DAG 觸發了卻沒有反應 | 這個 DAG 還在 paused 狀態，觸發不會執行 | 先 unpause 再 trigger |
+| 報錯說 image 不存在 | 還沒有 build 過 stock-airflow image | 執行 `docker build -f airflow/Dockerfile -t stock-airflow:latest .` |
 
 ---
 
@@ -391,12 +391,12 @@ docker exec airflow-webserver airflow dags list
 
 ## 這一章你學到了
 
-- Airflow 是 Airbnb 開源、現屬 Apache 的工作流管理系統，用 Python 寫工作流；業界 Data Pipeline / ETL 編排的標準工具。
-- Airflow 是編排引擎，取代 APScheduler；Celery 仍是底層執行引擎。
-- Airflow 四件套：Postgres（狀態）、init（初始化）、webserver（UI）、scheduler（排程，內含 Executor）；設定來自 airflow.cfg，關鍵項被 compose 環境變數覆蓋。
-- DAG = Operator + `>>` 依賴，一張有向無環圖；一支 Python 檔就是一個工作流，能表達直線 pipeline 做不到的分支與匯合。
-- DAG 檔頂層只放宣告、動作包進 task 函式；排程是「區間結束才跑」，unpause 後沒立刻動不是壞了。
-- 每次執行都有紀錄和 log，失敗可以單獨補跑（UI 的 Grid / Logs / Clear）——這是生產級編排的核心價值。
+- Airflow 是 Airbnb 開發開源、現在屬於 Apache 基金會的工作流管理系統，用 Python 撰寫工作流，是業界 Data Pipeline 和 ETL 編排的標準工具。
+- Airflow 是編排引擎，它取代的是第 9 章的 APScheduler；Celery 仍然是最底層的執行引擎。
+- Airflow 由四個服務組成：Postgres 存狀態、init 做初始化、webserver 提供 UI、scheduler 負責排程（Executor 就藏在 scheduler 裡）。設定來自 airflow.cfg，關鍵項目被 compose 的環境變數覆蓋。
+- DAG 是由 Operator 和 `>>` 依賴組成的一張有向無環圖；一支 Python 檔就是一個工作流，而且能表達直線型 pipeline 做不到的分支與匯合。
+- DAG 檔案的頂層只放宣告，實際動作要包進 task 的函式裡；Airflow 的排程是「區間結束才執行」，unpause 之後沒有立刻動不代表壞掉。
+- 每次執行都有紀錄和 log，失敗的 task 可以單獨補跑（入口就是 UI 的 Grid、Logs、Clear）——這是生產級編排的核心價值。
 
 ## 下一章要做什麼
 

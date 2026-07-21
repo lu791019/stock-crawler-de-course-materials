@@ -22,9 +22,9 @@
 |---|---|---|
 | 誰執行爬蟲 | Airflow 自己的 worker 行程 | 獨立的 Celery worker 池 |
 | DAG 的 task 做什麼 | 跑 `crawler_finmind(stock_id)` | 用 `apply_async(queue=...)` 發任務（只發不做）|
-| DAG 等不等結果 | 等（爬完 task 才變綠）| 不等（發完就綠，fire and forget）|
+| DAG 等不等結果 | 等——爬完了 task 才會變綠 | 不等——發送完就變綠（fire and forget）|
 | 需要哪些服務 | Airflow + MySQL | Airflow + MySQL + RabbitMQ + Celery worker |
-| 適合 | 量小、流程單純 | 量大、要把執行負載跟編排分開、worker 可獨立 scale |
+| 適合 | 資料量小、流程單純的情況 | 資料量大、想把執行負載跟編排分開、worker 需要獨立擴充的情況 |
 
 > **為什麼要多繞一層 Celery？** 直接呼叫簡單，但爬蟲會佔住 Airflow 的執行資源；量一大，Airflow 忙著爬蟲就顧不了編排。改成發任務進佇列，Airflow 只負責「觸發和監控」，實際負載交給 Celery worker 池——而那個池子你第 3 章就會 scale 了。
 
@@ -402,11 +402,11 @@ docker exec airflow-celery-webserver airflow dags trigger stock_crawler_dag
 
 | 症狀 | 先看哪裡 | 可能原因 |
 |------|---------|---------|
-| task 紅了 | 該 task 的 Logs | API 失敗、DB 連不上……看錯誤訊息 |
-| DAG 沒出現在列表 | scheduler log | DAG 檔案語法錯誤 |
-| producer_dag 全綠但資料沒進 DB | Flower / worker log | Celery worker 沒開、或連錯 broker |
-| 爬蟲 task 超時 | Logs + FinMind 限流 | 調大 `execution_timeout`、減少股票數 |
-| ETL 階段失敗 | create_view 的 Logs | MySQL 連線（host 要是 `mysql`）|
+| 某個 task 紅了 | 點進該 task 的 Logs | 可能是 API 請求失敗或資料庫連不上，錯誤訊息會寫在 log 裡 |
+| DAG 沒有出現在列表上 | scheduler 的 log | DAG 檔案有語法錯誤，scheduler 解析失敗 |
+| producer_dag 全綠但資料沒進資料庫 | Flower 和 worker 的 log | Celery worker 沒有啟動，或是連到了錯誤的 broker |
+| 爬蟲 task 執行超時 | task 的 Logs，並考慮 FinMind 的流量限制 | 可以調大 `execution_timeout`，或減少一次爬的股票數量 |
+| ETL 階段失敗 | create_view 那個 task 的 Logs | 多半是 MySQL 連線問題——容器內的 host 要用 `mysql` 這個服務名 |
 
 ---
 
@@ -414,12 +414,12 @@ docker exec airflow-celery-webserver airflow dags trigger stock_crawler_dag
 
 | # | 你應該看到 | 它證明了什麼 |
 |---|-----------|-------------|
-| 1 | `stock_crawler_dag` 10 個 task 綠、MySQL 有 10 支股票 | Airflow 能直接指揮爬蟲 |
-| 2 | twse_tpex_dag 兩組同時平行、上櫃三支入庫 | 分組扇出＋匯合的 DAG 形狀 |
-| 3 | producer_dag 立即全綠、Flower 陸續 SUCCESS | 編排層與執行層分工 |
-| 4 | docker_producer_dag 成功、`00679B` 入庫 | DockerOperator 跑 producer、佇列分流兩條路都通 |
-| 5 | ETL DAG 產出 VIEW + 實體表 | 一條 DAG 涵蓋完整 ETL |
-| 6 | 失敗的 task 能單獨 Clear 重跑 | 編排引擎的核心價值 |
+| 1 | `stock_crawler_dag` 的 10 個 task 全部變綠，MySQL 裡有 10 支股票的資料 | Airflow 能直接指揮爬蟲執行 |
+| 2 | twse_tpex_dag 的兩組分支同時平行執行，上櫃三支股票的資料入庫 | 你跑通了分組扇出加匯合的 DAG 形狀 |
+| 3 | producer_dag 觸發後立即全綠，Flower 上的任務陸續變成 SUCCESS | 編排層和執行層確實是分工的兩層 |
+| 4 | docker_producer_dag 執行成功，`00679B` 的資料入庫 | DockerOperator 能跑 producer，而且佇列分流的兩條路都是通的 |
+| 5 | ETL DAG 產出了 VIEW 和實體表 | 一條 DAG 就能涵蓋完整的 ETL 流程 |
+| 6 | 失敗的 task 能夠單獨 Clear 重跑 | 你用到了編排引擎的核心價值 |
 
 ---
 
@@ -463,13 +463,13 @@ LocalExecutor 像第 9 章：單機、自己的行程做事。CeleryExecutor 像
 
 | 你遇到的狀況 | 原因 | 怎麼解 |
 |-------------|------|--------|
-| DAG 抓不到 `crawler` 模組 | volume 沒掛好 `../crawler` | 從 stock-crawler 根目錄啟動 compose |
-| producer_dag 發了但沒人做 | Celery worker 沒開 | `docker compose -f compose-advanced/docker-compose-worker-network.yml up -d` |
-| 發了任務、worker 也開著，但佇列一直堆積 | 佇列對不上：發到預設佇列，worker 只聽 `-Q twse`/`tpex` | 發送端用 `apply_async(queue=...)` 指定 worker 聽的佇列；`rabbitmqctl list_queues name messages consumers` 看哪條佇列有訊息沒消費者 |
-| docker_producer 的容器 Connection refused | 臨時容器沒讀 .env，`RABBITMQ_HOST` 預設 127.0.0.1 | DockerOperator 的 `environment` 明給 `RABBITMQ_HOST` / `MYSQL_HOST` |
-| worker 連不上 rabbitmq | 不在同一個 my_network | 確認 rabbitmq / worker compose 都掛 my_network |
-| ETL 的 create_view 失敗 | MySQL host 不對 | Airflow 容器內要用 `MYSQL_HOST=mysql`（compose 已設）|
-| BigQuery DAG 跑不動 | 需要 GCP 憑證 | 接第 14 章的 GCP 設定，沒帳號先跳過 |
+| DAG 報錯說找不到 `crawler` 模組 | `../crawler` 這個 volume 沒有掛載成功 | 確認你是從 stock-crawler 專案根目錄啟動 compose 的 |
+| producer_dag 發了任務但沒有人執行 | Celery worker 沒有啟動 | 執行 `docker compose -f compose-advanced/docker-compose-worker-network.yml up -d` 把 worker 池起來 |
+| 任務發了、worker 也開著，但佇列一直堆積 | 佇列對不上——任務發到了預設佇列，但 worker 只聽 `-Q twse` / `tpex` 這兩條 | 發送端改用 `apply_async(queue=...)` 指定 worker 在聽的佇列；用 `rabbitmqctl list_queues name messages consumers` 查哪條佇列有訊息卻沒有消費者 |
+| docker_producer 起的容器報 Connection refused | 臨時容器不會讀 .env，`RABBITMQ_HOST` 沒給就預設連 127.0.0.1（容器自己）| 在 DockerOperator 的 `environment` 明確給 `RABBITMQ_HOST` 和 `MYSQL_HOST` |
+| worker 連不上 rabbitmq | 兩者不在同一個 my_network 網路裡，名字解析不到 | 確認 rabbitmq 和 worker 的 compose 都有掛 my_network |
+| ETL 的 create_view 失敗 | MySQL 的 host 設定不對 | Airflow 容器內要用 `MYSQL_HOST=mysql`（compose 已經設好，通常是被其他設定蓋掉才會錯）|
+| BigQuery DAG 跑不動 | 它需要 GCP 憑證才能執行 | 接第 14 章的 GCP 設定；還沒有 GCP 帳號就先跳過這一支 |
 
 ---
 
@@ -488,9 +488,9 @@ docker compose -f compose-advanced/mysql.yml down
 
 | 你的情況 | 選哪個 | 理由 |
 |---|---|---|
-| 量小、流程單純、不想多管服務 | **串法一**（直接呼叫）| 只要 Airflow + MySQL，步驟最少 |
-| 量大、要把執行負載跟編排分開、worker 要能獨立 scale | **串法二**（發任務給 Celery）| Airflow 只觸發和監控，重活交給 worker 池 |
-| 連「爬蟲的依賴」都要跟 Airflow 徹底隔離（不同 Python 版本、各自演進）| **串法三**（DockerOperator 跑 producer）| 爬蟲改版只 rebuild 爬蟲 image，Airflow 不動 |
+| 你的資料量不大、流程單純、不想多管理額外的服務 | **串法一**（直接呼叫）| 因為只需要 Airflow 和 MySQL 兩個服務，操作步驟最少 |
+| 資料量大、要把執行負載跟編排分開、worker 需要能獨立擴充 | **串法二**（發任務給 Celery）| 因為 Airflow 只負責觸發和監控，重的工作交給 worker 池去消化 |
+| 連「爬蟲的依賴」都要跟 Airflow 徹底隔離，例如兩邊用不同的 Python 版本、各自獨立演進 | **串法三**（DockerOperator 跑 producer）| 因為爬蟲改版時只需要重新 build 爬蟲的 image，Airflow 完全不用動 |
 
 一個常見的演進路徑就是照這個順序走：專案初期用串法一快速上線 → 量大了改串法二 → 團隊分工細了改串法三。三種不是互斥的選擇題，是規模長大的三個階段。
 
@@ -498,12 +498,12 @@ docker compose -f compose-advanced/mysql.yml down
 
 ## 這一章你學到了
 
-- 三種串法：Airflow 直接做（簡單）、指揮 Celery（分工、可擴充）、DockerOperator 跑 producer（依賴徹底分離）。
-- 發任務要跟 worker 聽的佇列對上：分流版 worker 只聽 `-Q` 指定的佇列，`apply_async(queue=...)` 指定、`.delay()` 進預設佇列會沒人消費。
-- 分組扇出＋匯合：dict 分組 + 兩層迴圈生 task，加一組只要加一個 key。
-- 「Airflow 全綠 ≠ 爬蟲成功」——fire-and-forget 要自己補驗證。
-- ETL DAG 讓「爬取 → 清理 → 分析表」變成一張可補跑、可監控的圖。
-- LocalExecutor / CeleryExecutor：你學過的單機與分散式，在編排層重演。
+- 三種串法各有定位：Airflow 直接做最簡單、指揮 Celery 能分工和擴充、用 DockerOperator 跑 producer 則把依賴徹底分離。
+- 發任務時要跟 worker 在聽的佇列對上：分流版 worker 只聽 `-Q` 指定的佇列，所以要用 `apply_async(queue=...)` 明確指定；用 `.delay()` 會發進預設佇列，沒有人消費。
+- 分組扇出加匯合的寫法是「dict 分組加兩層迴圈生 task」；之後要加一組，只需要在 dict 加一個 key。
+- Airflow 的 task 全綠不等於爬蟲成功——fire-and-forget 模式下，編排層看不到執行結果，要自己補一步驗證。
+- ETL DAG 讓「爬取 → 清理 → 產出分析表」變成一張可以補跑、可以監控的圖。
+- LocalExecutor 和 CeleryExecutor 的關係，就是你學過的單機與分散式兩種模式在編排層重演一次。
 
 ## 下一章要做什麼
 
