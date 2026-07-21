@@ -1,6 +1,6 @@
 # 第 11 章：Airflow 進階 Operator — 拼出複雜工作流的積木
 
-> 上一章的 DAG 只有 start → end。但實務上的工作流會分岔、會傳資料、會互相觸發、會需要獨立環境。這一章把四塊關鍵積木一次補齊——每一塊都有現成的範例 DAG 讓你跑。
+> 上一章的 DAG 只有 start → end。但實務上的工作流會分岔、會傳資料、會互相觸發、會需要獨立環境，圖形複雜了還需要整理。這一章把五塊積木一次補齊——每一塊都有現成的範例 DAG 讓你跑。
 
 ---
 
@@ -42,6 +42,16 @@ curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health   # 200 = OK
 
 ---
 
+## 先認識一個新寫法：`**context`
+
+這一章的範例函式簽名長這樣：`def decide_morning_or_afternoon(**context):`——多了一個前面章節沒見過的 `**context`。先講清楚它是什麼，後面的程式碼就都讀得懂：
+
+- **Airflow 執行每個 task 時，會把「這次執行的環境資訊」打包成一個 dict 傳進你的函式**：裡面有 `task_instance`（這個 task 的執行實例，等下 XCom 的推拉全靠它）、執行日期、DAG 資訊等等。
+- `**context` 是 Python 的關鍵字引數收集語法：把這一整包接住，需要哪個再拿哪個——例如 `ti = context["task_instance"]`。
+- 函式用不到這些資訊時可以不理它（積木 1 的分支函式只用了 `datetime`），但簽名寫上 `**context` 是 Airflow 的慣例寫法——積木 2 的 XCom 就會真正用到。
+
+---
+
 ## 積木 1：BranchPythonOperator — 條件分支
 
 ### 概念
@@ -78,6 +88,18 @@ docker exec airflow-webserver airflow dags trigger example_branch_operator_dag
 UI → `example_branch_operator_dag` → Graph：
 
 > ✅ 根據你觸發的時間，**只有一條**分支是綠色（成功），另一條是**粉紅色（skipped）**。skipped 不是失敗——它是分支語意下的正常狀態。
+
+兩個延伸重點：
+
+- **判斷用的 `datetime.now()` 是容器的時區。** 我們的 image 已設 `Asia/Taipei`（第 10 章的環境變數），所以上午/下午的判斷跟你的手錶一致；若在其他環境跑（容器常預設 UTC），判斷會差 8 小時——第 9 章的時區教訓在這裡同樣適用。
+- **想在分支之後「匯合」？有一個必踩的坑。** 這個範例分支後就結束了，但你自己拼積木時，多半會想在 `[morning_task, afternoon_task]` 後面接一個 `end` 匯合。直接接會發現 **end 永遠不跑**：task 的觸發規則預設是 `all_success`（所有上游都成功才跑），而分支語意下必有一條是 skipped——條件永遠不成立。解法是幫 end 指定觸發規則：
+
+  ```python
+  end = DummyOperator(task_id="end", trigger_rule="none_failed_min_one_success")
+  # 沒有上游失敗、且至少一條成功 → 就跑
+  ```
+
+  `trigger_rule` 這個參數第 12 章的股票 DAG 會再出現（多組平行匯合用 `all_success`），在這裡先認得它。
 
 ---
 
@@ -293,9 +315,20 @@ XCom 的值存在 Airflow 的 metadata DB（Postgres）裡，塞大資料會把 
 ## 這一章你學到了
 
 - Branch（分岔）、XCom（傳資料）、Trigger（串 DAG）、DockerOperator（隔離執行）、Dummy（整理圖形）——五塊積木。
+- `**context` 是 Airflow 注入的執行環境資訊，`task_instance` 藏在裡面——XCom 的推拉靠它。
 - XCom 傳小的，大資料走外部儲存。
+- 分支後要匯合，記得改 `trigger_rule`——預設 `all_success` 會被 skipped 的分支卡死。
 - 複雜系統拆多個 DAG 各自獨立，再用 Trigger 串起來。
 
 ## 下一章要做什麼
 
-積木都齊了。**下一章把 Airflow 接上你的爬蟲 pipeline：兩種串法（直接呼叫 vs 透過 Celery）、加上 ETL 的完整 DAG——前面所有章節在下一章整合起來。**
+積木都齊了，下一章逐塊收割——把 Airflow 接上你的爬蟲 pipeline：
+
+| 這一章的積木 | 下一章蓋在哪 |
+|---|---|
+| `DummyOperator` | `stock_crawler_twse_tpex_dag` 用它當上市/上櫃的分組節點 |
+| `DockerOperator` | 串法三用它起容器跑第 3 章的多佇列 producer |
+| XCom 的「大資料走外部」原則 | 爬蟲資料直接進 MySQL，DAG 只管流程 |
+| `trigger_rule` | 股票 DAG 的 end 用 `all_success` 接住多組匯合 |
+
+**三種串法（直接呼叫 / 透過 Celery / 容器化 producer）＋完整 ETL DAG——前面所有章節在下一章整合起來。**
