@@ -321,7 +321,7 @@ etl_task >> create_view_task >> create_table_task >> end_task
 兩個看點：
 
 - **`etl_task` 是 DummyOperator 匯合點**——第 11 章積木 5 再一次收割：10 支爬取全部成功，流程才收攏進 ETL 段，圖上一眼看出「爬取階段」和「ETL 階段」的分界。
-- **兩個 ETL step 掛的函式都住在 `crawler/mysql.py`**——DAG 檔裡沒有半行 SQL。「DAG 是劇本、邏輯在 crawler/」的原則再驗證一次：改 VIEW 的定義去改 `mysql.py`，DAG 完全不用動。
+- **兩個 ETL step 掛的函式都放在 `crawler/mysql.py`**——DAG 檔裡沒有半行 SQL。「DAG 只描述流程、業務邏輯放在 crawler/」的原則再驗證一次：要改 VIEW 的定義就去改 `mysql.py`，DAG 完全不用動。
 
 ```bash
 docker exec airflow-webserver airflow dags unpause stock_crawler_etl_dag
@@ -344,7 +344,7 @@ docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
 
 ### （選做）CeleryExecutor：讓 Airflow 把自己的 task 也交給 Celery
 
-上面所有串法，Airflow 自己都用 LocalExecutor（task 在 scheduler 容器的子行程跑）。生產環境常用 CeleryExecutor——Airflow 把**自己的 task** 丟進佇列、交給獨立的 Celery worker 執行，可跨機器水平擴充。你學過的 Celery 在這裡以「Airflow 的執行引擎」身分再登場。
+上面所有串法，Airflow 自己都用 LocalExecutor（task 在 scheduler 容器的子行程跑）。生產環境常用 CeleryExecutor——Airflow 把**自己的 task** 丟進佇列、交給獨立的 Celery worker 執行，可跨機器水平擴充。你學過的 Celery 在這裡以「Airflow 的執行引擎」的身分再次出現。
 
 課程附了瘦身示範版 `airflow/docker-compose-airflow-celery-stock.yml`——**跟主線同一顆 `stock-airflow` image**，本質差異只有一個環境變數：
 

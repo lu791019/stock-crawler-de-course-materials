@@ -385,7 +385,7 @@ docker exec airflow-webserver airflow dags list
 
 **練習 4：全程只用 UI 完成一輪**
 
-不碰終端機，只用滑鼠把整個流程走一遍：在 UI 上把 `example_parallel_dag` unpause（列表左邊的開關）→ 按右上角 ▶ 觸發 → 到 Grid 頁看新的一欄出現、逐格變綠 → 點一個 task 看 Logs → 對其中一個 task 按 Clear，看它重新排隊執行。做完這題，Step 7 的五個 UI 動作你就都親手操作過了——第 12 章排錯時不會在介面上迷路。
+不碰終端機，只用滑鼠把整個流程走一遍：在 UI 上把 `example_parallel_dag` unpause（列表左邊的開關）→ 按右上角 ▶ 觸發 → 到 Grid 頁看新的一欄出現、逐格變綠 → 點一個 task 看 Logs → 對其中一個 task 按 Clear，看它重新排隊執行。做完這題，Step 7 的五個 UI 動作你就全部實際操作過一遍了——第 12 章排錯時不會在介面上迷路。
 
 ---
 
