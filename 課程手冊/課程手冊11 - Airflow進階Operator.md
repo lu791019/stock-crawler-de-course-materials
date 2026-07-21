@@ -24,7 +24,7 @@
 | `example_xcom_dag.py` | `example_xcom_coffee_shop_dag` | 讓資料在 task 之間傳遞 |
 | `example_trigger_dag_operator_dag.py` | `example_trigger_main_dag` ＋ `example_triggered_data_processing_dag`（一檔兩個 DAG）| 讓一個 DAG 觸發另一個 DAG |
 | `example_docker_operator_dag.py` | `example_docker_operator_dag` | 把任務放進獨立的容器裡執行 |
-| `example_dummy_tasks_dag.py` | `example_dummy_tasks_dag` | 把複雜的依賴結構整理成能一眼讀懂的圖 |
+| `example_dummy_tasks_dag.py` | `example_dummy_tasks_dag` | 把複雜的依賴結構整理成容易讀懂的圖 |
 
 > 💡 注意：Airflow 列表顯示的是**程式裡定義的 dag_id**，不一定等於檔名（第 10 章練習 3 看過）。
 
@@ -230,7 +230,7 @@ Graph 上三個 Docker task 平行跑（分別是 Python、Alpine、Ubuntu 容�
 start → [prepare_1, prepare_2] → validate → [process_1, process_2] → merge → end
 ```
 
-這就是典型 ETL 的骨架：**準備（平行）→ 驗證（匯合）→ 處理（平行）→ 合併**。有了 Dummy 當匯合點，依賴圖一眼就能讀懂。
+這就是典型 ETL 的骨架：**準備（平行）→ 驗證（匯合）→ 處理（平行）→ 合併**。有了 Dummy 當匯合點，依賴圖就變得容易讀懂。
 
 ### 跑起來
 

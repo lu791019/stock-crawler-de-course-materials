@@ -191,7 +191,7 @@ for market, stock_ids in STOCK_GROUPS.items():
 - **dict 分組 + 兩層迴圈**：外層迴圈每個市場生一個分組節點、內層迴圈生組內的爬取 task。之後要加第三組（例如 ETF），只要在 dict 加一個 key——圖上自動多出第三組扇形分支，一行依賴都不用改。
 - **分組節點是 `DummyOperator`**：不做事，純粹把圖整理清楚——第 11 章積木 5 的實戰應用。
 - **分組概念你早就會**：第 3 章多佇列分流把任務分進 `twse` / `tpex` **佇列**，這裡是把 task 分進兩個**圖形分支**——同一個分類思維，一次用在執行層、一次用在編排層。
-- `trigger_rule="all_success"` 的 end 同時接住兩組——**任何一組有一支失敗，end 就不跑**，你會在 Graph 上一眼看到是哪一組的哪一支紅了。
+- `trigger_rule="all_success"` 的 end 同時接住兩組——**任何一組有一支失敗，end 就不跑**，你可以在 Graph 上直接看到是哪一組的哪一支變紅。
 
 跑起來：
 
@@ -320,7 +320,7 @@ etl_task >> create_view_task >> create_table_task >> end_task
 
 兩個看點：
 
-- **`etl_task` 是 DummyOperator 匯合點**——第 11 章積木 5 再一次收割：10 支爬取全部成功，流程才收攏進 ETL 段，圖上一眼看出「爬取階段」和「ETL 階段」的分界。
+- **`etl_task` 是 DummyOperator 匯合點**——第 11 章積木 5 再一次收割：10 支爬取全部成功，流程才會進入 ETL 段，圖上能清楚看出「爬取階段」和「ETL 階段」的分界。
 - **兩個 ETL step 掛的函式都放在 `crawler/mysql.py`**——DAG 檔裡沒有半行 SQL。「DAG 只描述流程、業務邏輯放在 crawler/」的原則再驗證一次：要改 VIEW 的定義就去改 `mysql.py`，DAG 完全不用動。
 
 ```bash
