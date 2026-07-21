@@ -6,11 +6,35 @@
 
 ## 做完這一章，你會做到
 
-1. 講清楚一個常見誤解：**Airflow 取代的是第 9 章的 APScheduler，不是 Celery。**
-2. Build 出包含我們爬蟲程式的 Airflow Docker image。
-3. 啟動 Airflow（Postgres + init + webserver + scheduler），登入 Web UI。
-4. 用 CLI 和 UI 各觸發一次 DAG，看到執行結果和 log。
-5. 看懂 DAG、Operator、`>>` 依賴、cron 排程這些核心概念。
+1. 說得出 Airflow 是什麼（出身、定位）、為什麼業界用它。
+2. 講清楚一個常見誤解：**Airflow 取代的是第 9 章的 APScheduler，不是 Celery。**
+3. Build 出包含我們爬蟲程式的 Airflow Docker image。
+4. 啟動 Airflow（Postgres + init + webserver + scheduler），說得出架構圖上每個元件的角色。
+5. 用 CLI 和 UI 各觸發一次 DAG，會用 Graph / Grid / Logs / Clear 四個 UI 操作。
+6. 看懂 DAG、Operator、`>>` 依賴、cron 排程這些核心概念。
+
+---
+
+## 先認識工具：Airflow 是什麼
+
+- **出身**：Airbnb 於 2014 年內部開發、後來開源並捐給 Apache 基金會（現為 Apache 頂級專案）。今天它是資料工程領域**工作流編排的事實標準**——資料工程師職缺的技能要求裡幾乎都有它。
+- **定義**：一套**工作流程管理系統（Workflow Management System）**——你用程式碼描述「有哪些工作、什麼順序、什麼時間跑」，它負責照表執行、記錄每一次結果。
+- **以 Python 開發，也用 Python 撰寫工作流**：定義工作流不用學新語言，寫的就是 Python 檔（這章下面就會逐行讀一支）。
+- **適用場景**：Data Pipeline、ETL、自動化排程——正是我們這套爬蟲系統在做的事。
+
+### 為什麼要用 Airflow？
+
+五個核心能力，對照第 9 章的工具看最清楚：
+
+| 能力 | APScheduler | Airflow |
+|------|:----:|:----:|
+| 定期（自動化）執行工作 | ✅ | ✅ |
+| 設定工作之間的**相依性**（Dependencies）| ❌ | ✅ |
+| 各個工作失敗時**自動重試**（auto-retry）| 自己寫 | ✅ 參數一行 |
+| **Web GUI** 管理所有工作（可設權限）| ❌ | ✅ |
+| 透過 Web **查詢 Logs** | ❌ | ✅ |
+
+第一項 APScheduler 也做得到——所以 Airflow 的價值在後四項，而後四項正好就是第 9 章結尾「執行狀態去哪看？」留下的缺口。
 
 ---
 
@@ -60,6 +84,36 @@
 > ```
 > Airflow（狀態存 PostgreSQL）→ 排程觸發 → 爬蟲程式 → 股價寫入 MySQL
 > ```
+
+### 架構圖：概念元件 ↔ 實際容器
+
+把上面的服務表畫成圖，並對應到 `docker ps` 會看到的容器名稱：
+
+```
+                       ┌──────────────────┐
+                       │ Metadata DB      │ ← container: airflow-database
+                       └────────▲─────────┘
+                                │ 讀寫 DAG 狀態、執行紀錄
+  ┌───────────────────────┐  ┌──┴──────────┐  ┌─────────────┐
+  │ Workers（執行 task）  │◄─│ Scheduler   │  │ Webserver   │◄── 你的瀏覽器
+  │                       │  │ └ Executor  │  │ (port 8080) │
+  └──────────▲────────────┘  └──▲──────────┘  └──▲──────────┘
+             │                  │                │
+             └────────── DAG Directory（airflow/dags/）──────────┘
+```
+
+三個閱讀重點：
+
+- **Scheduler 裡藏著一個 Executor**——它是「task 交給誰執行」的機制。本章用 **LocalExecutor**：worker 就是 scheduler 自己 fork 出來的子行程，所以 `docker ps` 看不到獨立的 worker 容器（圖上的 Workers 和 Scheduler 住在同一個 `airflow-scheduler` 容器裡）。第 12 章會看到 CeleryExecutor 把 worker 拆成獨立容器、甚至跨機器。
+- **三方都讀同一個 DAG Directory**：scheduler 掃描它決定何時觸發、webserver 讀它顯示在 UI、worker 執行它的程式碼——這就是為什麼 compose 把 `airflow/dags/` 掛載進容器。
+- **概念 ↔ 容器對應**：Metadata DB = `airflow-database`、Scheduler（含 Executor 與 LocalExecutor 的 workers）= `airflow-scheduler`、Webserver = `airflow-webserver`。
+
+### airflow.cfg 是什麼？
+
+檔案表裡那個 `airflow.cfg` 是 Airflow 的**核心設定檔**——executor 用哪種、metadata DB 連哪裡、時區、DAG 資料夾位置……幾百個選項都在裡面。本課的用法你需要知道兩件事：
+
+- **compose 用環境變數覆蓋了關鍵設定**。`docker-compose-airflow.yml` 裡的 `AIRFLOW__CORE__EXECUTOR`、`AIRFLOW__DATABASE__SQL_ALCHEMY_CONN`、`AIRFLOW__CORE__DEFAULT_TIMEZONE` 這些環境變數，優先權**高於** cfg 檔。命名規則：`AIRFLOW__{區塊}__{選項}` 對應 cfg 檔裡 `[core]` 區塊的 `executor = ...`。用環境變數蓋設定是容器化部署的慣例——改設定不用改檔案、不用 rebuild image。
+- **本課不需要動它**。知道「設定從哪裡來、誰覆蓋誰」，之後看到別人的 Airflow 專案才知道去哪找設定。
 
 ---
 
@@ -150,13 +204,17 @@ docker exec airflow-webserver airflow dags list-runs --dag-id example_first_dag
 
 > ✅ `state` 欄顯示 `success` 就過關。
 
-### Step 7：回 UI 看圖和 log
+### Step 7：回 UI 看圖、看 log，並學會 UI 操作
 
-1. 點 `example_first_dag` → **Graph** 頁。
-2. 看到 `start → end` 兩個方格都是綠色（成功）。
-3. 點任一方格 → **Logs**，看它執行時印了什麼。
+CLI 觸發過了，這一步把 UI 的四個常用動作走一遍——之後排錯都靠它們：
 
-> 💡 「每次執行都有紀錄、每個 task 都有 log、失敗能單獨重跑」——這三件事就是 Airflow 比 APScheduler 高級的地方。
+1. **Graph 頁**：點 `example_first_dag` → Graph。看到 `start → end` 兩個方格都是綠色（成功）。Graph 是「**單次執行**」的流程圖——看這一輪誰成功誰失敗、依賴怎麼走。
+2. **Grid 頁**：切到 Grid。它是「**歷次執行**」的總表——每一直欄是一次執行、每一格是一個 task，顏色就是狀態。要回答「昨天那輪跑了沒、最近哪次失敗」看 Grid，不是 Graph。
+3. **UI 手動觸發**：DAG 頁右上角的 **▶（Trigger DAG）** 按鈕，等於剛才 CLI 的 `dags trigger`。按一次，看 Grid 多出一欄。
+4. **Logs**：點任一 task 方格 → Logs，看它執行時印了什麼。
+5. **Clear（重跑的鑰匙）**：點 task 方格 → **Clear**，這個 task 會清掉狀態重新排隊執行。現在對綠色的 task 按一次感受流程就好——第 12 章你會用它做「只重跑失敗那一支」的招牌操作。
+
+> 💡 「每次執行都有紀錄、每個 task 都有 log、失敗能單獨重跑」——這三件事就是 Airflow 比 APScheduler 高級的地方。UI 的 Grid / Logs / Clear 正是這三件事的入口。
 
 ---
 
@@ -200,8 +258,18 @@ with DAG(
 
 四個核心概念：
 
-- **DAG**：一張「工作流程圖」的容器，有名字、有排程、有起始日。
-- **Operator**：「一個步驟的做法」。`PythonOperator` 跑函式、`BashOperator` 跑指令、`DummyOperator` 佔位。task 就是 Operator 的一次實例化。
+- **DAG（Directed Acyclic Graph，有向無環圖）**：一個工作流程的單位——**一支 Python 檔就是一個工作流**，裡面是多個工作任務的組合（至少一個），定義「工作之間的執行順序與依賴關係」＋「什麼時間、什麼週期執行」。例如：每天 12:00 執行「a. 爬蟲 → b. 匯出檔案 → c. 發送通知」。它比直線型的 pipeline 強在**能表達分支與匯合**——直線 pipeline 只能 A→B→C→D 一路走；DAG 可以 A 之後同時走 B、C、D 三條路，各自處理完再匯合到 G。下一節的平行任務 DAG 就是最簡單的例子。
+- **Task（Operator）**：一個工作的**最小單位**（一段 function），定義「這一步做什麼」。task 就是 Operator 的一次實例化。Airflow 內建大量現成的 Operator，常用的有：
+  | Operator | 做什麼 | 本課哪裡用 |
+  |---|---|---|
+  | `PythonOperator` | 執行 Python function | 本章起全程 |
+  | `BashOperator` | 執行 bash 指令 | 本章起全程 |
+  | `DummyOperator` | 佔位、整理圖形 | 第 11 章 |
+  | `DockerOperator` | 起容器執行 docker image | 第 11、12 章 |
+  | GCP / AWS / Azure 系列 | 串接雲端服務 | 第 14 章 BigQuery |
+  | Slack / Email 系列 | 發通知 | （本課不用，知道有就好）|
+
+  這個生態系是 Airflow 的護城河之一：大部分「跟外部系統對接」的步驟都有現成積木，不用自己造。
 - **`>>`**：定義依賴方向。`a >> b` = a 成功後才跑 b。這個符號串起來的圖，就是 DAG（有向無環圖）本人。
 - **`catchup=False`**：假設 start_date 是去年，Airflow 預設會把「去年到今天沒跑到的每小時」全部補跑一遍——通常不是你要的，所以關掉。
 
@@ -215,6 +283,15 @@ with DAG(
 | `None` | 不自動跑，只能手動觸發 |
 
 > 跟第 9 章 APScheduler 的 `CronTrigger` 是同一套 cron 語法——你已經會了。
+
+### 排程什麼時候真的觸發？（跟直覺不同的地方）
+
+Airflow 的排程有一個跟 APScheduler 不同、常讓新手以為「排程壞了」的特性：**它以「資料區間」思考，一輪排程要等該區間結束才執行**。
+
+- APScheduler 的想法是「時間到了 → 跑」；Airflow 的想法是「`0 18 * * 1-5` 定義了一段段的資料區間，**某個區間結束時，跑那一輪**」。
+- 最常撞到的體感：你在 17:00 unpause 一個「每天 18:00」的 DAG，它**不會立刻跑**——要等到今天 18:00（依 start_date 的設定，甚至可能等到下一輪）才執行第一次。這不是壞了，是設計如此：Airflow 出身是「處理昨天的資料」的批次思維，一輪執行代表「這個區間的資料已經齊了，可以處理了」。
+- 課堂上我們大多用**手動 trigger**（立即執行、不等區間），就是為了避開這個等待。你自己開真排程時記得這個特性：unpause 之後沒動靜，先想「下一個區間結束點是什麼時候」，再判斷是不是真的有問題。
+- 它跟 `catchup` 是同一套思維的兩面：catchup 問的是「**過去**沒跑的區間要不要補」，這裡講的是「**下一輪**什麼時候才算到期」。
 
 ---
 
@@ -254,6 +331,7 @@ start_task >> [task1, task2, ..., task10] >> end_task
 - **DAG（有向無環圖）到底是什麼？** 「有向」= 步驟有先後方向；「無環」= 不會繞回自己（不會 A→B→A 無限循環）。Airflow 用它描述「一整套工作的步驟與依賴」。這比 APScheduler 的「時間到就跑一個函式」強大太多——它能表達複雜的流程圖。
 - **Airflow 的可觀察性（observability）是它最大價值之一。** 每次執行都留下紀錄：哪天跑的、哪個 task 花多久、哪個失敗、log 是什麼。出事時你能只重跑失敗的那個 task，不用整批重來。這是 APScheduler 完全給不了的。
 - **為什麼 DAG 檔案改了不用重啟？** compose 把 `airflow/dags/` 掛載進容器，scheduler 會定期重新掃描這個資料夾。你在本機改 DAG 存檔，過幾十秒 UI 就會更新。
+- **反過來的代價：DAG 檔的「頂層程式碼」會被反覆執行——別放重活。** 上一條的「定期重新掃描」，實際動作是 scheduler **每幾十秒重新執行一次每支 DAG 檔的頂層程式碼**（import、變數定義、`with DAG(...)` 的宣告）來重建 DAG 結構。這代表：如果你在頂層連資料庫、打 API、讀大檔案，這些動作會**每幾十秒跑一次**，把 scheduler 拖垮，而且你完全看不出來為什麼變慢。規則只有一條：**頂層只放「宣告」（DAG、task、依賴、常數清單），「動作」全部包進 task 的函式裡**——函式只有在 task 被觸發時才會執行。對照我們的 DAG 檔可以驗證這個規則：`stock_crawler_dag` 頂層只有 import 和 `STOCK_IDS` 清單，`crawler_finmind` 是包在 PythonOperator 裡、被觸發才呼叫——正確示範。
 
 ---
 
@@ -304,14 +382,20 @@ docker exec airflow-webserver airflow dags list
 
 對照 `airflow/dags/` 資料夾裡的檔案，確認每支 .py 都被載入了。注意 `example_trigger_dag_operator_dag.py` 一個檔案裡有**兩個** DAG——跟第 1 章「一個模組多個任務」同一個道理。
 
+**練習 4：全程只用 UI 完成一輪**
+
+不碰終端機，只用滑鼠把整個流程走一遍：在 UI 上把 `example_parallel_dag` unpause（列表左邊的開關）→ 按右上角 ▶ 觸發 → 到 Grid 頁看新的一欄出現、逐格變綠 → 點一個 task 看 Logs → 對其中一個 task 按 Clear，看它重新排隊執行。做完這題，Step 7 的五個 UI 動作你就都親手操作過了——第 12 章排錯時不會在介面上迷路。
+
 ---
 
 ## 這一章你學到了
 
+- Airflow 是 Airbnb 開源、現屬 Apache 的工作流管理系統，用 Python 寫工作流；業界 Data Pipeline / ETL 編排的標準工具。
 - Airflow 是編排引擎，取代 APScheduler；Celery 仍是底層執行引擎。
-- Airflow 四件套：Postgres（狀態）、init（初始化）、webserver（UI）、scheduler（排程）。
-- DAG = Operator + `>>` 依賴，一張有向無環圖。
-- 每次執行都有紀錄和 log，失敗可以單獨補跑——這是生產級編排的核心價值。
+- Airflow 四件套：Postgres（狀態）、init（初始化）、webserver（UI）、scheduler（排程，內含 Executor）；設定來自 airflow.cfg，關鍵項被 compose 環境變數覆蓋。
+- DAG = Operator + `>>` 依賴，一張有向無環圖；一支 Python 檔就是一個工作流，能表達直線 pipeline 做不到的分支與匯合。
+- DAG 檔頂層只放宣告、動作包進 task 函式；排程是「區間結束才跑」，unpause 後沒立刻動不是壞了。
+- 每次執行都有紀錄和 log，失敗可以單獨補跑（UI 的 Grid / Logs / Clear）——這是生產級編排的核心價值。
 
 ## 下一章要做什麼
 
