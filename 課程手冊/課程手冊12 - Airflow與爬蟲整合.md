@@ -137,7 +137,7 @@ docker exec airflow-webserver airflow dags trigger stock_crawler_dag
 **觀察：**
 
 1. UI → `stock_crawler_dag` → Graph：`start → stock_branch → 10 個爬取 task 平行 → end`，方格逐一變綠。
-2. 每個 task 約 1~2 秒（打 FinMind API + 寫 MySQL）。
+2. 每個 task 做兩件事：打 FinMind API、寫 MySQL。
 3. 點任一 `crawl_stock_XXXX` → Logs，能看到 DataFrame 輸出——跟你第 5 章在 worker log 看到的一模一樣，只是換了執行的地方。
 
 **驗證資料入庫：**
@@ -341,7 +341,7 @@ docker compose -f airflow/docker-compose-airflow-celery.yml up -d
 | UI 頁面 | 看什麼 |
 |---------|--------|
 | **Graph** | 這一次 run 的依賴圖與各 task 狀態 |
-| **Grid** | 歷史每次 run 的矩陣（哪天失敗一眼看出）|
+| **Grid** | 歷史每次 run 的矩陣（快速定位哪天失敗）|
 | **Task Logs** | 單一 task 的完整輸出（除錯第一站）|
 | **Flower** | 串法二時看 Celery 端的執行狀態 |
 
