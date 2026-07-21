@@ -86,6 +86,7 @@ with DAG(
 - `max_active_runs=1`：同時最多一個 run 在跑，避免上一輪還沒完下一輪又開。
 - **用 for 迴圈生 task**：10 支股票 = 10 個 `PythonOperator`，跟第 1 章 producer 的 for 迴圈異曲同工——只是這次生的是「DAG 的步驟」而不是「佇列訊息」。
 - `python_callable=crawler_finmind`：直接掛你第 5 章寫的函式。**注意掛的是函式本身**（沒有括號、沒有 .delay）——Airflow 的 worker 到時會自己呼叫它。
+- `op_args=[stock_id]`：呼叫 `python_callable` 時要帶進去的**參數清單**。因為上一條掛的是「函式本身」不能加括號，參數就得另外給——到時 Airflow 執行的效果等於 `crawler_finmind(stock_id)`。字典形式的版本是 `op_kwargs={"stock_id": stock_id}`，等於 `crawler_finmind(stock_id=stock_id)`。
 - `trigger_rule="all_success"`：end 要等**全部**爬取成功才跑。
 - 依賴鏈 `start >> branch >> [10 個平行] >> end`：Graph 上就是一張扇形圖。
 
@@ -299,6 +300,29 @@ docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
 start → stock_branch → [10 個爬取] → etl_task → create_view → create_table → end
 ```
 
+ETL 段的三個 task 長這樣：
+
+```python
+etl_task = DummyOperator(task_id="etl_task")   # 匯合點：10 支全爬完才進 ETL
+
+create_view_task = PythonOperator(
+    task_id="create_stock_price_daily_view",
+    python_callable=create_stock_price_daily_view,      # 來自 crawler/mysql.py
+)
+create_table_task = PythonOperator(
+    task_id="replace_stock_price_daily_table",
+    python_callable=replace_stock_price_daily_table,    # 來自 crawler/mysql.py
+)
+
+start_task >> stock_branch >> stock_tasks >> etl_task
+etl_task >> create_view_task >> create_table_task >> end_task
+```
+
+兩個看點：
+
+- **`etl_task` 是 DummyOperator 匯合點**——第 11 章積木 5 再一次收割：10 支爬取全部成功，流程才收攏進 ETL 段，圖上一眼看出「爬取階段」和「ETL 階段」的分界。
+- **兩個 ETL step 掛的函式都住在 `crawler/mysql.py`**——DAG 檔裡沒有半行 SQL。「DAG 是劇本、邏輯在 crawler/」的原則再驗證一次：改 VIEW 的定義去改 `mysql.py`，DAG 完全不用動。
+
 ```bash
 docker exec airflow-webserver airflow dags unpause stock_crawler_etl_dag
 docker exec airflow-webserver airflow dags trigger stock_crawler_etl_dag
@@ -318,21 +342,52 @@ docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
 
 > ✅ 看到 `vw_stock_price_daily` 這個 VIEW 和 `stock_price_daily` 實體表，代表「爬取 → 清理 → 產出分析表」一條 DAG 全包了。這個 VIEW 正是第 8 章你在 Metabase 用過的那個——現在它由 Airflow 自動維護。
 
-### （選做）CeleryExecutor 版 Airflow
+### （選做）CeleryExecutor：讓 Airflow 把自己的 task 也交給 Celery
 
-上面 Airflow 自己用的是 LocalExecutor（單機子行程）。生產環境常用 CeleryExecutor——Airflow 把**自己的 task** 也丟給 Celery worker 跑：
+上面所有串法，Airflow 自己都用 LocalExecutor（task 在 scheduler 容器的子行程跑）。生產環境常用 CeleryExecutor——Airflow 把**自己的 task** 丟進佇列、交給獨立的 Celery worker 執行，可跨機器水平擴充。你學過的 Celery 在這裡以「Airflow 的執行引擎」身分再登場。
 
-```bash
-docker compose -f airflow/docker-compose-airflow-celery.yml up -d
+課程附了瘦身示範版 `airflow/docker-compose-airflow-celery-stock.yml`——**跟主線同一顆 `stock-airflow` image**，本質差異只有一個環境變數：
+
+```yaml
+AIRFLOW__CORE__EXECUTOR: CeleryExecutor
 ```
 
-這個版本額外啟動 Redis + Celery Worker。你學過的 Celery 在這裡以「Airflow 的執行引擎」身分再次出現。
+外加多起兩個容器：Redis（當 broker）和 `airflow-celery-worker`（領 task 的獨立 worker）。
+
+> 另有一份官方完整範本 `docker-compose-airflow-celery.yml`（官方 image、含 triggerer / flower）留作參考——它沒有課程程式碼與依賴，跑不了股票 DAG，全家桶也塞不進 4GB VM。
+
+**跑法**（它佔 8080，先把主線 Airflow 讓開）：
+
+```bash
+docker compose -f airflow/docker-compose-airflow.yml down
+docker compose -f airflow/docker-compose-airflow-celery-stock.yml up -d
+# 等 init 完成（第 10 章 Step 4 同款：看到 User "admin" created）後：
+docker restart airflow-celery-webserver airflow-celery-scheduler airflow-celery-worker
+```
+
+**觸發同一支股票 DAG（一行都不用改）：**
+
+```bash
+docker exec airflow-celery-webserver airflow dags unpause stock_crawler_dag
+docker exec airflow-celery-webserver airflow dags trigger stock_crawler_dag
+```
+
+**觀察重點（跟 LocalExecutor 的對照就在這裡）：**
+
+1. `docker logs airflow-celery-worker` 出現 `Running <TaskInstance: stock_crawler_dag.crawl_stock_XXXX ...>`——task 不再是 scheduler 的子行程，而是被**獨立 worker 容器**從佇列領走執行。
+2. DAG 全綠、MySQL 筆數照樣增加——同一支 DAG、同一顆 image，只換了「誰執行」。
+3. 結論：**executor 是設定，不是程式**。`AIRFLOW__CORE__EXECUTOR` 一個環境變數，決定 task 的執行模式；DAG 程式碼對此完全無感。
 
 | | LocalExecutor | CeleryExecutor |
 |---|---|---|
 | task 在哪跑 | Airflow 主機的子行程 | Celery worker（可跨機器）|
 | 類比 | 第 9 章單機排程 | 第 1 章分散式 |
 | 適合 | 開發、小量 | 生產、大量、要水平擴充 |
+
+**資源注意（4GB VM 的實測經驗）：**
+
+- 瘦身版已把 webserver 限 2 個 gunicorn worker、Celery worker 的 `AIRFLOW__CELERY__WORKER_CONCURRENCY` 降為 2。**concurrency 用預設值（=CPU 核心數 4）時，爬取高峰會觸發 OOM、系統隨機殺掉 mysqld**——這本身就是一課：分散式元件的併發數要跟著記憶體上限算，不是「能起來就好」。
+- 示範前先把用不到的容器（RabbitMQ / 課程 worker / Metabase 等）down 掉騰記憶體；示範完把這套 down 掉、主線起回來。
 
 ---
 
@@ -370,7 +425,7 @@ docker compose -f airflow/docker-compose-airflow-celery.yml up -d
 
 ## 想一想（確認你懂了）
 
-**Q1：`stock_crawler_dag`（直接呼叫）和 `stock_crawler_producer_dag`（用 `.delay()`）差在哪？各適合什麼情況？**
+**Q1：`stock_crawler_dag`（直接呼叫）和 `stock_crawler_producer_dag`（`apply_async` 發任務）差在哪？各適合什麼情況？**
 
 前者在 Airflow 的 worker 裡直接跑爬蟲，簡單、步驟少，適合量不大或想單純用 Airflow 的情況；後者把爬蟲丟給獨立的 Celery worker 池，Airflow 只觸發和監控，適合量大、想把執行負載跟編排分開、方便獨立擴充 worker 的情況。
 
@@ -426,6 +481,18 @@ docker compose -f compose-advanced/docker-compose-worker-network.yml down
 docker compose -f compose-advanced/rabbitmq.yml down
 docker compose -f compose-advanced/mysql.yml down
 ```
+
+---
+
+## 三種串法怎麼選（帶著走的判斷準則）
+
+| 你的情況 | 選哪個 | 理由 |
+|---|---|---|
+| 量小、流程單純、不想多管服務 | **串法一**（直接呼叫）| 只要 Airflow + MySQL，步驟最少 |
+| 量大、要把執行負載跟編排分開、worker 要能獨立 scale | **串法二**（發任務給 Celery）| Airflow 只觸發和監控，重活交給 worker 池 |
+| 連「爬蟲的依賴」都要跟 Airflow 徹底隔離（不同 Python 版本、各自演進）| **串法三**（DockerOperator 跑 producer）| 爬蟲改版只 rebuild 爬蟲 image，Airflow 不動 |
+
+一個常見的演進路徑就是照這個順序走：專案初期用串法一快速上線 → 量大了改串法二 → 團隊分工細了改串法三。三種不是互斥的選擇題，是規模長大的三個階段。
 
 ---
 

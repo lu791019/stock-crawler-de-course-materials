@@ -1,0 +1,90 @@
+# CeleryExecutor 示範版（瘦身）
+# 與主線 docker-compose-airflow.yml 用同一顆 stock-airflow image——
+# 本質差異只有 AIRFLOW__CORE__EXECUTOR 換成 CeleryExecutor，
+# 並多起 Redis（broker）與獨立的 airflow-celery-worker（執行 task）。
+# 為了塞進 4GB 教學 VM，相較官方範本移除 triggerer / flower，webserver 只開 2 個 gunicorn worker。
+# 使用方式見課程手冊 12「（選做）CeleryExecutor」節。
+# 注意：與主線 Airflow 衝 8080，啟動前先 down 主線。
+name: airflow-celery-stock
+
+x-airflow-common: &airflow-common
+  image: stock-airflow:latest
+  environment:
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor  # 跟主線唯一的本質差異
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-celery-database/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://:@airflow-celery-redis:6379/0
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@airflow-celery-database/airflow
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Taipei
+    AIRFLOW__WEBSERVER__WORKERS: "2"  # demo 夠用，省記憶體
+    AIRFLOW__CELERY__WORKER_CONCURRENCY: "2"  # 預設=CPU核心數(4)，4GB VM 高峰會 OOM，降到 2
+  env_file:
+    - ../.env
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./plugins:/opt/airflow/plugins
+    - ./logs:/opt/airflow/logs
+    - ../crawler:/opt/airflow/crawler
+    - ../output:/opt/airflow/output
+  networks:
+    - my_network
+
+services:
+  airflow-celery-database:
+    image: postgres:13
+    container_name: airflow-celery-database
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-celery-db-volume:/var/lib/postgresql/data
+    networks:
+      - my_network
+
+  airflow-celery-redis:
+    image: redis:7.2-bookworm
+    container_name: airflow-celery-redis
+    networks:
+      - my_network
+
+  airflow-celery-init:
+    <<: *airflow-common
+    command: >
+      bash -c "
+      airflow db init &&
+      airflow users create --username ${AIRFLOW_ADMIN_USER:-admin} --password ${AIRFLOW_ADMIN_PASS:-admin} --firstname Apache --lastname Airflow --role Admin --email admin@example.com
+      "
+    depends_on:
+      - airflow-celery-database
+      - airflow-celery-redis
+
+  airflow-celery-webserver:
+    <<: *airflow-common
+    command: bash -c "exec airflow webserver"
+    container_name: airflow-celery-webserver
+    ports: ["8080:8080"]
+    depends_on:
+      - airflow-celery-init
+
+  airflow-celery-scheduler:
+    <<: *airflow-common
+    command: bash -c "exec airflow scheduler"
+    container_name: airflow-celery-scheduler
+    depends_on:
+      - airflow-celery-init
+
+  airflow-celery-worker:
+    <<: *airflow-common
+    command: bash -c "exec airflow celery worker"
+    container_name: airflow-celery-worker
+    depends_on:
+      - airflow-celery-init
+
+volumes:
+  postgres-celery-db-volume:
+
+networks:
+  my_network:
+    external: true

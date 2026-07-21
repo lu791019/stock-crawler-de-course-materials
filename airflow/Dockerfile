@@ -17,7 +17,7 @@ RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.c
 RUN mkdir -p /opt/airflow
 
 # 安裝 Airflow 2.10.4（含 constraints 鎖定所有依賴版本）
-RUN uv pip install --system "apache-airflow[google,docker,postgres]==2.10.4" \
+RUN uv pip install --system "apache-airflow[celery,google,docker,postgres]==2.10.4" \
     --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.4/constraints-3.12.txt"
 
 # 複製專案檔案

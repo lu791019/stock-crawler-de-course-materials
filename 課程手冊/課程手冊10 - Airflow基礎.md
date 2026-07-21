@@ -63,7 +63,8 @@
 |------|------|------|
 | `airflow/Dockerfile` | Image 定義 | Ubuntu + Airflow 2.10 + 我們的 crawler 程式 |
 | `airflow/docker-compose-airflow.yml` | 部署（LocalExecutor）| 輕量版，適合開發，這一章用它 |
-| `airflow/docker-compose-airflow-celery.yml` | 部署（CeleryExecutor）| 額外起 Redis + Celery Worker（第 12 章談）|
+| `airflow/docker-compose-airflow-celery-stock.yml` | 部署（CeleryExecutor 瘦身版）| 同一顆 stock-airflow image，多起 Redis + 獨立 worker（第 12 章示範）|
+| `airflow/docker-compose-airflow-celery.yml` | 部署（CeleryExecutor 官方範本）| 官方 image 完整版，留作參考（第 12 章談）|
 | `airflow/airflow.cfg` | 設定檔 | Airflow 核心設定 |
 | `airflow/dags/example_*.py` | 範例 DAG | 這一章與下一章的教材 |
 | `airflow/README.md` | 說明 | 啟動方式與 DAG 清單 |
