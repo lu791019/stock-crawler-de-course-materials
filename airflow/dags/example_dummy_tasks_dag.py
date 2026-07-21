@@ -7,7 +7,7 @@ DummyOperator 組合流程的 Airflow DAG 範例。
 核心概念：
 - DummyOperator 不執行任何實際工作，只在流程圖上當作一個節點（集合點或分界點）。
 - 用它可以把「準備（平行）→ 驗證（匯合）→ 處理（平行）→ 合併」這種先分散再收攏的
-  依賴結構表達得一眼就能看懂，而不必把真實工作硬塞進這些節點。
+  依賴結構表達得清楚易讀，而不必把真實工作硬塞進這些節點。
 
 觸發方式：
     airflow dags unpause example_dummy_tasks_dag
