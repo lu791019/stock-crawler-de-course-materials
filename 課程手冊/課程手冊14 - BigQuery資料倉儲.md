@@ -2,7 +2,7 @@
 
 > 這一章教「為什麼 MySQL 不夠」。你會把股價同步進雲端資料倉儲 BigQuery，並在上面做真正的分析（算移動平均、每日漲跌統計）。
 
-> ⚠️ 這一章需要 GCP（Google Cloud）帳號與憑證，屬於進階內容。沒有 GCP 帳號的話，先讀懂「資料怎麼流」和觀念，實作等有帳號再做。
+> ⚠️ 這一章的實作需要 GCP（Google Cloud）帳號與憑證。**課堂的教學順序是：先上第 15 章完成 GCP 開通（註冊帳號、建立專案、服務帳戶與金鑰、費用警示），再回來做本章的實作。** 所以現在讀到這裡的你有兩種情況：還沒開通 GCP 的話，先讀懂「資料怎麼流」和觀念段，實作等第 15 章開通完成後回來做；已經有 GCP 帳號的話，可以直接照下面的步驟做。
 
 ---
 
@@ -122,17 +122,21 @@ FROM vw_stock_price_daily
 
 ## 一步一步跟著做（需 GCP）
 
-> 沒有 GCP 帳號可以跳過實作，只讀觀念。
+> 還沒開通 GCP 的話先跳過實作、只讀觀念——第 15 章開通完成後再回來做。
 
 ### Step 1：準備 GCP 環境
 
-1. 建立 GCP 專案，開啟 BigQuery API。
-2. 建立服務帳戶（Service Account），下載 JSON 金鑰。
-3. 設定憑證環境變數，並在 `config.py` 取消 `GCP_PROJECT_ID` 的註解、填你的專案 ID：
+GCP 帳號註冊、建立專案、建立服務帳戶（Service Account）與下載 JSON 金鑰，這些**在第 15 章都已經完成**。本章只需要補上 BigQuery 專屬的三件事：
+
+1. 在 GCP 專案裡**開啟 BigQuery API**（第 15 章開的是 Compute Engine 的 API，每個服務的 API 要各自啟用）。
+2. 幫第 15 章建立的服務帳戶**加上 BigQuery 權限**（BigQuery Data Editor 與 BigQuery Job User 兩個角色）。
+3. 設定憑證環境變數指向你的金鑰，並在 `config.py` 取消 `GCP_PROJECT_ID` 的註解、填你的專案 ID：
 
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your-key.json"
 ```
+
+> 如果你沒有跟課、自己有現成的 GCP 帳號：建一個專案、開 BigQuery API、建一個服務帳戶並下載金鑰，再照第 3 步設定即可。
 
 ### Step 2：把 MySQL 同步進 BigQuery
 
@@ -222,6 +226,8 @@ OLTP 擅長「即時、頻繁的小筆讀寫」（例如爬蟲每天寫入股價
 - 用批次 load + 分區省錢，用視窗函數在倉儲裡算技術指標。
 - ELT：先搬進倉儲，再用倉儲算力轉換。
 
-## 課程總結
+## 本機主線總結
 
-到這裡，整套課程走完了：**抓取（Celery + 分流 + 失敗處理）→ 落地（MySQL + 冪等）→ 視覺化（Metabase）→ 排程（APScheduler → Airflow）→ 一鍵整合，最後把資料送進雲端倉儲 BigQuery。**「爬蟲 → 佇列 → 落地 → 編排 → 倉儲」這條路，就是資料工程的基本功。接下來的雲端段課程，會把這整套系統搬上 GCP。
+到這裡，本機主線加上第一個雲端出口都走完了：**抓取（Celery + 分流 + 失敗處理）→ 落地（MySQL + 冪等）→ 視覺化（Metabase）→ 排程（APScheduler → Airflow）→ 一鍵整合，再把資料送進雲端倉儲 BigQuery。**「爬蟲 → 佇列 → 落地 → 編排 → 倉儲」這條路，就是資料工程的基本功。
+
+雲端段的其餘章節會把整套系統搬上 GCP：多台機器、雲端資料庫、API 對外服務，最後在第 18 章用 IAM 與 Composer 把本章的 BigQuery 管線接上正式的權限體系與排程——你在這一章做的單次同步，到那時會變成一條全自動的雲端資料線。
