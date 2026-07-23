@@ -22,6 +22,7 @@
 
 | | 串法一：直接爬 | 串法二：發任務給 Celery | 串法三：容器化 producer |
 |---|---|---|---|
+| 誰負責排程（何時跑）| Airflow 的 scheduler | Airflow 的 scheduler | Airflow 的 scheduler |
 | task 的內容 | 直接呼叫 `crawler_finmind(stock_id)` | 用 `apply_async(queue=...)` 把任務發進佇列 | 用 DockerOperator 起一個容器跑第 3 章的 producer |
 | 誰執行爬蟲 | Airflow 自己的行程 | Celery worker 池 | Celery worker 池 |
 | Airflow 要不要裝爬蟲的依賴 | 要——它直接執行爬蟲程式 | 要——發任務仍要 import 任務物件 | **不要**——爬蟲程式只活在另一個容器裡 |
@@ -33,6 +34,8 @@
 - **串法一，Airflow 一手包辦**——指揮和執行都是它。最簡單、服務最少；代價是爬蟲吃掉它的執行資源，量一大，「編排」這個本業就顧不了。
 - **串法二，把「執行」交出去**——Airflow 只負責到點把任務發進佇列，爬的工作由 Celery worker 池消化。那個池子你第 3 章就會 scale，執行量再大也不拖累編排。
 - **串法三，把「發任務的程式」也交出去**——連 producer 都放進獨立容器跑，Airflow 不需要認識爬蟲的任何程式碼。爬蟲改版只需要重 build 爬蟲的 image，Airflow 完全不用動。
+
+第一列值得多看一眼：**三種串法的排程都由 Airflow 的 scheduler 負責**——「何時跑、依賴順序、失敗補跑」這個編排層從頭到尾沒變過，三種串法換的都只是執行端。
 
 三種不是互斥的選擇題，而是規模長大的三個階段。章末的決策表會再幫你收斂「什麼情況選哪個」。
 
@@ -437,6 +440,20 @@ docker exec airflow-celery-webserver airflow dags trigger stock_crawler_dag
 串法二和 CeleryExecutor 都有「Celery」三個字，但它們管的是**不同層**的事，不是同一件事的兩種做法：
 
 > **串法二改的是「task 的內容」——task 要做什麼事；CeleryExecutor 改的是「執行引擎」——task 這件事由誰來做。**
+
+先用「先搞懂」那張表的欄位，把本節的示範（串法一的 DAG ＋ CeleryExecutor）跟串法一、串法二放在一起看：
+
+| | 串法一（LocalExecutor，主線）| 串法二（LocalExecutor，主線）| 串法一 ＋ CeleryExecutor（本節示範）|
+|---|---|---|---|
+| 誰負責排程（何時跑）| Airflow 的 scheduler | Airflow 的 scheduler | Airflow 的 scheduler |
+| task 的內容 | 直接呼叫 `crawler_finmind(stock_id)` | 用 `apply_async(queue=...)` 發任務 | 直接呼叫 `crawler_finmind(stock_id)`——**DAG 跟串法一同一支、零改動** |
+| 誰執行 task | Airflow 本機的子行程 | Airflow 本機的子行程（執行的是「發任務」這件小事）| **airflow-celery-worker**（獨立容器，經 Redis 派工）|
+| 誰執行爬蟲 | Airflow 本機的子行程 | crawler worker 池（經 RabbitMQ）| airflow-celery-worker（因為 task 內容就是爬）|
+| 用到的佇列 | 沒有佇列 | RabbitMQ——裝的是**爬蟲任務** | Redis——裝的是 **Airflow 的派工指令** |
+| 需要的服務 | Airflow + MySQL | 再加 RabbitMQ + crawler worker | 再加 Redis + airflow-celery-worker |
+| 改了什麼才變成這樣 | —（基準）| 改 DAG 程式碼 | 改一個環境變數（`AIRFLOW__CORE__EXECUTOR`）|
+
+看最後一列就分清楚了：**串法二是改程式碼、CeleryExecutor 是改設定**——前者決定 task 做什麼，後者決定 task 由誰做。
 
 | | 串法二（`producer_dag`）| CeleryExecutor |
 |---|---|---|
