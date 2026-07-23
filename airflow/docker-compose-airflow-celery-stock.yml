@@ -19,6 +19,9 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Taipei
     AIRFLOW__WEBSERVER__WORKERS: "2"  # demo 夠用，省記憶體
     AIRFLOW__CELERY__WORKER_CONCURRENCY: "2"  # 預設=CPU核心數(4)，4GB VM 高峰會 OOM，降到 2
+    # 覆蓋 .env 的主機模式設定：容器內要用容器名連 MySQL / RabbitMQ（environment 優先於 env_file）
+    MYSQL_HOST: mysql
+    RABBITMQ_HOST: rabbitmq
   env_file:
     - ../.env
   volumes:

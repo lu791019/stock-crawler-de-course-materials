@@ -8,6 +8,11 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Taipei
+    # 覆蓋 .env 的主機模式設定：Airflow 是容器，要用容器名連 MySQL / RabbitMQ。
+    # （.env 的 127.0.0.1 是給第 1-9 章「程式跑在主機上」的情境用的；
+    #   environment 的優先序高於 env_file，所以這裡的值會蓋過 .env。）
+    MYSQL_HOST: mysql
+    RABBITMQ_HOST: rabbitmq
   env_file:
     - ../.env
   volumes:

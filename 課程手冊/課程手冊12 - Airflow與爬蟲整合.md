@@ -105,28 +105,63 @@ with DAG(
 
 ### 準備：把需要的服務全部起來
 
-這一章要同時跑 Airflow + MySQL +（串法二再加）RabbitMQ 和 Celery worker：
+這一章的服務全部從你用了一整路的 `docker-compose-local.yml` 起——**MySQL 的資料也直接延續前面章節爬進去的那一份**。Airflow 是另一份 compose 檔起的容器，預設連不到這邊的服務（兩份 compose 各自有私有網路、名字互相解析不到）；解法是建一張兩邊共用的網路 `my_network`，把 Airflow 要連的容器掛上去。
+
+**準備 0：改 phpMyAdmin 的對外 port（只需要做一次）**
+
+Airflow 的網頁介面要用 8080，跟 phpMyAdmin 撞了。打開 `docker-compose-local.yml`，找到 phpmyadmin 的 `ports`，把 `"8080:80"` 改成：
+
+```yaml
+    ports:
+      - "8083:80"
+```
+
+之後 phpMyAdmin 改走 http://localhost:8083 ，兩個介面就能同時開。
+
+> 改了這個檔案之後，未來 `git pull` 課程更新時如果剛好也動到它，會出現衝突——遇到就保留你改的 8083 那行。
+
+**準備 1：建共用網路（建過就跳過）＋確認 .env**
 
 ```bash
 docker network create my_network 2>/dev/null
 cp .env.example .env    # 沒有 .env 的話
+```
 
-# MySQL + RabbitMQ（compose-advanced 網路版，跟 Airflow 同一個 my_network）
-docker compose -f compose-advanced/mysql.yml up -d
-docker compose -f compose-advanced/rabbitmq.yml up -d
+**準備 2：起服務——指定服務名，不要 up 全部**
 
-# Airflow
+```bash
+docker compose -f docker-compose-local.yml up -d rabbitmq flower mysql phpmyadmin worker_twse worker_tpex
+```
+
+> ⚠️ 不帶服務名的 `up -d` 會把整個檔案的服務全部起來（含 MongoDB 等這章用不到的），再疊上 Airflow 會超出 4GB 記憶體的負荷——指定服務名是這一章的紀律。
+
+**準備 3：把四個容器掛上共用網路**
+
+```bash
+docker network connect my_network mysql
+docker network connect my_network rabbitmq
+docker network connect my_network flower
+docker network connect my_network phpmyadmin
+```
+
+`docker network connect` 是「**加掛**」：容器同時留在 local.yml 自己的內部網路上，又多掛了一張 `my_network`——worker 和服務之間照常互通，Airflow 也連得到它們。
+
+> ⚠️ 這個掛載在容器**重建**後會消失：`docker compose down` 再 `up` 之後，準備 3 要**重新執行一次**（單純 `stop`／`start`／`restart` 不受影響）。忘了重掛的症狀，就是 Airflow 突然連不到 mysql 或 rabbitmq。
+
+**準備 4：起 Airflow**
+
+```bash
 docker compose -f airflow/docker-compose-airflow.yml up -d
 # 首次啟動照第 10 章 Step 4：等 init 完成 → restart webserver/scheduler
 ```
 
-確認 MySQL 有 `mydb`：
+> 💡 Airflow 的 compose 檔裡明寫了 `MYSQL_HOST: mysql`、`RABBITMQ_HOST: rabbitmq` 覆蓋 `.env` 的值——因為 `.env` 裡的 `127.0.0.1` 是給「程式跑在主機上」（第 1-9 章）的情境用的；Airflow 自己是容器，要用容器名去找服務。`environment` 的優先序高於 `env_file`，所以 `.env` 不用改、也不用來回切換。
+
+最後確認 MySQL 有 `mydb`：
 
 ```bash
-docker exec compose-advanced-mysql-1 mysql -uroot -p1234 -e "CREATE DATABASE IF NOT EXISTS mydb"
+docker exec mysql mysql -uroot -p1234 -e "CREATE DATABASE IF NOT EXISTS mydb"
 ```
-
-> ⚠️ 這裡 phpMyAdmin（8080）不能跟 Airflow 同時開，前面章節提過。用 `docker exec ... mysql` 驗證資料即可。
 
 ### 串法一：`stock_crawler_dag`（Airflow 直接爬）
 
@@ -144,7 +179,7 @@ docker exec airflow-webserver airflow dags trigger stock_crawler_dag
 **驗證資料入庫：**
 
 ```bash
-docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
+docker exec mysql mysql -uroot -p1234 mydb -e \
   "SELECT stock_id, COUNT(*) AS cnt FROM TaiwanStockPrice GROUP BY stock_id ORDER BY stock_id"
 ```
 
@@ -208,7 +243,7 @@ docker exec airflow-webserver airflow dags trigger stock_crawler_twse_tpex_dag
 **驗證上櫃資料入庫**（上櫃三支是第一次爬，之前資料庫裡沒有）：
 
 ```bash
-docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
+docker exec mysql mysql -uroot -p1234 mydb -e \
   "SELECT stock_id, COUNT(*) AS cnt FROM TaiwanStockPrice \
    WHERE stock_id IN ('6488','3105','8069') GROUP BY stock_id"
 ```
@@ -217,13 +252,7 @@ docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
 
 ### 串法二：`stock_crawler_producer_dag`（Airflow 指揮、Celery 執行）
 
-先把 Celery worker 池起來（第 3 章的網路版 worker）：
-
-```bash
-docker compose -f compose-advanced/docker-compose-worker-network.yml up -d
-```
-
-觸發：
+worker 在準備段已經起了——`crawler_twse` 和 `crawler_tpex` 兩個容器，各自聽 `twse`／`tpex` 佇列（第 3 章的分流版）。直接觸發：
 
 ```bash
 docker exec airflow-webserver airflow dags unpause stock_crawler_producer_dag
@@ -236,7 +265,7 @@ docker exec airflow-webserver airflow dags trigger stock_crawler_producer_dag
 |--------|---------|--------|
 | Airflow Graph | 10 個 task **立即變綠** | 它們只是發任務進佇列，不等爬完 |
 | Flower (5555) | 10 筆 `crawler_finmind` 任務陸續 SUCCESS | 真正的執行在 Celery worker |
-| worker log | `docker compose -f compose-advanced/docker-compose-worker-network.yml logs crawler_twse \| tail -20` | 看到 DataFrame + succeeded |
+| worker log | `docker logs crawler_twse | tail -20` | 看到 DataFrame + succeeded |
 
 > ✅ 「Airflow 全綠了，Flower 還在跑」——這個時間差直接顯示兩層分工：Airflow 負責編排，Celery 負責執行。
 
@@ -283,7 +312,7 @@ docker exec airflow-webserver airflow dags trigger stock_crawler_docker_producer
 **驗證資料入庫**（`producer_multi_queue` 發的是 2330 → twse、00679B → tpex）：
 
 ```bash
-docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
+docker exec mysql mysql -uroot -p1234 mydb -e \
   "SELECT stock_id, COUNT(*) AS cnt FROM TaiwanStockPrice \
    WHERE stock_id IN ('2330','00679B') GROUP BY stock_id"
 ```
@@ -341,11 +370,11 @@ docker exec airflow-webserver airflow dags trigger stock_crawler_etl_dag
 
 ```bash
 # VIEW 建出來了
-docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
+docker exec mysql mysql -uroot -p1234 mydb -e \
   "SHOW FULL TABLES WHERE Table_type = 'VIEW'"
 
 # 實體表有資料
-docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
+docker exec mysql mysql -uroot -p1234 mydb -e \
   "SELECT stock_id, COUNT(*) FROM stock_price_daily GROUP BY stock_id"
 ```
 
@@ -501,11 +530,11 @@ LocalExecutor 像第 9 章：單機、自己的行程做事。CeleryExecutor 像
 | 你遇到的狀況 | 原因 | 怎麼解 |
 |-------------|------|--------|
 | DAG 報錯說找不到 `crawler` 模組 | `../crawler` 這個 volume 沒有掛載成功 | 確認你是從 stock-crawler 專案根目錄啟動 compose 的 |
-| producer_dag 發了任務但沒有人執行 | Celery worker 沒有啟動 | 執行 `docker compose -f compose-advanced/docker-compose-worker-network.yml up -d` 把 worker 池起來 |
+| producer_dag 發了任務但沒有人執行 | Celery worker 沒有啟動 | 回準備 2，確認 `worker_twse`、`worker_tpex` 有列在 up 的服務名裡 |
 | 任務發了、worker 也開著，但佇列一直堆積 | 佇列對不上——任務發到了預設佇列，但 worker 只聽 `-Q twse` / `tpex` 這兩條 | 發送端改用 `apply_async(queue=...)` 指定 worker 在聽的佇列；用 `rabbitmqctl list_queues name messages consumers` 查哪條佇列有訊息卻沒有消費者 |
 | docker_producer 起的容器報 Connection refused | 臨時容器不會讀 .env，`RABBITMQ_HOST` 沒給就預設連 127.0.0.1（容器自己）| 在 DockerOperator 的 `environment` 明確給 `RABBITMQ_HOST` 和 `MYSQL_HOST` |
-| worker 連不上 rabbitmq | 兩者不在同一個 my_network 網路裡，名字解析不到 | 確認 rabbitmq 和 worker 的 compose 都有掛 my_network |
-| ETL 的 create_view 失敗 | MySQL 的 host 設定不對 | Airflow 容器內要用 `MYSQL_HOST=mysql`（compose 已經設好，通常是被其他設定蓋掉才會錯）|
+| Airflow 連不到 mysql 或 rabbitmq | 容器重建（down 再 up）後，network connect 的掛載消失了 | 重新執行準備 3 的四行 `docker network connect` |
+| ETL 的 create_view 失敗 | MySQL 的 host 設定不對 | Airflow 的 compose 已在 `environment` 明寫 `MYSQL_HOST: mysql` 覆蓋 .env——若仍錯，確認你用的是最新版的 compose 檔 |
 | BigQuery DAG 跑不動 | 它需要 GCP 憑證才能執行 | 接第 14 章的 GCP 設定；還沒有 GCP 帳號就先跳過這一支 |
 
 ---
@@ -514,9 +543,8 @@ LocalExecutor 像第 9 章：單機、自己的行程做事。CeleryExecutor 像
 
 ```bash
 docker compose -f airflow/docker-compose-airflow.yml down
-docker compose -f compose-advanced/docker-compose-worker-network.yml down
-docker compose -f compose-advanced/rabbitmq.yml down
-docker compose -f compose-advanced/mysql.yml down
+docker compose -f docker-compose-local.yml down
+# 提醒：down 會重建容器，下次上課重跑準備 2 之後，準備 3 的 network connect 也要重做
 ```
 
 ---
