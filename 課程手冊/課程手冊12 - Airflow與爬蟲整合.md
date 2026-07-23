@@ -393,6 +393,34 @@ docker exec airflow-celery-webserver airflow dags trigger stock_crawler_dag
 | 類比 | 第 9 章單機排程 | 第 1 章分散式 |
 | 適合 | 開發、小量 | 生產、大量、要水平擴充 |
 
+### 跟串法二差在哪？（最容易混淆的一對，停下來分清楚）
+
+串法二和 CeleryExecutor 都有「Celery」三個字，但它們管的是**不同層**的事，不是同一件事的兩種做法：
+
+> **串法二改的是「task 的內容」——task 要做什麼事；CeleryExecutor 改的是「執行引擎」——task 這件事由誰來做。**
+
+| | 串法二（`producer_dag`）| CeleryExecutor |
+|---|---|---|
+| 改變的東西 | DAG 裡 task 的**內容**：從「自己爬」改成「發任務」| Airflow 執行 task 的**方式**：從本機子行程改成丟給 worker |
+| 在哪裡改 | DAG 程式碼（`apply_async`）| 環境變數（DAG 程式碼零改動）|
+| 用到誰的 Celery | **你的爬蟲 Celery**：RabbitMQ ＋ 第 3 章的 crawler worker | **Airflow 自用的 Celery**：Redis ＋ airflow-celery-worker |
+| 佇列裡裝的是什麼 | 爬蟲任務（「去爬 2330」）| Airflow 的 task 執行指令（「去執行 DAG 的某個 task」）|
+
+因為在不同層，兩者其實**可以疊起來用**。假設串法二的 DAG 跑在 CeleryExecutor 上，一個 task 的完整旅程是：
+
+```
+scheduler ──(Redis)──> airflow-celery-worker 執行「發任務」這個 task
+                             │
+                             └ apply_async ──(RabbitMQ)──> crawler worker 真正去爬
+```
+
+兩套 Celery 同時上工、各管一段：**Redis 那段運的是「Airflow 的內部派工」，RabbitMQ 那段運的是「你的爬蟲工作」**。課程沒有讓你實際跑這個組合（服務太多、對教學沒有額外收穫），但看懂這張圖，兩者的分工就分清楚了。
+
+判斷口訣，之後遇到任何 Airflow 架構問題都適用：
+
+- 問「這支 DAG 的 task 是自己做、還是發給爬蟲 worker 做？」→ 這是**串法**的問題（串法一、二、三的選擇）
+- 問「Airflow 執行 task 時，是用本機子行程、還是丟給自己的 worker 池？」→ 這是 **executor** 的問題（LocalExecutor 或 CeleryExecutor 的選擇）
+
 **資源注意（4GB VM 的實測經驗）：**
 
 - 瘦身版已把 webserver 限 2 個 gunicorn worker、Celery worker 的 `AIRFLOW__CELERY__WORKER_CONCURRENCY` 降為 2。**concurrency 用預設值（=CPU 核心數 4）時，爬取高峰會觸發 OOM、系統隨機殺掉 mysqld**——這本身就是一課：分散式元件的併發數要跟著記憶體上限算，不是「能起來就好」。
