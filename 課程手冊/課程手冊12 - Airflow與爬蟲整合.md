@@ -294,11 +294,23 @@ docker exec compose-advanced-mysql-1 mysql -uroot -p1234 mydb -e \
 
 ### 完整 ETL：`stock_crawler_etl_dag`
 
-這支 DAG 在爬完之後多兩步：用 `crawler/mysql.py` 建每日去重 VIEW、再從 VIEW 建實體表：
+前面三種串法做的都是同一件事：把資料爬回來。這支 DAG 是本章第一支**多階段**的工作流——爬完資料之後，接著在資料庫裡把資料整理成分析用的表。整條流程長這樣：
 
 ```
 start → stock_branch → [10 個爬取] → etl_task → create_view → create_table → end
 ```
+
+它分成三段，每一段的工作內容和它在流程裡扮演的角色如下：
+
+**第一段：爬取（10 個平行 task）**——跟 `stock_crawler_dag` 完全相同的做法：10 個 PythonOperator 平行呼叫 `crawler_finmind`，各自打 FinMind API、把股價寫進 MySQL 的 `TaiwanStockPrice`。這一段是整條 DAG 最重的部分——10 個 task 同時執行，每個都是一個獨立的 Python 行程。
+
+**第二段：`etl_task`（匯合點）**——一個 DummyOperator，它自己不做任何事，職責是「守住階段的分界」：**10 支股票全部爬成功，流程才會通過它、進入 ETL 段**。只要有任何一支爬取失敗，後面的 ETL 就不會執行——這樣可以避免「用不完整的資料去建分析表」。這是第 11 章積木 5 的實際應用。
+
+**第三段：ETL（兩個接續的 task）**——兩個 PythonOperator，掛的函式都放在 `crawler/mysql.py`：
+- `create_view`：在 MySQL 建**每日去重 VIEW**（`vw_stock_price_daily`）——同一支股票同一天有多筆時只留一筆，這是「查詢端去重」（第 6 章講過的另一端）。
+- `create_table`：從 VIEW 把結果**存成實體表**（`stock_price_daily`）——VIEW 每次查詢才即時計算，實體表把結果落地，重複查詢時快得多。
+
+三段合起來，這支 DAG 表達的是前面串法都沒有的能力：**「先全部完成 A 階段、才進入 B 階段」的階段依賴**。而它建出來的 VIEW，正是第 8 章你在 Metabase 接過的那個——跑通這支 DAG 之後，那張分析表就不再需要手動維護，排程到了就自動重爬、重建。
 
 ETL 段的三個 task 長這樣：
 
@@ -318,10 +330,7 @@ start_task >> stock_branch >> stock_tasks >> etl_task
 etl_task >> create_view_task >> create_table_task >> end_task
 ```
 
-兩個看點：
-
-- **`etl_task` 是 DummyOperator 匯合點**——第 11 章積木 5 再一次收割：10 支爬取全部成功，流程才會進入 ETL 段，圖上能清楚看出「爬取階段」和「ETL 階段」的分界。
-- **兩個 ETL step 掛的函式都放在 `crawler/mysql.py`**——DAG 檔裡沒有半行 SQL。「DAG 只描述流程、業務邏輯放在 crawler/」的原則再驗證一次：要改 VIEW 的定義就去改 `mysql.py`，DAG 完全不用動。
+補一個程式碼層面的觀察：**DAG 檔裡沒有半行 SQL**——建 VIEW、建表的 SQL 全部住在 `crawler/mysql.py`。「DAG 只描述流程、業務邏輯放在 crawler/」的原則再驗證一次：要改 VIEW 的定義就去改 `mysql.py`，DAG 完全不用動。
 
 ```bash
 docker exec airflow-webserver airflow dags unpause stock_crawler_etl_dag
