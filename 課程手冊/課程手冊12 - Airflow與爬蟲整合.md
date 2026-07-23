@@ -6,27 +6,35 @@
 
 ## 做完這一章，你會做到
 
-1. 跑 `stock_crawler_dag`：Airflow 直接呼叫爬蟲，10 支股票寫進 MySQL。
-2. 跑 `stock_crawler_twse_tpex_dag`：上市/上櫃分組扇出、平行爬取、匯合——實務最常見的 DAG 形狀。
-3. 跑 `stock_crawler_producer_dag`：Airflow 只發任務，Celery worker 執行——觀察兩層分工。
-4. 跑 `stock_crawler_docker_producer_dag`：連發任務的程式都容器化——DockerOperator 的實戰應用。
-5. 跑 `stock_crawler_etl_dag`：爬蟲 + 建 VIEW + 建實體表的完整 ETL。
-6. 分得清 LocalExecutor 與 CeleryExecutor，看出後者怎麼回扣你學過的 Celery。
+1. 說得出三種串法各自做什麼、怎麼演進、差在哪裡。
+2. 跑串法一 `stock_crawler_dag`：Airflow 直接呼叫爬蟲，10 支股票寫進 MySQL；延伸版 `stock_crawler_twse_tpex_dag` 做上市/上櫃分組扇出。
+3. 跑串法二 `stock_crawler_producer_dag`：Airflow 只發任務，Celery worker 執行——觀察兩層分工。
+4. 跑串法三 `stock_crawler_docker_producer_dag`：連發任務的程式都容器化——DockerOperator 的實戰應用。
+5. Bonus：跑 `stock_crawler_etl_dag`，爬蟲＋建 VIEW＋建實體表的完整 ETL。
+6. 補充：分得清 LocalExecutor 與 CeleryExecutor，看出後者怎麼回扣你學過的 Celery。
 7. 會用 Airflow UI 的 Graph / Grid / Logs 監控與除錯。
 
 ---
 
-## 先搞懂：同一件事的兩種基本串法（串法三是串法二的容器化變形，後面介紹）
+## 先搞懂：三種串法，同一件事的三段演進
 
-| | `stock_crawler_dag`（直接呼叫）| `stock_crawler_producer_dag`（透過 Celery）|
-|---|---|---|
-| 誰執行爬蟲 | Airflow 自己的 worker 行程 | 獨立的 Celery worker 池 |
-| DAG 的 task 做什麼 | 跑 `crawler_finmind(stock_id)` | 用 `apply_async(queue=...)` 發任務（只發不做）|
-| DAG 等不等結果 | 等——爬完了 task 才會變綠 | 不等——發送完就變綠（fire and forget）|
-| 需要哪些服務 | Airflow + MySQL | Airflow + MySQL + RabbitMQ + Celery worker |
-| 適合 | 資料量小、流程單純的情況 | 資料量大、想把執行負載跟編排分開、worker 需要獨立擴充的情況 |
+這一章的三種串法做的是**同一件事**：把股票的股價抓回來、寫進 MySQL。爬蟲本體（`crawler_finmind`）從頭到尾一行都不改，改變的只有一件事——**Airflow 在這條鏈裡承擔多少工作**：
 
-> **為什麼要多繞一層 Celery？** 直接呼叫簡單，但爬蟲會佔住 Airflow 的執行資源；量一大，Airflow 忙著爬蟲就顧不了編排。改成發任務進佇列，Airflow 只負責「觸發和監控」，實際負載交給 Celery worker 池——而那個池子你第 3 章就會 scale 了。
+| | 串法一：直接爬 | 串法二：發任務給 Celery | 串法三：容器化 producer |
+|---|---|---|---|
+| task 的內容 | 直接呼叫 `crawler_finmind(stock_id)` | 用 `apply_async(queue=...)` 把任務發進佇列 | 用 DockerOperator 起一個容器跑第 3 章的 producer |
+| 誰執行爬蟲 | Airflow 自己的行程 | Celery worker 池 | Celery worker 池 |
+| Airflow 要不要裝爬蟲的依賴 | 要——它直接執行爬蟲程式 | 要——發任務仍要 import 任務物件 | **不要**——爬蟲程式只活在另一個容器裡 |
+| DAG 等不等爬完 | 等——爬完了 task 才變綠 | 不等——發送完就變綠 | 不等——producer 容器跑完就變綠 |
+| 需要的服務 | Airflow + MySQL | 再加 RabbitMQ + Celery worker | 再加 Docker socket 掛載 |
+
+**演進的主軸：Airflow 的責任一步一步變小。**
+
+- **串法一，Airflow 一手包辦**——指揮和執行都是它。最簡單、服務最少；代價是爬蟲吃掉它的執行資源，量一大，「編排」這個本業就顧不了。
+- **串法二，把「執行」交出去**——Airflow 只負責到點把任務發進佇列，爬的工作由 Celery worker 池消化。那個池子你第 3 章就會 scale，執行量再大也不拖累編排。
+- **串法三，把「發任務的程式」也交出去**——連 producer 都放進獨立容器跑，Airflow 不需要認識爬蟲的任何程式碼。爬蟲改版只需要重 build 爬蟲的 image，Airflow 完全不用動。
+
+三種不是互斥的選擇題，而是規模長大的三個階段。章末的決策表會再幫你收斂「什麼情況選哪個」。
 
 ---
 
@@ -106,7 +114,11 @@ docker exec mysql mysql -uroot -p1234 -e "CREATE DATABASE IF NOT EXISTS mydb"
 
 ---
 
-## 一行一行讀懂 `stock_crawler_dag`
+## 一步一步跟著做
+
+### 串法一：`stock_crawler_dag`（Airflow 直接爬）
+
+#### 先一行一行讀懂 `stock_crawler_dag`
 
 ```python
 from crawler.tasks_crawler_finmind import crawler_finmind
@@ -152,20 +164,7 @@ with DAG(
 - `trigger_rule="all_success"`：end 要等**全部**爬取成功才跑。
 - 依賴鏈 `start >> branch >> [10 個平行] >> end`：Graph 上就是一張扇形圖。
 
-> 對比 `stock_crawler_producer_dag`：幾乎一樣，只是 callable 換成一個發任務的小函式：
->
-> ```python
-> def trigger_stock_crawler(stock_id):
->     crawler_finmind.apply_async(kwargs={"stock_id": stock_id}, queue="twse")
-> ```
->
-> 一個函式之差，執行的地方就從「Airflow 裡面」變成「Celery worker 池」。**注意用的是 `apply_async(queue="twse")` 而不是 `.delay()`**：worker 池是第 3 章的分流版，只聽 `twse` / `tpex` 佇列——`.delay()` 發到預設佇列會沒有人消費，任務永遠卡在 RabbitMQ 裡。發任務時要跟 worker 聽的佇列對上，這是分流架構的紀律（清單裡十支都是上市標的，所以都進 `twse`）。
-
----
-
-## 一步一步跟著做
-
-### 串法一：`stock_crawler_dag`（Airflow 直接爬）
+#### 跑起來
 
 ```bash
 docker exec airflow-webserver airflow dags unpause stock_crawler_dag
@@ -254,6 +253,15 @@ docker exec mysql mysql -uroot -p1234 mydb -e \
 
 ### 串法二：`stock_crawler_producer_dag`（Airflow 指揮、Celery 執行）
 
+這支 DAG 跟串法一的 `stock_crawler_dag` 幾乎一樣，只是 callable 換成一個發任務的小函式：
+
+```python
+def trigger_stock_crawler(stock_id):
+    crawler_finmind.apply_async(kwargs={"stock_id": stock_id}, queue="twse")
+```
+
+一個函式之差，執行的地方就從「Airflow 裡面」變成「Celery worker 池」。**注意用的是 `apply_async(queue="twse")` 而不是 `.delay()`**：worker 池是第 3 章的分流版，只聽 `twse` / `tpex` 佇列——`.delay()` 發到預設佇列會沒有人消費，任務永遠卡在 RabbitMQ 裡。發任務時要跟 worker 聽的佇列對上，這是分流架構的紀律（清單裡十支都是上市標的，所以都進 `twse`）。
+
 worker 在準備段已經起了——`crawler_twse` 和 `crawler_tpex` 兩個容器，各自聽 `twse`／`tpex` 佇列（第 3 章的分流版）。直接觸發：
 
 ```bash
@@ -323,7 +331,7 @@ docker exec mysql mysql -uroot -p1234 mydb -e \
 
 **什麼時候選串法三？** 當爬蟲跟 Airflow 的依賴想徹底分離時：爬蟲換 Python 版本、加套件、改程式碼，都只要重 build 爬蟲 image，Airflow image 一動不動。代價是多管一個 image 和 docker.sock 掛載——第 11 章積木 4 講過的取捨，在真實 pipeline 再看一次。
 
-### 完整 ETL：`stock_crawler_etl_dag`
+## Bonus：完整 ETL——`stock_crawler_etl_dag`
 
 前面三種串法做的都是同一件事：把資料爬回來。這支 DAG 是本章第一支**多階段**的工作流——爬完資料之後，接著在資料庫裡把資料整理成分析用的表。整條流程長這樣：
 
@@ -382,7 +390,7 @@ docker exec mysql mysql -uroot -p1234 mydb -e \
 
 > ✅ 看到 `vw_stock_price_daily` 這個 VIEW 和 `stock_price_daily` 實體表，代表「爬取 → 清理 → 產出分析表」一條 DAG 全包了。這個 VIEW 正是第 8 章你在 Metabase 用過的那個——現在它由 Airflow 自動維護。
 
-### （選做）CeleryExecutor：讓 Airflow 把自己的 task 也交給 Celery
+## 補充：CeleryExecutor——讓 Airflow 把自己的 task 也交給 Celery
 
 上面所有串法，Airflow 自己都用 LocalExecutor（task 在 scheduler 容器的子行程跑）。生產環境常用 CeleryExecutor——Airflow 把**自己的 task** 丟進佇列、交給獨立的 Celery worker 執行，可跨機器水平擴充。你學過的 Celery 在這裡以「Airflow 的執行引擎」的身分再次出現。
 
