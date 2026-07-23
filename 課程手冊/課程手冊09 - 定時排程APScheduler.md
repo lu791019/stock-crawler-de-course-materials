@@ -66,7 +66,7 @@
 兩個補充：
 
 - crontab 還支援簡寫：`@hourly`（每小時）、`@daily`（每天 0 點）、`@reboot`（開機時跑一次）……crontab.guru 頁面下方就列著這些寫法。
-- **Windows 沒有 cron**：Windows 內建的對應工具是「工作排程器（Task Scheduler）」。WSL 裡的 Linux 有 `crontab` 指令，但 cron 服務預設不會啟動、WSL 一關排程也跟著停。所以本課不用系統 cron 排任務——排程放在 Python 層（本章的 APScheduler）或專門的排程服務（第 10 章的 Airflow），在哪個作業系統上行為都一致。
+- **Windows 沒有 cron**：Windows 內建的對應工具是「工作排程器（Task Scheduler）」。WSL 裡的 Linux 有 `crontab` 指令，但 cron 服務預設不會啟動、WSL 一關排程也跟著停。所以本課的**正式排程**不用系統 cron——排程放在 Python 層（本章的 APScheduler）或專門的排程服務（第 10 章的 Airflow），在哪個作業系統上行為都一致。不過 cron 值得實際跑一次：實作段的 Step 5 會用它做一次對照示範，讓你看到系統層排程真的在動（WSL 要先啟動 cron 服務，指令在該節）。
 
 ---
 
@@ -248,6 +248,56 @@ uv run crawler/scheduler_blocking.py
 
 在 `scheduler.start()` 後面加一行 `print("這行會執行嗎？")`，它**不會被印出**——因為 `start()` 卡住了主執行緒。這就是 blocking 的意思。
 
+### Step 5：對照示範——同一批任務，換系統的 cron 來發
+
+APScheduler 的版本跑過了，現在讓**作業系統的 cron** 做同一件事：每分鐘執行一次 print 版 producer，把任務發進 RabbitMQ。做完這一步，「系統層排程」和「程式內排程」兩種做法你就都實際跑過了。
+
+1. 確認 cron 服務在跑（Mac 內建、不用啟動；WSL / Ubuntu 用下面的指令）：
+
+```bash
+sudo service cron start
+service cron status    # 顯示 running 就可以了
+```
+
+2. 排一條每分鐘的工作。有兩個重點：cron 執行指令時的環境變數非常精簡，所以 `uv` 要寫**絕對路徑**（先用 `which uv` 查出你的路徑）；指令開頭要先 `cd` 進專案目錄，`crawler` 模組才找得到：
+
+```bash
+# 把「你的 uv 絕對路徑」換成 which uv 查到的結果
+echo '* * * * * cd ~/stock-crawler && /home/你的帳號/.local/bin/uv run python -m crawler.producer_crawler_finmind_print >> /tmp/cron_producer.log 2>&1' | crontab -
+
+crontab -l    # 確認排程真的排進去了
+```
+
+3. 等到下一個整分（cron 的最小單位是一分鐘，這是它做不到秒級的具體體驗）。時間到了看兩個地方：
+
+```bash
+tail /tmp/cron_producer.log
+# 會看到 producer 印出這一批發送的股票代碼：
+# 2330
+# 0050
+# 2317
+# ...
+```
+
+同時看 worker 的視窗：出現一批 `crawler_finmind_print` 任務 `received`、接著印出爬到的資料——**你沒有打任何指令，是 cron 到點幫你打的**。
+
+4. 看完就把排程清掉，不然它會每分鐘一直發：
+
+```bash
+crontab -r    # 移除目前使用者的全部 crontab 排程
+```
+
+兩個版本放在一起比較：
+
+| | cron 版（這一步）| APScheduler 版（Step 2）|
+|---|---|---|
+| 誰在計時 | 作業系統的 cron 服務 | 你的 Python 程式裡的排程器 |
+| 到點做什麼 | 執行一條 shell 指令（就是你以前手動打的 producer 指令）| 呼叫一個 Python 函式（`.delay()`）|
+| 最小時間單位 | 一分鐘 | 一秒（`second` 欄位）|
+| 程式關掉之後 | 排程還在——cron 是系統服務，跟你的程式無關 | 排程跟著消失——它跑在你的程式行程裡 |
+
+> 最後一列是 cron 的優勢：它不依賴你的程式活著。但它到點只能執行 shell 指令、拿不到程式裡的物件，秒級也做不到——這正是本章用 APScheduler 當主線、下一章再升級 Airflow 的原因。
+
 ---
 
 ## 檢查你是不是真的做到了
@@ -257,6 +307,7 @@ uv run crawler/scheduler_blocking.py
 | 1 | hello_world 的訊息每 5 秒固定出現一次 | 排程器真的在照設定的時間觸發工作 |
 | 2 | 你沒有手動執行 producer，任務仍然自動進了 RabbitMQ | 定時自動派送的機制成功運作 |
 | 3 | blocking 版在 `start()` 之後的程式碼不會被執行 | 你分得清 blocking 和 background 兩種排程器的差別 |
+| 4 | crontab 排的工作每到整分自動發任務、worker 收到 | 系統層的 cron 也能驅動同一條 pipeline，而且你體驗到它的一分鐘粒度限制 |
 
 ---
 
