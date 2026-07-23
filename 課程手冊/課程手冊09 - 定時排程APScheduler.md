@@ -89,11 +89,22 @@ sudo service cron start
 service cron status    # 顯示 running 就可以了
 ```
 
-**2. 排一條每分鐘的工作。** 有兩個重點：cron 執行指令時的環境變數非常精簡，所以 `uv` 要寫**絕對路徑**（先用 `which uv` 查出你的路徑）；指令開頭要先 `cd` 進專案目錄，`crawler` 模組才找得到：
+**2. 排一條每分鐘的工作。** cron 執行指令時的環境非常精簡：PATH 只有幾個系統目錄（找不到 `uv`）、工作目錄也不在專案裡（找不到 `crawler` 模組）。與其把落落長的指令塞進 crontab，實務的標準做法是**把要執行的內容包成一支腳本，crontab 只寫一行**——這正是前面說 cron「適合定時啟動 script」的原因。repo 已附好這支腳本 `example/cron_producer.sh`：
 
 ```bash
-# 把「你的 uv 絕對路徑」換成 which uv 查到的結果
-echo '* * * * * cd ~/stock-crawler && /home/你的帳號/.local/bin/uv run python -m crawler.producer_crawler_finmind_print >> /tmp/cron_producer.log 2>&1' | crontab -
+#!/bin/bash
+# 把 uv 所在的目錄加進 PATH（cron 的 PATH 找不到它）
+export PATH="$HOME/.local/bin:$PATH"
+# 進入專案根目錄（此腳本位於 example/，上一層就是專案根目錄）
+cd "$(dirname "$0")/.." || exit 1
+# 發送一批 print 版任務（worker 收到後只印出、不寫資料庫）
+uv run python -m crawler.producer_crawler_finmind_print
+```
+
+髒細節都被腳本吸收了，crontab 排程就是乾淨的一行、不需要改任何路徑：
+
+```bash
+echo '* * * * * ~/stock-crawler/example/cron_producer.sh >> /tmp/cron_producer.log 2>&1' | crontab -
 
 crontab -l    # 確認排程真的排進去了
 ```
