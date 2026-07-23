@@ -44,66 +44,7 @@
 
 ---
 
-## 一行一行讀懂 `stock_crawler_dag`
-
-```python
-from crawler.tasks_crawler_finmind import crawler_finmind
-
-STOCK_IDS = ["2330", "2317", "2454", "2308", "2382",
-             "0050", "0056", "00713", "00878", "006208"]
-
-with DAG(
-    dag_id="stock_crawler_dag",
-    schedule_interval="0 18 * * 1-5",   # 週一到週五 18:00（收盤後）
-    catchup=False,
-    max_active_runs=1,
-    tags=["stock", "crawler", "finmind"],
-) as dag:
-
-    start_task = BashOperator(task_id="start_crawler",
-                              bash_command="echo 開始執行台股爬蟲任務...")
-    stock_branch = DummyOperator(task_id="stock_branch")
-
-    stock_tasks = []
-    for stock_id in STOCK_IDS:
-        task = PythonOperator(
-            task_id=f"crawl_stock_{stock_id}",
-            python_callable=crawler_finmind,   # 直接呼叫我們寫的爬蟲
-            op_args=[stock_id],
-        )
-        stock_tasks.append(task)
-
-    end_task = BashOperator(task_id="end_crawler",
-                            bash_command="echo 完成！",
-                            trigger_rule="all_success")
-
-    start_task >> stock_branch >> stock_tasks >> end_task
-```
-
-逐段白話：
-
-- `schedule_interval="0 18 * * 1-5"`：**週一到週五下午 6 點**（台股收盤後）自動跑。這正是取代第 9 章 APScheduler 的位置，但多了歷史、依賴、補跑、UI。
-- `max_active_runs=1`：同時最多一個 run 在跑，避免上一輪還沒完下一輪又開。
-- **用 for 迴圈生 task**：10 支股票 = 10 個 `PythonOperator`，跟第 1 章 producer 的 for 迴圈異曲同工——只是這次生的是「DAG 的步驟」而不是「佇列訊息」。
-- `python_callable=crawler_finmind`：直接掛你第 5 章寫的函式。**注意掛的是函式本身**（沒有括號、沒有 .delay）——Airflow 的 worker 到時會自己呼叫它。
-- `op_args=[stock_id]`：呼叫 `python_callable` 時要帶進去的**參數清單**。因為上一條掛的是「函式本身」不能加括號，參數就得另外給——到時 Airflow 執行的效果等於 `crawler_finmind(stock_id)`。字典形式的版本是 `op_kwargs={"stock_id": stock_id}`，等於 `crawler_finmind(stock_id=stock_id)`。
-- `trigger_rule="all_success"`：end 要等**全部**爬取成功才跑。
-- 依賴鏈 `start >> branch >> [10 個平行] >> end`：Graph 上就是一張扇形圖。
-
-> 對比 `stock_crawler_producer_dag`：幾乎一樣，只是 callable 換成一個發任務的小函式：
->
-> ```python
-> def trigger_stock_crawler(stock_id):
->     crawler_finmind.apply_async(kwargs={"stock_id": stock_id}, queue="twse")
-> ```
->
-> 一個函式之差，執行的地方就從「Airflow 裡面」變成「Celery worker 池」。**注意用的是 `apply_async(queue="twse")` 而不是 `.delay()`**：worker 池是第 3 章的分流版，只聽 `twse` / `tpex` 佇列——`.delay()` 發到預設佇列會沒有人消費，任務永遠卡在 RabbitMQ 裡。發任務時要跟 worker 聽的佇列對上，這是分流架構的紀律（清單裡十支都是上市標的，所以都進 `twse`）。
-
----
-
-## 一步一步跟著做
-
-### 準備：把需要的服務全部起來
+## 前置準備：把需要的服務全部起來
 
 這一章的服務全部從你用了一整路的 `docker-compose-local.yml` 起——**MySQL 的資料也直接延續前面章節爬進去的那一份**。Airflow 是另一份 compose 檔起的容器，預設連不到這邊的服務（兩份 compose 各自有私有網路、名字互相解析不到）；解法是建一張兩邊共用的網路 `my_network`，把 Airflow 要連的容器掛上去。
 
@@ -162,6 +103,67 @@ docker compose -f airflow/docker-compose-airflow.yml up -d
 ```bash
 docker exec mysql mysql -uroot -p1234 -e "CREATE DATABASE IF NOT EXISTS mydb"
 ```
+
+---
+
+## 一行一行讀懂 `stock_crawler_dag`
+
+```python
+from crawler.tasks_crawler_finmind import crawler_finmind
+
+STOCK_IDS = ["2330", "2317", "2454", "2308", "2382",
+             "0050", "0056", "00713", "00878", "006208"]
+
+with DAG(
+    dag_id="stock_crawler_dag",
+    schedule_interval="0 18 * * 1-5",   # 週一到週五 18:00（收盤後）
+    catchup=False,
+    max_active_runs=1,
+    tags=["stock", "crawler", "finmind"],
+) as dag:
+
+    start_task = BashOperator(task_id="start_crawler",
+                              bash_command="echo 開始執行台股爬蟲任務...")
+    stock_branch = DummyOperator(task_id="stock_branch")
+
+    stock_tasks = []
+    for stock_id in STOCK_IDS:
+        task = PythonOperator(
+            task_id=f"crawl_stock_{stock_id}",
+            python_callable=crawler_finmind,   # 直接呼叫我們寫的爬蟲
+            op_args=[stock_id],
+        )
+        stock_tasks.append(task)
+
+    end_task = BashOperator(task_id="end_crawler",
+                            bash_command="echo 完成！",
+                            trigger_rule="all_success")
+
+    start_task >> stock_branch >> stock_tasks >> end_task
+```
+
+逐段白話：
+
+- `schedule_interval="0 18 * * 1-5"`：**週一到週五下午 6 點**（台股收盤後）自動跑。這正是取代第 9 章 APScheduler 的位置，但多了歷史、依賴、補跑、UI。
+- `max_active_runs=1`：同時最多一個 run 在跑，避免上一輪還沒完下一輪又開。
+- **用 for 迴圈生 task**：10 支股票 = 10 個 `PythonOperator`，跟第 1 章 producer 的 for 迴圈異曲同工——只是這次生的是「DAG 的步驟」而不是「佇列訊息」。
+- `python_callable=crawler_finmind`：直接掛你第 5 章寫的函式。**注意掛的是函式本身**（沒有括號、沒有 .delay）——Airflow 的 worker 到時會自己呼叫它。
+- `op_args=[stock_id]`：呼叫 `python_callable` 時要帶進去的**參數清單**。因為上一條掛的是「函式本身」不能加括號，參數就得另外給——到時 Airflow 執行的效果等於 `crawler_finmind(stock_id)`。字典形式的版本是 `op_kwargs={"stock_id": stock_id}`，等於 `crawler_finmind(stock_id=stock_id)`。
+- `trigger_rule="all_success"`：end 要等**全部**爬取成功才跑。
+- 依賴鏈 `start >> branch >> [10 個平行] >> end`：Graph 上就是一張扇形圖。
+
+> 對比 `stock_crawler_producer_dag`：幾乎一樣，只是 callable 換成一個發任務的小函式：
+>
+> ```python
+> def trigger_stock_crawler(stock_id):
+>     crawler_finmind.apply_async(kwargs={"stock_id": stock_id}, queue="twse")
+> ```
+>
+> 一個函式之差，執行的地方就從「Airflow 裡面」變成「Celery worker 池」。**注意用的是 `apply_async(queue="twse")` 而不是 `.delay()`**：worker 池是第 3 章的分流版，只聽 `twse` / `tpex` 佇列——`.delay()` 發到預設佇列會沒有人消費，任務永遠卡在 RabbitMQ 裡。發任務時要跟 worker 聽的佇列對上，這是分流架構的紀律（清單裡十支都是上市標的，所以都進 `twse`）。
+
+---
+
+## 一步一步跟著做
 
 ### 串法一：`stock_crawler_dag`（Airflow 直接爬）
 
