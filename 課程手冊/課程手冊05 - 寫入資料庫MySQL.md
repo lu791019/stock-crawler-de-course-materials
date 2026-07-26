@@ -54,7 +54,7 @@
 | 常見系統 | 電商訂單系統、銀行交易系統 | 商業智慧報表、數據倉庫、趨勢分析 |
 | 常見工具 | MySQL、PostgreSQL、SQL Server | BigQuery、Snowflake、Redshift |
 
-這一章做的是 OLTP——爬蟲一筆一筆把資料寫進 MySQL；到第 14 章會把資料搬進 BigQuery 做 OLAP 分析，兩邊你都會摸到。
+這一章做的是 OLTP——爬蟲一筆一筆把資料寫進 MySQL；到第 15 章會把資料搬進 BigQuery 做 OLAP 分析，兩邊你都會摸到。
 
 ### 資料的三種型態、熱與冷
 
@@ -85,7 +85,7 @@
 - **維度表（Dimension Table）**：放「描述性資訊」——股票基本資料（名稱、產業別）、日期屬性（星期幾、是否月底）
 - 事實表在中間、維度表圍在四周，畫出來像一顆星星，因此得名。分析時用 JOIN 把維度接上事實，就能回答「半導體類股每月平均成交量」這種跨維度的問題
 
-進階還有雪花 Schema（維度再正規化）、SCD（維度緩慢變化的處理）。現在先認識名字，第 14 章 BigQuery 與之後的維度建模補強會再回來。
+進階還有雪花 Schema（維度再正規化）、SCD（維度緩慢變化的處理）。現在先認識名字，第 15 章 BigQuery 與之後的維度建模補強會再回來。
 
 ### 更大的世界：大數據與現代資料棧（先認識名字就好）
 
@@ -408,7 +408,7 @@ print(df)
 "
 ```
 
-> 💡 `to_sql` 是「DataFrame → 資料表」，`read_sql` 就是反方向「查詢結果 → DataFrame」。之後第 14 章把 MySQL 資料搬去 BigQuery，用的正是 `read_sql` 這一招。
+> 💡 `to_sql` 是「DataFrame → 資料表」，`read_sql` 就是反方向「查詢結果 → DataFrame」。之後第 15 章把 MySQL 資料搬去 BigQuery，用的正是 `read_sql` 這一招。
 
 ### Step 8：故意重跑一次，觀察「重複」
 
@@ -454,7 +454,7 @@ docker compose -f docker-compose-local.yml logs worker_twse | grep -E "saved|suc
 
 ## 補充：SQLAlchemy 完整指南（原理、參數、看見它背後做的事）
 
-本章的程式碼只用到 SQLAlchemy 的一小角。這一節把它攤開講清楚——之後不管接 FastAPI（補充B）、寫測試（補充C）還是搬 BigQuery（第 14 章），你都會一直遇到它。
+本章的程式碼只用到 SQLAlchemy 的一小角。這一節把它攤開講清楚——之後不管接 FastAPI（補充B）、寫測試（補充C）還是搬 BigQuery（第 15 章），你都會一直遇到它。
 
 ### SQLAlchemy 在整條路的哪一層
 
@@ -562,7 +562,7 @@ df.to_sql("TaiwanStockPrice", con=engine, if_exists="append", index=False)
 | `chunksize` | 每批寫幾筆（預設一次全寫） | 大 DataFrame（十萬筆以上）建議設 1000~5000，避免單一巨大 INSERT 撐爆記憶體 |
 | `method` | `None` 逐筆 INSERT / `"multi"` 多筆合併成一句 INSERT | 資料量大時 `"multi"` + `chunksize` 通常快很多 |
 
-`read_sql` 是反方向的兄弟：`pd.read_sql("SELECT ...", con=engine)` 把查詢結果直接變 DataFrame——第 14 章把 MySQL 搬進 BigQuery，用的正是它。
+`read_sql` 是反方向的兄弟：`pd.read_sql("SELECT ...", con=engine)` 把查詢結果直接變 DataFrame——第 15 章把 MySQL 搬進 BigQuery，用的正是它。
 
 ### 打開黑盒子：echo=True 看它做了什麼
 

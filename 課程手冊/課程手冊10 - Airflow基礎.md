@@ -267,7 +267,7 @@ with DAG(
   | `BashOperator` | 執行一行 bash 指令 | 從本章開始全程使用 |
   | `DummyOperator` | 不做事，用來佔位和整理圖形 | 第 11 章的積木範例 |
   | `DockerOperator` | 臨時起一個容器來執行任務 | 第 11 章介紹、第 12 章實戰 |
-  | GCP / AWS / Azure 系列 | 串接各家雲端服務 | 第 14 章的 BigQuery |
+  | GCP / AWS / Azure 系列 | 串接各家雲端服務 | 第 15 章的 BigQuery |
   | Slack / Email 系列 | 發送通知訊息 | 本課沒有用到，知道有這類積木就好 |
 
   這個生態系是 Airflow 的護城河之一：大部分「跟外部系統對接」的步驟都有現成積木，不用自己造。

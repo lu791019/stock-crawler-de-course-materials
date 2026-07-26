@@ -1,8 +1,8 @@
-# 第 14 章：把資料搬進雲端倉儲 — MySQL → BigQuery（OLTP → OLAP）
+# 第 15 章：把資料搬進雲端倉儲 — MySQL → BigQuery（OLTP → OLAP）
 
 > 這一章教「為什麼 MySQL 不夠」。你會把股價同步進雲端資料倉儲 BigQuery，並在上面做真正的分析（算移動平均、每日漲跌統計）。
 
-> ⚠️ 這一章的實作需要 GCP（Google Cloud）帳號與憑證。**課堂的教學順序是：先上第 15 章完成 GCP 開通（註冊帳號、建立專案、服務帳戶與金鑰、費用警示），再回來做本章的實作。** 所以現在讀到這裡的你有兩種情況：還沒開通 GCP 的話，先讀懂「資料怎麼流」和觀念段，實作等第 15 章開通完成後回來做；已經有 GCP 帳號的話，可以直接照下面的步驟做。
+> ⚠️ 這一章的實作需要 GCP（Google Cloud）帳號與憑證。**課堂的教學順序是：先上第 14 章完成 GCP 開通（註冊帳號、建立專案、服務帳戶與金鑰、費用警示），再回來做本章的實作。** 所以現在讀到這裡的你有兩種情況：還沒開通 GCP 的話，先讀懂「資料怎麼流」和觀念段，實作等第 14 章開通完成後回來做；已經有 GCP 帳號的話，可以直接照下面的步驟做。
 
 ---
 
@@ -122,14 +122,14 @@ FROM vw_stock_price_daily
 
 ## 一步一步跟著做（需 GCP）
 
-> 還沒開通 GCP 的話先跳過實作、只讀觀念——第 15 章開通完成後再回來做。
+> 還沒開通 GCP 的話先跳過實作、只讀觀念——第 14 章開通完成後再回來做。
 
 ### Step 1：準備 GCP 環境
 
-GCP 帳號註冊、建立專案、建立服務帳戶（Service Account）與下載 JSON 金鑰，這些**在第 15 章都已經完成**。本章只需要補上 BigQuery 專屬的三件事：
+GCP 帳號註冊、建立專案、建立服務帳戶（Service Account）與下載 JSON 金鑰，這些**在第 14 章都已經完成**。本章只需要補上 BigQuery 專屬的三件事：
 
-1. 在 GCP 專案裡**開啟 BigQuery API**（第 15 章開的是 Compute Engine 的 API，每個服務的 API 要各自啟用）。
-2. 幫第 15 章建立的服務帳戶**加上 BigQuery 權限**（BigQuery Data Editor 與 BigQuery Job User 兩個角色）。
+1. 在 GCP 專案裡**開啟 BigQuery API**（第 14 章開的是 Compute Engine 的 API，每個服務的 API 要各自啟用）。
+2. 幫第 14 章建立的服務帳戶**加上 BigQuery 權限**（BigQuery Data Editor 與 BigQuery Job User 兩個角色）。
 3. 設定憑證環境變數指向你的金鑰，並在 `config.py` 取消 `GCP_PROJECT_ID` 的註解、填你的專案 ID：
 
 ```bash
