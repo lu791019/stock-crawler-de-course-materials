@@ -1,0 +1,31 @@
+# CI 流程（手冊18）：每次 push 自動跑測試——補充C 寫的測試在這裡變成上線守門員
+#
+# 觸發時機：push 到 main、或對 main 開 Pull Request
+# 執行環境：GitHub 免費提供的 ubuntu 虛擬機（跑完即丟，跟 DockerOperator 的臨時容器同哲學）
+#
+# 這是教學版，只做 CI 的第一步「自動測試」。完整版還會接：
+#   測試通過 → docker build → push 到 Artifact Registry → 逐台換版（第 17 章的發佈流程全自動化）
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 把 repo 抓下來（等於 git clone）
+      - uses: actions/checkout@v4
+
+      # 2. 裝 uv（跟你本機、VM、Docker image 用同一套工具）
+      - uses: astral-sh/setup-uv@v5
+
+      # 3. 還原依賴（--frozen：完全照 uv.lock，跟 Dockerfile 同一招——環境可重現）
+      - run: uv sync --frozen
+
+      # 4. 跑單元測試。integration 標記的測試需要真實 MySQL，CI 環境沒有，明確排除
+      #    （tests/ 的設計是沒 MySQL 會自動 skip，這裡用 -m 排除讓意圖更明白）
+      - run: uv run pytest tests/ -m "not integration" -v
