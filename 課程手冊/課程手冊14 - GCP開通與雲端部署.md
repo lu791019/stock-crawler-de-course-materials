@@ -25,6 +25,88 @@
 
 雲端解決這三件事：Google 機房裡的機器 24 小時開著、有公網 IP、規格隨租隨換。代價是按用量付費——所以「用完就關」的習慣跟技術本身一樣重要，本章會一起教。
 
+### 什麼是雲端運算（Cloud Computing）
+
+定義：透過網路，隨需取得運算資源（伺服器、儲存空間、資料庫、AI 工具）。你不需要購買和管理硬體設備，也不需要自己搭建系統，直接使用包裝好的服務。一句話：**雲端＝你不必買伺服器，隨時租用需要的資源**。
+
+四個核心特性：
+
+| 特性 | 意思 |
+|------|------|
+| 隨需自助（On-demand self-service） | 要開機器自己按按鈕就有，不用等採購、不用等別人審批 |
+| 彈性伸縮（Scalability & Elasticity） | 規格與數量跟著需求放大縮小，尖峰加、離峰減 |
+| 按使用量付費（Pay-as-you-go） | 用多少付多少，不用先買下整台機器 |
+| 全球可用性（Global availability） | 世界各地的資料中心任你選，把服務放在離用戶近的地方 |
+
+### 傳統 IT vs 雲端
+
+| 面向 | 傳統 IT | 雲端 |
+|------|---------|------|
+| 成本 | 高額前期投資 | 按需付費 |
+| 建置時間 | 需數週到數月 | 幾分鐘可建立 VM / DB |
+| 彈性 | 資源固定，升級要買新硬體 | 彈性擴縮，流量高峰加資源 |
+| 維運 | 自行管理硬體、冷氣、網路 | 由雲端供應商負責維護 |
+| 擴展 | 地區受限、機房空間有限 | 全球資料中心，快速部署 |
+| 人力 | 硬體、網路、電源、溫控、資安都要人 | 重心移到 SRE、雲端工程師、雲端架構師 |
+| 安全性 | 資料自己掌握、穩定度自行負責 | 由雲端供應商的工程團隊維護基礎設施安全 |
+
+### 三種服務模式：IaaS / PaaS / SaaS
+
+差別在「你管多少、供應商管多少」。三種模式在這門課全都會用到：
+
+| 模式 | 供應商提供 | 你負責 | 課程對應 |
+|------|-----------|--------|---------|
+| IaaS（Infrastructure as a Service） | 基礎設施：VM、儲存、網路 | OS 以上全部自己來（裝 Docker、跑程式） | **Compute Engine**——本章開的 VM |
+| PaaS（Platform as a Service） | 平台與執行環境 | 只管程式和資料，不管底層機器 | **BigQuery**（第 15 章）、**Cloud Composer**（第 18 章） |
+| SaaS（Software as a Service） | 完整應用程式，開瀏覽器直接用 | 只管使用，不裝不維護 | **Looker Studio**（第 15 章）、Gmail |
+
+方向感：越往 IaaS 自由度越高、要管的越多；越往 SaaS 越省事、可調整的越少。這個取捨會貫穿整個雲端段——第 16 章「自架 MySQL 容器 vs 託管 Cloud SQL」、第 18 章「自架 Airflow vs Composer」都是同一道選擇題。
+
+### 三朵雲：AWS、Azure、GCP
+
+市場上最常見的三家公有雲：
+
+| | AWS（Amazon） | Azure（Microsoft） | GCP（Google） |
+|---|--------------|-------------------|---------------|
+| 定位 | 最早（2006）、市佔最大、服務與生態最完整 | 企業市場強，與 Windows／AD／Microsoft 365 深度整合 | 資料分析與 AI 工具最強，網路品質好 |
+| 常見使用者 | 新創到大型企業都多 | 原本就用微軟體系的企業 | 資料團隊、AI 應用、新創 |
+
+其他還有阿里雲（中國市場為主）、Oracle Cloud 等，概念相同、市佔較小。
+
+**三朵雲的核心概念完全相同**——VM、託管資料庫、物件儲存、資料倉儲每家都有，學會一朵、換一朵只是查服務名稱。同角色服務對照：
+
+| 角色 | GCP | AWS | Azure |
+|------|-----|-----|-------|
+| 虛擬機 | Compute Engine | EC2 | Virtual Machines |
+| 託管關聯式資料庫 | Cloud SQL | RDS | Azure SQL Database |
+| 物件儲存 | Cloud Storage | S3 | Blob Storage |
+| 資料倉儲 | BigQuery | Redshift | Synapse Analytics |
+| 託管 Airflow | Cloud Composer | MWAA | Data Factory（角色近似） |
+| Serverless 函數 | Cloud Functions | Lambda | Azure Functions |
+| 託管 Kubernetes | GKE | EKS | AKS |
+
+課程選 GCP 的理由：$300 試用額度好上手、資料中心就在台灣（asia-east1 彰化）、資料工程課的重點服務 BigQuery 是它的招牌、BI 工具 Looker Studio 免費。
+
+### GCP 是什麼、有哪些常見服務
+
+GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、資料、AI、網路、安全等完整解決方案。特色：
+
+- 與 Google 自家服務（YouTube、Search、Gmail）跑在同一套基礎架構上
+- 資料中心遍布北美、歐洲、亞洲（含台灣）、南美洲、澳洲，之間用 Google 專屬光纖網路連接
+- 資料多區備援，避免單點故障；使用者選離客戶最近的區域來降低延遲
+
+服務分類與課程對應（粗體＝課程會用到）：
+
+| 分類 | 代表服務 | 課程對應 |
+|------|---------|---------|
+| 運算 Compute | **Compute Engine**（IaaS VM）、GKE（託管 K8s）、Cloud Run（跑容器的 Serverless）、App Engine、Cloud Functions | GCE：本章 |
+| 儲存與資料庫 | **Cloud SQL**（託管 MySQL/PostgreSQL/SQL Server）、**Cloud Storage**（物件儲存：檔案、備份）、Firestore（NoSQL，角色近 MongoDB）、Bigtable（超大規模 NoSQL） | Cloud SQL：第 16 章 |
+| 資料分析與工程 | **BigQuery**（全託管資料倉儲）、**Cloud Composer**（全託管 Airflow）、**Looker Studio**（免費 BI）、Dataflow（託管 ETL／串流）、Dataproc（託管 Hadoop/Spark）、Pub/Sub（訊息佇列，角色近課程的 RabbitMQ） | BigQuery：第 15 章；Composer：第 18 章；Looker Studio：第 15 章 |
+| 網路 | **Cloud Load Balancing**、**防火牆規則**、Cloud DNS、Cloud CDN | 防火牆：本章；LB：第 17 章 |
+| 身分與安全 | **IAM**（誰能做什麼）、**Secret Manager**（機密管理）、KMS | 第 18 章 |
+
+選型的方向跟第 5 章學過的一樣：物件檔案放 Cloud Storage、交易型資料放 Cloud SQL（OLTP）、分析放 BigQuery（OLAP）、非關聯式選 Firestore／Bigtable——資料庫的分工概念不變，只是每種分工在雲端變成一個獨立產品。
+
 ### GCP 的層級心智圖
 
 ```
@@ -42,6 +124,7 @@ Google 帳號（你的 Gmail）
 1. **試用期間不會被收費**。$300 美元額度、90 天內有效；額度用完或到期，帳戶只會停用，不會扣你的卡
 2. **「啟用完整帳戶」按鈕是付費的開關**。只有你主動按下它，超出額度的用量才會真的向卡片收費。課程期間不要按
 3. 運算費只在 VM 開機時計；磁碟費開關機都收，但很小（20GB 約每月 NT$25）
+4. 想在開資源前先估價，用官方的 **Pricing Calculator**（cloud.google.com/products/calculator）：選服務、填規格，直接給你每月預估金額
 
 ## 一步一步
 
@@ -463,6 +546,14 @@ gcloud compute instances list    # 記下新的 EXTERNAL_IP
 防火牆規則綁的是標籤不是 IP，開機後不用重設；要換的只有你瀏覽器裡的網址。
 
 ## Console 介面對照：滑鼠版操作
+
+先認識 Console 本身。Console（console.cloud.google.com）是 GCP 的網頁控制台，頂部列從左到右：
+
+- 「**≡**」導覽選單：所有服務的入口，本章用過的 Compute Engine、IAM、帳單都從這裡進
+- **專案選擇器**：顯示目前所在的專案，點它切換——排錯第一步永遠先看這裡
+- **搜尋框**：直接打服務名或資源名跳過去（快捷鍵 `/`）
+- **Cloud Shell 圖示**（>_）：瀏覽器裡的終端機，已預裝 gcloud——臨時在別台電腦上沒有 CLI 環境時可以用它
+- **鈴鐺**：通知中心，建立專案、建立 VM 的完成通知都在這
 
 Part F 到收工用的都是 gcloud 指令。同樣的事在 GCP Console 網頁上也全部做得到——這一節把每個指令對應的介面路徑走一遍。兩者的關係：**指令能複製、能重跑、能寫進腳本；介面能看到所有選項和即時費用**。建議第一次用介面建立來理解每個欄位，之後日常操作用指令。
 
