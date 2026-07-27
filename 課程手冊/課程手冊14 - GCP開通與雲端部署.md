@@ -236,7 +236,7 @@ gcloud projects list    # 列得出你的專案就通了
 先搞懂：
 
 - **GCE（Compute Engine）就是租一台雲端電腦**，跟你本機的 VM 概念相同，差別是它在 Google 機房、24 小時在網路上、有公網 IP
-- 機型 `e2-standard-2` = e2 系列（經濟型）＋ standard（標準記憶體比）＋ 2 顆 vCPU（8GB RAM）。全套 13 個容器需要 8GB；只跑部分服務可以選更小的機型
+- 機型 `e2-standard-2` = e2 系列（經濟型）＋ standard（標準記憶體比）＋ 2 顆 vCPU（8GB RAM）。全套 12 個容器需要 8GB；只跑部分服務可以選更小的機型
 - 費用：`e2-standard-2` 開機時約 NT$2.4／小時，停機後歸零
 
 **F-1 啟用 Compute Engine API**
@@ -320,13 +320,16 @@ sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .
 
 compose-all 裡三個 Airflow 容器用的 `stock-airflow:latest` 是課程自製 image，不在 Docker Hub 上，`up` 之前必須先在這台機器 build 出來。耗時約 3-4 分鐘，完成後 `sudo docker images | grep stock-airflow` 看得到（約 3GB）。
 
-**G-3 全套啟動**
+**G-3 全套啟動（雲端不跑 Metabase）**
 
 ```bash
-sudo docker compose -f docker-compose-all.yml up -d --build
+sudo docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
 ```
 
-`--build` 順便建好兩個 crawler worker 的 image；其餘 image 自動從 Docker Hub 拉。第一次啟動約 3-5 分鐘。
+- `--build` 順便建好兩個 crawler worker 的 image；其餘 image 自動從 Docker Hub 拉。第一次啟動約 3-5 分鐘
+- `--scale metabase=0` 的意思是「metabase 這個服務這次開 0 份」＝完全不啟動它。**雲端段不跑 Metabase**，原因有二：
+  1. BI 的角色在雲端段由 **Looker Studio** 接手（第 15 章的 Bonus 會教，它有內建的 BigQuery 連接器）。第 8 章的本機 Metabase 保留不動，正好形成「自架 BI vs 託管 BI」的對照
+  2. Metabase 是 Java 應用，一個容器就要 1GB 記憶體，而且啟動時常搶不到還沒就緒的 MySQL 而失敗——雲端 demo 用不到它，就不花這個資源
 
 **G-4 驗證（第 13 章的七步驟，雲端版）**
 
@@ -336,17 +339,17 @@ Step 1 容器狀態：
 sudo docker compose -f docker-compose-all.yml ps -a
 ```
 
-預期：12 個 Up（rabbitmq／mysql／airflow-postgres 帶 healthy）＋ `airflow-init Exited (0)`（一次性初始化，跑完就退場）。
+預期：11 個 Up（rabbitmq／mysql／airflow-postgres 帶 healthy）＋ `airflow-init Exited (0)`（一次性初始化，跑完就退場）。metabase 因為 `--scale metabase=0` 不在清單裡是正常的。
 
 Step 2 Web 介面（先在 VM 內驗證）：
 
 ```bash
-for p in 15672 5555 8080 8081 3000 8082; do
+for p in 15672 5555 8080 8081 8082; do
   curl -s -o /dev/null -w "$p: %{http_code}\n" http://localhost:$p
 done
 ```
 
-判讀：`200` 正常；8081 回 `302` 是轉登入頁、8082 回 `401` 是要求帳密，都算活著；只有 `000`（連不上）或 `5xx` 才是問題。Metabase（3000）開機要一兩分鐘，回 `000` 先等再試。
+判讀：`200` 正常；8081 回 `302` 是轉登入頁、8082 回 `401` 是要求帳密，都算活著；只有 `000`（連不上）或 `5xx` 才是問題。
 
 Step 3 logs 判讀：
 
@@ -404,7 +407,7 @@ curl -4 ifconfig.me
 
 # 建立規則：六個 Web UI port、來源限自己的 IP、掛標籤
 gcloud compute firewall-rules create allow-stock-web \
-  --allow=tcp:15672,tcp:5555,tcp:8080,tcp:8081,tcp:3000,tcp:8082 \
+  --allow=tcp:15672,tcp:5555,tcp:8080,tcp:8081,tcp:8082 \
   --source-ranges=你的IP/32 \
   --target-tags=stock-web
 
@@ -420,7 +423,6 @@ gcloud compute instances add-tags stock-crawler-vm --tags=stock-web --zone=asia-
 | 5555 | Flower | 免登入 |
 | 15672 | RabbitMQ | worker / worker |
 | 8080 | phpMyAdmin | root / 1234 |
-| 3000 | Metabase | 首次進入走設定精靈 |
 | 8082 | mongo-express | admin / pass |
 
 ![雲端 Airflow 登入頁](images/ch14/32-雲端Airflow登入頁.jpg)
@@ -492,7 +494,7 @@ Part F 到收工用的都是 gcloud 指令。同樣的事在 GCP Console 網頁�
 
 ### 對照 Part H：用 Console 看防火牆規則
 
-- 路徑：「≡」選單 →「**網路安全性**」→「**防火牆政策**」，頁面下方的「**虛擬私有雲防火牆規則**」清單就是 CLI 建立的規則所在——看得到 `allow-stock-web`（目標 stock-web、通訊埠 tcp:3000, 5555, 8080, 8081, 8082, 15672、動作允許）。點規則名稱進去可以改 port、來源 IP 範圍、目標標籤，每個欄位對應 `firewall-rules create` 的一個參數
+- 路徑：「≡」選單 →「**網路安全性**」→「**防火牆政策**」，頁面下方的「**虛擬私有雲防火牆規則**」清單就是 CLI 建立的規則所在——看得到 `allow-stock-web`（目標 stock-web、通訊埠 tcp:5555, 8080, 8081, 8082, 15672、動作允許）。點規則名稱進去可以改 port、來源 IP 範圍、目標標籤，每個欄位對應 `firewall-rules create` 的一個參數
 - 頁面開頭的官方說明值得念一次：「根據預設，所有傳入指定網路的流量都會遭到封鎖」——這就是 Part H 開頭講的「port 要自己開」
 
 ![防火牆規則清單，看得到 allow-stock-web](images/ch14/45-Console-防火牆規則清單.jpg)
@@ -539,7 +541,6 @@ Part F 到收工用的都是 gcloud 指令。同樣的事在 GCP Console 網頁�
 | 第一次 SSH 出現 Permission denied | SSH 金鑰還在生效中 | 等 30 秒重跑 |
 | `up` 報 stock-airflow image 不存在 | 還沒在這台 VM build 過 | `sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .` |
 | 瀏覽器連 Web 介面轉圈圈到逾時 | 防火牆沒開該 port，或 IP 不在 source-ranges 裡 | 檢查規則的 port 清單與 `curl -4 ifconfig.me` 的目前 IP |
-| 瀏覽器連 3000 被拒絕、`docker ps` 沒有 metabase | Metabase 首次啟動時 MySQL 還沒就緒，初始化失敗退出 | `sudo docker start metabase`，等一兩分鐘再連 |
 | 停機再開機後原網址連不上 | 外部 IP 換了 | `gcloud compute instances list` 查新 IP |
 
 ## 本章總結
