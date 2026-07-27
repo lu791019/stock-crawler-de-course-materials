@@ -8,7 +8,8 @@ from google.cloud import bigquery
 from google.cloud.bigquery import SchemaField, LoadJobConfig, WriteDisposition
 
 # 使用 GCP 時取消以下兩行註解，並確認 config.py 的 GCP_PROJECT_ID 已取消註解
-from crawler.config import GCP_PROJECT_ID as PROJECT_ID
+# from crawler.config import GCP_PROJECT_ID as PROJECT_ID
+PROJECT_ID = "your-project-id"
 
 DATASET_ID = "stock"
 
