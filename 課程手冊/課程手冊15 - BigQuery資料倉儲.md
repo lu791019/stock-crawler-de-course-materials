@@ -205,7 +205,18 @@ uv run crawler/stock_bigquery_data_transform.py
 
 ## Bonus：用 Looker Studio 把 BigQuery 畫成走勢圖
 
-第 8 章用 Metabase 接本機 MySQL 畫圖；雲端這一段的 BI 角色由 **Looker Studio** 接手——Google 的免費 SaaS BI 工具，不用安裝任何東西，內建 BigQuery 連接器。這正是第 14 章講的 SaaS：打開瀏覽器就能用，你只管使用、不管維護。
+第 8 章用 Metabase 接本機 MySQL 畫圖；雲端這一段的 BI 角色由 **Looker Studio** 接手——Google 的免費 SaaS BI 工具，不用安裝任何東西，內建 BigQuery 連接器。
+
+先分清楚兩個工具誰做什麼——這是本機「MySQL → Metabase」關係的雲端翻版：
+
+| | BigQuery | Looker Studio |
+|---|---|---|
+| 角色 | 倉儲＋查詢引擎：存資料、跑 SQL、算 View | BI 視覺化：拉圖表、拼儀表板 |
+| 你操作它的方式 | SQL（查詢編輯器／bq／Python） | 滑鼠拖拉，不用寫程式 |
+| 誰連誰 | 被連的資料源 | 用內建連接器去連 BigQuery |
+| 費用 | 按掃描量計費（有免費額度） | 工具本身免費；它發出的查詢照左邊計費 |
+
+BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板——要圖表就交給 Looker Studio。這正是第 14 章講的 SaaS：打開瀏覽器就能用，你只管使用、不管維護。
 
 > 注意：Looker Studio 已更名為「數據分析」，介面上兩個名字都會看到，是同一個東西。
 
@@ -269,6 +280,18 @@ uv run crawler/stock_bigquery_data_transform.py
 | 2 | 出現 `vw_stock_trend_analysis` 等 View | 轉換成功 |
 | 3 | 查詢時只掃到相關分區 | 分區生效、省錢 |
 | 4 | （Bonus）Looker Studio 報表出現兩條走勢線 | BI 接上倉儲，資料線最後一格點亮 |
+
+在 GCP Console 看（≡ 選單 → BigQuery）：左側樹狀展開專案 → `stock` 資料集，四張表、三個 View 都在：
+
+![BigQuery 資料集樹](images/ch15/01-BQ-Console資料集樹.jpg)
+
+點 `TaiwanStockPrice` 開表格頁——上方有一行提示「**這是分區資料表**」，結構定義列出每個欄位的型別（date 是 DATE，就是分區用的欄位）：
+
+![表結構與分區提示](images/ch15/02-BQ-表結構與分區提示.jpg)
+
+點上方「查詢」開查詢編輯器，貼下面這段 SQL、按「執行」（快捷鍵 Cmd/Ctrl+Enter），結果表直接列出收盤價與均線——順帶注意 Console 跳出的「控管費用」專家提示，講的正是本章的省錢觀念：
+
+![查詢 MA5 結果](images/ch15/03-BQ-查詢MA5結果.jpg)
 
 不開網頁也能驗，用 gcloud 附帶安裝的 `bq` 指令：
 

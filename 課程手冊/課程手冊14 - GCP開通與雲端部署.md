@@ -107,6 +107,23 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 
 選型的方向跟第 5 章學過的一樣：物件檔案放 Cloud Storage、交易型資料放 Cloud SQL（OLTP）、分析放 BigQuery（OLAP）、非關聯式選 Firestore／Bigtable——資料庫的分工概念不變，只是每種分工在雲端變成一個獨立產品。
 
+### 全段地圖：本機的每個零件，最後都去哪裡
+
+雲端段（14 到 18 章）做的事，一句話：**把第 13 章那套本機系統的零件，一格一格換成雲端對應物——程式幾乎不動**。先把整張地圖看過一遍，之後每一章都是在點亮其中一格：
+
+| 本機的零件（1-13 章） | 雲端去向 | 發生在 | 程式要改什麼 |
+|---------------------|---------|--------|-------------|
+| 你電腦上的 VM（Lima/WSL） | **GCE VM** | 本章 | 不改，整套 compose 搬過去 |
+| MySQL 容器 | **Cloud SQL**（託管 MySQL） | 第 16 章 | 只改 `MYSQL_HOST` |
+| RabbitMQ／worker 容器 | 拆到**多台 GCE** 分工 | 第 16 章 | 不改，compose 拆檔 |
+| Metabase 容器 | **Looker Studio**（免費 SaaS BI） | 第 15 章 | 不用程式，滑鼠操作 |
+| ——（本機沒有這層） | **BigQuery**（分析倉儲，新增的一層） | 第 15 章 | 跑課程現成的 sync 程式 |
+| FastAPI（補充B） | GCE 上線＋**Load Balancer** | 第 17 章 | 不改，加發佈流程 |
+| 自架 Airflow 容器 | **Cloud Composer**（託管 Airflow） | 第 18 章 | DAG 照用 |
+| `.env` 檔 | **Secret Manager** | 第 18 章 | config.py 加 fallback |
+
+沒有雲端對應、原樣保留的：爬蟲程式本體、Celery 任務、compose 檔的結構——這正是前十三章「config 中心、分層架構」紀律的回報。
+
 ### GCP 的層級心智圖
 
 ```
