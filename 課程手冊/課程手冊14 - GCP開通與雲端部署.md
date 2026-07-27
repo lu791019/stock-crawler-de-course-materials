@@ -64,28 +64,49 @@
 
 ### 三朵雲：AWS、Azure、GCP
 
-市場上最常見的三家公有雲：
+公有雲市場由三家主導，合計拿下全球約三分之二的市佔（2025 年前後：AWS 約三成、Azure 約四分之一、GCP 約一成多）。三家的出身決定了各自的強項：
 
 | | AWS（Amazon） | Azure（Microsoft） | GCP（Google） |
 |---|--------------|-------------------|---------------|
-| 定位 | 最早（2006）、市佔最大、服務與生態最完整 | 企業市場強，與 Windows／AD／Microsoft 365 深度整合 | 資料分析與 AI 工具最強，網路品質好 |
-| 常見使用者 | 新創到大型企業都多 | 原本就用微軟體系的企業 | 資料團隊、AI 應用、新創 |
+| 出身 | 2006 年最早商轉，把 Amazon 自家電商基礎設施產品化 | 微軟企業軟體生態的雲端延伸 | Google 自家搜尋/YouTube 等服務的基礎架構對外開放 |
+| 市場定位 | 市佔第一、服務數量最多最廣，新創到大型企業通吃 | 企業市場最強：與 Windows Server、Active Directory、Microsoft 365 深度整合，混合雲（Azure Arc）成熟 | 資料與 AI 工具最強（BigQuery、Vertex AI）；Kubernetes 發源於 Google（內部系統 Borg 的開源後代），GKE 最成熟 |
+| 常見使用者 | 生態與人才市場最大，職缺最多 | 原本就用微軟體系的企業、傳產與金融 | 資料團隊、AI 應用、新創 |
+| 台灣在地 | 2025 年開通台北區域（ap-east-2） | 已宣布台灣北部區域 | 彰化資料中心（asia-east1，2013 年啟用，Google 在亞洲的第一座） |
+| 免費試用 | 12 個月免費層＋部分永久免費額度 | $200 美元／30 天＋12 個月免費層 | **$300 美元／90 天**＋20 多項永久免費產品（課程用這個） |
 
-其他還有阿里雲（中國市場為主）、Oracle Cloud 等，概念相同、市佔較小。
+其他還有阿里雲（中國市場為主）、Oracle Cloud（資料庫客戶為主）等，概念相同、市佔較小。
 
-**三朵雲的核心概念完全相同**——VM、託管資料庫、物件儲存、資料倉儲每家都有，學會一朵、換一朵只是查服務名稱。同角色服務對照：
+**三朵雲的核心概念完全相同**——同一個角色每家都有對應產品，學會一朵、換一朵主要是查服務名稱和改指令語法。下表是完整的同角色對照（**粗體＝本課程會用到的角色**）：
 
 | 角色 | GCP | AWS | Azure |
 |------|-----|-----|-------|
-| 虛擬機 | Compute Engine | EC2 | Virtual Machines |
-| 託管關聯式資料庫 | Cloud SQL | RDS | Azure SQL Database |
-| 物件儲存 | Cloud Storage | S3 | Blob Storage |
-| 資料倉儲 | BigQuery | Redshift | Synapse Analytics |
-| 託管 Airflow | Cloud Composer | MWAA | Data Factory（角色近似） |
-| Serverless 函數 | Cloud Functions | Lambda | Azure Functions |
+| **虛擬機** | Compute Engine | EC2 | Virtual Machines |
 | 託管 Kubernetes | GKE | EKS | AKS |
+| 容器 Serverless（跑 container 免管機器） | Cloud Run | Fargate／App Runner | Container Apps |
+| 函數 Serverless | Cloud Functions | Lambda | Azure Functions |
+| **物件儲存** | Cloud Storage | S3 | Blob Storage |
+| **託管關聯式資料庫** | Cloud SQL | RDS | Azure Database for MySQL |
+| NoSQL 文件資料庫 | Firestore | DynamoDB | Cosmos DB |
+| **資料倉儲** | BigQuery | Redshift | Synapse Analytics |
+| **訊息佇列**（角色近課程的 RabbitMQ） | Pub/Sub | SQS＋SNS | Service Bus／Event Hubs |
+| **託管 Airflow** | Cloud Composer | MWAA | （Data Factory 角色近似） |
+| 批次／串流 ETL | Dataflow | Glue／Kinesis | Data Factory／Stream Analytics |
+| 託管 Spark／Hadoop | Dataproc | EMR | HDInsight／Databricks |
+| **負載平衡** | Cloud Load Balancing | ELB | Load Balancer／App Gateway |
+| DNS | Cloud DNS | Route 53 | Azure DNS |
+| CDN | Cloud CDN | CloudFront | Front Door／CDN |
+| **權限管理** | IAM | IAM | Entra ID＋RBAC |
+| **機密管理** | Secret Manager | Secrets Manager | Key Vault |
+| 監控與日誌 | Cloud Monitoring／Logging | CloudWatch | Azure Monitor |
+| **BI 視覺化** | Looker Studio | QuickSight | Power BI |
 
-課程選 GCP 的理由：$300 試用額度好上手、資料中心就在台灣（asia-east1 彰化）、資料工程課的重點服務 BigQuery 是它的招牌、BI 工具 Looker Studio 免費。
+**怎麼選雲**（實務上的判斷順序）：
+
+1. **跟著既有生態走**：公司全套微軟體系（AD、M365）→ Azure 整合成本最低；資料與 AI 是主戰場 → GCP；要最大的服務廣度與人才池 → AWS
+2. **跟著資料重心走**：資料已經在哪朵雲，運算就靠過去——搬資料出雲（egress）要收費，這是各家共同的「黏性」設計
+3. **多雲是業界常態**：很多公司同時用兩朵以上。所以「精通一朵、概念通三朵」正是本課程的目標——這張對照表就是你之後轉換的地圖
+
+課程選 GCP 的理由：$300／90 天試用最適合課程長度、資料中心就在台灣（延遲最低）、本課程的重點服務 BigQuery 是它的招牌、BI 工具 Looker Studio 免費。
 
 ### GCP 是什麼、有哪些常見服務
 
@@ -109,20 +130,26 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 
 ### 全段地圖：本機的每個零件，最後都去哪裡
 
-雲端段（14 到 18 章）做的事，一句話：**把第 13 章那套本機系統的零件，一格一格換成雲端對應物——程式幾乎不動**。先把整張地圖看過一遍，之後每一章都是在點亮其中一格：
+雲端段（14 到 18 章）做的事，一句話：**把第 13 章那套本機系統的零件，一格一格換成雲端對應物——程式幾乎不動**。先把整張地圖看過一遍，之後每一章都是在點亮其中幾格：
 
-| 本機的零件（1-13 章） | 雲端去向 | 發生在 | 程式要改什麼 |
-|---------------------|---------|--------|-------------|
-| 你電腦上的 VM（Lima/WSL） | **GCE VM** | 本章 | 不改，整套 compose 搬過去 |
-| MySQL 容器 | **Cloud SQL**（託管 MySQL） | 第 16 章 | 只改 `MYSQL_HOST` |
-| RabbitMQ／worker 容器 | 拆到**多台 GCE** 分工 | 第 16 章 | 不改，compose 拆檔 |
-| Metabase 容器 | **Looker Studio**（免費 SaaS BI） | 第 15 章 | 不用程式，滑鼠操作 |
-| ——（本機沒有這層） | **BigQuery**（分析倉儲，新增的一層） | 第 15 章 | 跑課程現成的 sync 程式 |
-| FastAPI（補充B） | GCE 上線＋**Load Balancer** | 第 17 章 | 不改，加發佈流程 |
-| 自架 Airflow 容器 | **Cloud Composer**（託管 Airflow） | 第 18 章 | DAG 照用 |
-| `.env` 檔 | **Secret Manager** | 第 18 章 | config.py 加 fallback |
+| 本機的零件（1-13 章） | 雲端去向 | 章節 | 程式要改什麼 | 為什麼要換／換了差在哪 |
+|---------------------|---------|------|-------------|----------------------|
+| 你電腦上的 VM（Lima/WSL） | **GCE VM**（e2-standard-2） | 本章 | 不改，整套 compose 搬過去 | 24 小時在線、有公網 IP、規格隨租隨換 |
+| 進 VM 的方式（limactl shell） | **gcloud compute ssh** | 本章 | — | 金鑰自動管理，從任何電腦都連得上 |
+| （本機沒有防火牆概念） | **VPC 防火牆規則** | 本章 | — | 雲端預設全擋，開放的每個 port 都是明確決策 |
+| MySQL 容器 | **Cloud SQL**（託管 MySQL） | 第 16 章 | 只改 `MYSQL_HOST` | 備份、更新、高可用交給 Google；代價是錢——託管 vs 自架的第一題 |
+| phpMyAdmin 容器 | 退役（Cloud SQL 用 Console／Cloud SQL Studio 查） | 第 16 章 | — | 託管服務自帶管理介面 |
+| RabbitMQ／worker 容器 | 拆到**多台 GCE** 分工 | 第 16 章 | 不改，compose 拆檔 | 補充A 的「分散式」第一次真的跨機器 |
+| Metabase 容器 | **Looker Studio**（免費 SaaS BI） | 第 15 章 | 不用程式，滑鼠操作 | 免安裝免維運、內建 BigQuery 連接器——SaaS 的教科書案例 |
+| ——（本機沒有這層） | **BigQuery**（分析倉儲，新增） | 第 15 章 | 跑課程現成的 sync 程式 | OLTP／OLAP 分工：分析不再拖累營運資料庫 |
+| FastAPI（補充B） | GCE 上線＋**Cloud Load Balancing** | 第 17 章 | 不改，加發佈流程 | 系統第一次有對外門牌；LB 分流與健康檢查 |
+| 手動 docker build／换版 | **CI/CD**（GitHub Actions：push → 測試 → build → 換版） | 第 18 章 | 加 workflow yml | 補充C 寫的測試在這裡變成上線守門員 |
+| 自架 Airflow 容器 | 主線**仍在 GCE 自架**；**Cloud Composer**（託管 Airflow）認識＋對照示範 | 第 18 章 | DAG 兩邊通用 | Composer 省維運但每月數百美元起跳——託管 vs 自架的期末考題，課程用示範讓你看見差異、錢包不用受傷 |
+| `.env` 檔 | **Secret Manager** | 第 18 章 | config.py 加 fallback | 機密集中管理、可稽核、可輪替——.env 紀律的雲端完全體 |
+| 個人 Google 帳號操作一切 | **IAM 最小權限**（服務帳戶各司其職） | 本章埋、第 18 章收 | — | 本章的服務帳戶是第一步，18 章補完整權限體系 |
+| docker logs／Flower 看狀態 | 照用＋**Cloud Monitoring／Logging** 補機器層 | 本章導覽、第 18 章用 | — | 容器層工具照舊，機器層（CPU／記憶體／帳單）交給雲端監控 |
 
-沒有雲端對應、原樣保留的：爬蟲程式本體、Celery 任務、compose 檔的結構——這正是前十三章「config 中心、分層架構」紀律的回報。
+**原樣保留、不搬的**：爬蟲程式本體、Celery 任務、佇列分流設計、compose 檔結構、Flower——這正是前十三章「config 中心、分層架構」紀律的回報：換環境時，動的是設定與部署，不是程式。
 
 ### GCP 的層級心智圖
 
