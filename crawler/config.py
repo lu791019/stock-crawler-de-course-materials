@@ -30,4 +30,4 @@ MONGO_ACCOUNT = os.environ.get("MONGO_ACCOUNT", "root")
 MONGO_PASSWORD = os.environ.get("MONGO_PASSWORD", "1234")
 
 # GCP 設定（使用 BigQuery 時取消註解）
-# GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "your-project-id")
+GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "your-project-id")

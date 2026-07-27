@@ -124,19 +124,56 @@ FROM vw_stock_price_daily
 
 > 還沒開通 GCP 的話先跳過實作、只讀觀念——第 14 章開通完成後再回來做。
 
-### Step 1：準備 GCP 環境
+### Step 0：確認資料來源（本機 MySQL）
 
-GCP 帳號註冊、建立專案、建立服務帳戶（Service Account）與下載 JSON 金鑰，這些**在第 14 章都已經完成**。本章只需要補上 BigQuery 專屬的三件事：
-
-1. 在 GCP 專案裡**開啟 BigQuery API**（第 14 章開的是 Compute Engine 的 API，每個服務的 API 要各自啟用）。
-2. 幫第 14 章建立的服務帳戶**加上 BigQuery 權限**（BigQuery Data Editor 與 BigQuery Job User 兩個角色）。
-3. 設定憑證環境變數指向你的金鑰，並在 `config.py` 取消 `GCP_PROJECT_ID` 的註解、填你的專案 ID：
+本章的同步來源是**本機的容器 MySQL**（第 5 章起累積股價資料的那顆；第 16 章搬家後，同一支程式的來源會換成 Cloud SQL，只差一個 `MYSQL_HOST`）。開始前確認兩件事：
 
 ```bash
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your-key.json"
+# MySQL 容器在跑
+docker compose -f docker-compose-local.yml up -d mysql
+
+# 表裡有資料（沒有的話：起 rabbitmq + worker，跑一次 producer_multi_queue.py 灌入）
+docker exec mysql mysql -uroot -p1234 -N -e "SELECT COUNT(*) FROM mydb.TaiwanStockPrice;"
 ```
 
-> 如果你沒有跟課、自己有現成的 GCP 帳號：建一個專案、開 BigQuery API、建一個服務帳戶並下載金鑰，再照第 3 步設定即可。
+### Step 1：準備 GCP 環境
+
+GCP 帳號註冊、建立專案、建立服務帳戶（Service Account）與下載 JSON 金鑰，這些**在第 14 章都已經完成**。本章補上 BigQuery 專屬的四件事，全部用 gcloud 指令：
+
+**1. 開啟 BigQuery API**（第 14 章開的是 Compute Engine 的 API，每個服務的 API 要各自啟用）：
+
+```bash
+gcloud services enable bigquery.googleapis.com
+```
+
+**2. 幫服務帳戶加上 BigQuery 權限**（兩個角色：Data Editor 管資料的讀寫建表、Job User 准它執行查詢工作）：
+
+```bash
+SA="stock-crawler-sa@stock-crawler-course.iam.gserviceaccount.com"   # 換成你的服務帳戶 email
+gcloud projects add-iam-policy-binding stock-crawler-course \
+  --member="serviceAccount:$SA" --role="roles/bigquery.dataEditor" --condition=None
+gcloud projects add-iam-policy-binding stock-crawler-course \
+  --member="serviceAccount:$SA" --role="roles/bigquery.jobUser" --condition=None
+
+# 驗證：應列出剛加的兩個角色
+gcloud projects get-iam-policy stock-crawler-course \
+  --flatten="bindings[].members" --filter="bindings.members:stock-crawler-sa" \
+  --format="value(bindings.role)"
+```
+
+**3. 設定兩個環境變數**——憑證指向第 14 章下載的金鑰、專案 ID 指向你的專案：
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="$HOME/gcp-keys/你的金鑰檔名.json"
+export GCP_PROJECT_ID="stock-crawler-course"   # 換成你的專案 ID
+```
+
+**4. 取消程式裡的兩處註解**（兩處都要改，只改一處會用到預設值 "your-project-id" 而報錯）：
+
+- `crawler/config.py`：把 `# GCP_PROJECT_ID = os.environ.get(...)` 那行的 `#` 拿掉
+- `crawler/bigquery.py` 開頭：把 `# from crawler.config import GCP_PROJECT_ID as PROJECT_ID` 取消註解，並刪掉下一行的 `PROJECT_ID = "your-project-id"` 佔位
+
+> 如果你沒有跟課、自己有現成的 GCP 帳號：建一個專案、開 BigQuery API、建一個服務帳戶並下載金鑰，再照第 3、4 步設定即可。
 
 ### Step 2：把 MySQL 同步進 BigQuery
 
@@ -144,7 +181,16 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your-key.json"
 uv run crawler/stock_sync_mysql_to_bigquery.py
 ```
 
-這支會：建立 BigQuery dataset（如果沒有）→ 從 MySQL `SELECT * FROM TaiwanStockPrice` 讀成 DataFrame → 建好帶分區的 BQ 表 → 覆蓋上傳。
+這支會：建立 BigQuery dataset（如果沒有）→ 從 MySQL `SELECT * FROM TaiwanStockPrice` 讀成 DataFrame → 建好帶分區的 BQ 表 → 覆蓋上傳。成功的輸出長這樣：
+
+```
+開始執行 MySQL 到 BigQuery 的同步...
+Created dataset stock
+表格 {專案ID}.stock.TaiwanStockPrice 建立成功
+查詢執行成功，返回 DataFrame，共 XXX 筆記錄
+資料已上傳到 BigQuery 表 'TaiwanStockPrice'，共 XXX 筆記錄
+MySQL 到 BigQuery 的同步完成
+```
 
 ### Step 3：在 BigQuery 上建分析 View / Table
 
@@ -152,7 +198,65 @@ uv run crawler/stock_sync_mysql_to_bigquery.py
 uv run crawler/stock_bigquery_data_transform.py
 ```
 
-這支會建立去重的每日股價 View、含 MA5/MA20 的趨勢分析 View、每日市場彙總 View。
+這支會建立三組「View＋實體 Table」：去重的每日股價（`vw_stock_price_daily`／`stock_price_daily`）、含 MA5/MA20 的趨勢分析（`vw_stock_trend_analysis`／`stock_trend_analysis`）、每日市場彙總（`vw_market_daily_summary`／`market_daily_summary`）。每建一組會各印一行「成功」訊息。
+
+---
+
+## Bonus：用 Looker Studio 把 BigQuery 畫成走勢圖
+
+第 8 章用 Metabase 接本機 MySQL 畫圖；雲端這一段的 BI 角色由 **Looker Studio** 接手——Google 的免費 SaaS BI 工具，不用安裝任何東西，內建 BigQuery 連接器。這正是第 14 章講的 SaaS：打開瀏覽器就能用，你只管使用、不管維護。
+
+> 注意：Looker Studio 已更名為「數據分析」，介面上兩個名字都會看到，是同一個東西。
+
+**Bonus-1 首次使用的帳戶設定**（只有第一次要做）
+
+1. 開 `lookerstudio.google.com`，確認右上角是你開通 GCP 的 Google 帳號
+2. 跳出「授權 數據分析 API」→ 按「繼續」
+   ![首次授權](images/ch15/B01-LookerStudio-首次授權API.jpg)
+3. 點「建立報表」會先進入帳戶設定（共 2 步）：
+   - 步驟 1：國家/地區選「台灣」（下拉選單要捲動找，不支援打字搜尋）、**公司欄必填**（填了「繼續」才會亮，而且提示「公司名稱一經設定即無法更改」，填個人或單位名稱即可）、勾服務條款
+     ![帳戶設定](images/ch15/B02-帳戶設定-國家與條款.jpg)
+   - 步驟 2：三個電子報訂閱問題，都選「否」即可
+     ![電子報偏好](images/ch15/B03-帳戶設定-電子報偏好.jpg)
+
+**Bonus-2 連接 BigQuery 資料**
+
+1. 回到首頁點「**建立報表**」→ 出現「將資料新增至報表」的連接器清單
+   ![連接器清單](images/ch15/B04-連接器選擇-BigQuery.jpg)
+2. 點 **BigQuery** → 第一次會再要求一次授權（「數據分析必須先取得授權，才能與您的 BigQuery 專案連結」）→ 按「授權」
+   ![BigQuery 授權](images/ch15/B05-BigQuery連接器授權.jpg)
+3. 依序點選：Project 搜「stock」→ 你的專案 → 資料集「stock」→ Table 搜「trend」→ 選 **stock_trend_analysis**（選實體 Table 而非 View，載入較快）
+   ![選定資料表](images/ch15/B08-選定stock_trend_analysis.jpg)
+4. 右下角「**新增**」→ 確認視窗按「**加入報表**」
+5. 進入編輯器後，右側「資料」面板列出所有欄位（close、ma5、ma20、stock_id、trade_date……）——這就是你在 Step 3 建的分析表
+   ![資料欄位面板](images/ch15/B10-編輯器與資料欄位面板.jpg)
+
+**Bonus-3 畫兩支股票的收盤走勢**
+
+1. 上方工具列「**新增圖表**」→「時間序列」的第一個樣式 → 在畫布上點一下放置
+2. 圖表預設用 Record Count 當指標，改右側設定面板三個欄位：
+   - **維度-X 軸**：`trade_date`（通常自動選好）
+   - **細目維度**：點「新增維度」→ 選 `stock_id`（讓每支股票各畫一條線）
+   - **指標-Y 軸**：點預設的 Record Count → 換成 `close`
+   ![設定完成](images/ch15/B12-設定完成兩條走勢線.jpg)
+3. 左上角把「未命名的報表」改名，按右上角「**查看**」切到檢視模式——兩支股票的收盤價走勢線完成
+   ![成品](images/ch15/B13-查看模式成品.jpg)
+
+**跟第 8 章 Metabase 的對照**（這就是雲端段的 BI 交接）：
+
+| | Metabase（第 8 章） | Looker Studio（本章） |
+|---|---|---|
+| 部署 | 自己跑一個容器（吃 1GB 記憶體） | 免安裝，開瀏覽器就用（SaaS） |
+| 資料源 | 本機 MySQL | BigQuery（內建連接器） |
+| 費用 | 軟體免費、機器自己出 | 工具免費；查詢照 BigQuery 計費（課程資料量在免費額度內） |
+| 適合 | 資料在自家、想全部自管 | 資料已在 GCP、想省維運 |
+
+**Bonus 排錯**：
+
+| 狀況 | 原因 | 怎麼解 |
+|------|------|--------|
+| 走勢線鋸齒狀、頻繁掉到 0 | 非交易日（週末）沒有資料，時間序列預設把缺值畫成 0 | 選取圖表 → 右側「樣式」分頁 → 「缺漏資料」改成「線條中斷」 |
+| 連接器清單找不到專案 | Looker Studio 登入的 Google 帳號跟 GCP 不同 | 右上角頭像確認帳號，必要時切換 |
 
 ---
 
@@ -163,6 +267,19 @@ uv run crawler/stock_bigquery_data_transform.py
 | 1 | GCP Console 的 BigQuery 出現 `stock` 資料集與 `TaiwanStockPrice` 表 | 同步成功 |
 | 2 | 出現 `vw_stock_trend_analysis` 等 View | 轉換成功 |
 | 3 | 查詢時只掃到相關分區 | 分區生效、省錢 |
+
+不開網頁也能驗，用 gcloud 附帶安裝的 `bq` 指令：
+
+```bash
+# 列出 stock 資料集的所有表和 View——TaiwanStockPrice 的分區欄會顯示 DAY (field: date)
+bq ls stock
+
+# 直接查趨勢分析 View：每支股票最近三天的收盤價與均線
+bq query --nouse_legacy_sql \
+  'SELECT stock_id, trade_date, close, ROUND(ma5,2) AS ma5, ROUND(ma20,2) AS ma20
+   FROM `你的專案ID.stock.vw_stock_trend_analysis`
+   WHERE stock_id="2330" ORDER BY trade_date DESC LIMIT 3'
+```
 
 ---
 
@@ -213,7 +330,9 @@ OLTP 擅長「即時、頻繁的小筆讀寫」（例如爬蟲每天寫入股價
 
 | 你遇到的狀況 | 原因 | 怎麼解 |
 |-------------|------|--------|
-| 憑證錯誤 / 權限不足 | `GOOGLE_APPLICATION_CREDENTIALS` 沒設對，或服務帳戶少權限 | 確認金鑰路徑；給服務帳戶 BigQuery 權限 |
+| 憑證錯誤 / 權限不足 | `GOOGLE_APPLICATION_CREDENTIALS` 沒設對，或服務帳戶少權限 | 確認金鑰路徑；照 Step 1-2 給服務帳戶兩個 BigQuery 角色 |
+| 報錯訊息裡出現 your-project-id | `config.py` 或 `bigquery.py` 的註解只改了一處 | 兩個檔案都要改（Step 1 第 4 點） |
+| 同步顯示 0 筆記錄 | 本機 MySQL 的 TaiwanStockPrice 是空的 | 照 Step 0 起 worker、跑一次 producer 灌資料 |
 | 查詢很貴 | 用了 `SELECT *` 全表掃描 | 加分區過濾、只選需要的欄位 |
 | schema 型別對不上 | MySQL 與 BigQuery 型別對應問題 | 用 `bigquery.py` 裡定義好的 schema，或注意日期/數值精度 |
 
@@ -225,6 +344,7 @@ OLTP 擅長「即時、頻繁的小筆讀寫」（例如爬蟲每天寫入股價
 - 資料倉儲（BigQuery）讓分析不拖累營運資料庫。
 - 用批次 load + 分區省錢，用視窗函數在倉儲裡算技術指標。
 - ELT：先搬進倉儲，再用倉儲算力轉換。
+- Looker Studio（免費 SaaS BI）用內建連接器直接接 BigQuery 畫圖——雲端段的 BI 角色由它接手 Metabase。
 
 ## 本機主線總結
 
