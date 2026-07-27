@@ -147,7 +147,7 @@ GCP 帳號註冊、建立專案、建立服務帳戶（Service Account）與下�
 gcloud services enable bigquery.googleapis.com
 ```
 
-**2. 幫服務帳戶加上 BigQuery 權限**（兩個角色：Data Editor 管資料的讀寫建表、Job User 准它執行查詢工作）：
+**2. 幫服務帳戶加上 BigQuery 權限**（兩個角色：Data Editor 管資料的讀寫建表、Job User 准它執行查詢工作））。第 14 章建服務帳戶時刻意一個角色都不給，就是等這一刻——「需要什麼、才給什麼」的最小權限原則，現在補上剛好夠用的兩個：
 
 ```bash
 SA="stock-crawler-sa@stock-crawler-course.iam.gserviceaccount.com"   # 換成你的服務帳戶 email
