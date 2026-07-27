@@ -178,7 +178,7 @@ YML
 
 ```bash
 sudo docker compose -f docker-compose-local.yml -f gcp-worker-override.yml \
-  up -d worker_twse worker_tpex
+  up -d --no-deps worker_twse worker_tpex
 
 sudo docker logs crawler_twse --tail 5
 ```
@@ -190,7 +190,7 @@ Connected to amqp://worker:**@{VM1內部IP}:5672//
 twse@xxxx ready.
 ```
 
-worker 跨機器連上了 VM1 的 RabbitMQ。注意這裡沒有動任何防火牆——內部 IP 互連走 `default-allow-internal`。帳密也一個都沒改：Cloud SQL 的 root/1234 跟 `.env` 預設一致。**整次搬家，程式與設定的改動就是 override 檔裡那兩個 HOST。**
+worker 跨機器連上了 VM1 的 RabbitMQ。`--no-deps` 是「只起我點名的服務」——不加的話，compose 會照 `depends_on` 把本機的 rabbitmq 也一起帶起來（worker 實際連的是 VM1，本機那顆是白吃記憶體的閒置品）。注意這裡沒有動任何防火牆——內部 IP 互連走 `default-allow-internal`。帳密也一個都沒改：Cloud SQL 的 root/1234 跟 `.env` 預設一致。**整次搬家，程式與設定的改動就是 override 檔裡那兩個 HOST。**
 
 ### Part E：跨機器端到端
 
@@ -278,6 +278,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 | Access denied for user 'root' | Cloud SQL root 密碼跟 `.env` 對不上 | 建實例時 `--root-password=1234`；或 `gcloud sql users set-password` 重設 |
 | 建實例卡很久 | Cloud SQL 建立本來就要約 10 分鐘 | `gcloud sql instances list` 看 STATUS 從 PENDING_CREATE 變 RUNNABLE |
 | Unknown database 'mydb' | 忘了建資料庫 | `gcloud sql databases create mydb --instance=stock-mysql` |
+| VM2 上莫名多一個 rabbitmq 容器 | up 沒加 `--no-deps`，depends_on 連帶啟動 | `docker rm -f rabbitmq`，之後 up 記得加 `--no-deps` |
 | 兩台 VM 內部 IP 一樣？ | 不可能——同 VPC 內部 IP 唯一；你看到的多半是外部 IP 回收再發 | 分清楚兩欄：INTERNAL_IP vs EXTERNAL_IP |
 
 ## 本章總結
