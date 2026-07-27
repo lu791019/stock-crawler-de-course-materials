@@ -12,6 +12,7 @@
 2. 看懂怎麼把 MySQL 的資料同步進 BigQuery。
 3. 看懂怎麼在 BigQuery 上用 SQL 做分析（去重、移動平均、每日彙總）。
 4. 理解 ELT 這個流程。
+5. （Bonus）用 Looker Studio 接 BigQuery，畫出兩支股票的收盤走勢圖。
 
 ---
 
@@ -267,6 +268,7 @@ uv run crawler/stock_bigquery_data_transform.py
 | 1 | GCP Console 的 BigQuery 出現 `stock` 資料集與 `TaiwanStockPrice` 表 | 同步成功 |
 | 2 | 出現 `vw_stock_trend_analysis` 等 View | 轉換成功 |
 | 3 | 查詢時只掃到相關分區 | 分區生效、省錢 |
+| 4 | （Bonus）Looker Studio 報表出現兩條走勢線 | BI 接上倉儲，資料線最後一格點亮 |
 
 不開網頁也能驗，用 gcloud 附帶安裝的 `bq` 指令：
 
