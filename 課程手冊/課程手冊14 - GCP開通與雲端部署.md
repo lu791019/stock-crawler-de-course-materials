@@ -331,6 +331,15 @@ gcloud projects list    # 列得出你的專案就通了
 
 > 如果在登入前就先設了專案，會出現 `WARNING: You do not appear to have access to project`——設定值有寫入，只是還沒有憑證可查。登入後重跑 `gcloud projects list` 確認即可。
 
+**同一台電腦有多個 Google 帳號的人，請照這份隔離清單做**（例如你有原本的個人帳號＋課程新帳號；只有一個帳號的人可跳過）：
+
+1. 幫課程身分建獨立的設定檔：`gcloud config configurations create course` → `gcloud auth login`（選課程帳號）
+2. 每次操作前先確認身分：`gcloud config configurations list`——course 那列的 IS_ACTIVE 要是 True、專案要是你的課程專案 ID。不是的話 `gcloud config configurations activate course` 切換
+3. 瀏覽器用獨立的 Chrome 設定檔（或無痕視窗）只登入課程帳號——同一個 Chrome 登入多帳號時，Console 網址的 `/u/0`、`/u/1` 指向不同帳號，點舊連結可能跑錯帳號
+4. 金鑰與專案 ID 一律用「這個帳號自己的」：`GOOGLE_APPLICATION_CREDENTIALS` 指向這個帳號下載的金鑰檔、`GCP_PROJECT_ID` 填這個帳號的專案 ID——拿別的帳號的金鑰或 ID 會得到 403 或 404
+
+一句話：**指令看 configurations、網頁看 Chrome profile、程式看金鑰與專案 ID——三邊都對準同一個帳號，就不會混。**
+
 ### Part F：開第一台雲端 VM
 
 先搞懂：
