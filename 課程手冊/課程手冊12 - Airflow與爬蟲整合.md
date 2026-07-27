@@ -7,8 +7,8 @@
 ## 做完這一章，你會做到
 
 1. 說得出三種串法各自做什麼、怎麼演進、差在哪裡。
-2. 跑串法一 `stock_crawler_dag`：Airflow 直接呼叫爬蟲，10 支股票寫進 MySQL；延伸版 `stock_crawler_twse_tpex_dag` 做上市/上櫃分組扇出。
-3. 跑串法二 `stock_crawler_producer_dag`：Airflow 只發任務，Celery worker 執行——觀察兩層分工。
+2. 跑串法一 `stock_crawler_dag`：Airflow 直接呼叫爬蟲，10 支股票寫進 MySQL；延伸版 `stock_crawler_twse_tpex_dag` 用 BranchPythonOperator 依觸發參數選市場分組扇出。
+3. 跑串法二 `stock_crawler_producer_dag`：BranchPythonOperator 做交易日守門後，Airflow 只發任務，Celery worker 執行——觀察兩層分工。
 4. 跑串法三 `stock_crawler_docker_producer_dag`：連發任務的程式都容器化——DockerOperator 的實戰應用。
 5. Bonus：跑 `stock_crawler_etl_dag`，爬蟲＋建 VIEW＋建實體表的完整 ETL。
 6. 補充：分得清 LocalExecutor 與 CeleryExecutor，看出後者怎麼回扣你學過的 Celery。
@@ -46,8 +46,8 @@
 | 檔案 | 角色 | 說明 |
 |------|------|------|
 | `airflow/dags/stock_crawler_dag.py` | 串法一 | 直接呼叫 `crawler_finmind` 爬 10 支股票 |
-| `airflow/dags/stock_crawler_twse_tpex_dag.py` | 串法一延伸 | 上市/上櫃**雙分組**平行爬取後匯合 |
-| `airflow/dags/stock_crawler_producer_dag.py` | 串法二 | `apply_async(queue="twse")` 發任務給 Celery |
+| `airflow/dags/stock_crawler_twse_tpex_dag.py` | 串法一延伸 | **BranchPythonOperator 選組**後上市/上櫃平行爬取匯合 |
+| `airflow/dags/stock_crawler_producer_dag.py` | 串法二 | **交易日守門**後 `apply_async(queue="twse")` 發任務給 Celery |
 | `airflow/dags/stock_crawler_docker_producer_dag.py` | 串法三 | DockerOperator 起容器跑第 3 章多佇列 producer |
 | `airflow/dags/stock_crawler_etl_dag.py` | 完整 ETL | 爬蟲 + `crawler/mysql.py` 建 VIEW / 實體表 |
 | `airflow/dags/stock_crawler_etl_bigquery_dag.py` | 雲端 ETL | MySQL → BigQuery（需第 14 章 GCP 憑證）|
@@ -189,26 +189,38 @@ docker exec mysql mysql -uroot -p1234 mydb -e \
 
 > ✅ 10 支股票各有數百筆，就過關。
 
-### 串法一延伸：`stock_crawler_twse_tpex_dag`（分組扇出＋匯合）
+### 串法一延伸：`stock_crawler_twse_tpex_dag`（BranchPythonOperator 選組＋分組扇出）
 
-`stock_crawler_dag` 是「一組全平行」——10 支股票不分類、齊頭並進。實務的清單常常**有分類**：上市 / 上櫃、來源 A / 來源 B、日資料 / 月資料……這時 DAG 的慣用形狀是**每類一個分組節點，組內平行，最後匯合**：
+`stock_crawler_dag` 是「一組全平行」——10 支股票不分類、齊頭並進。實務的清單常常**有分類**：上市 / 上櫃、來源 A / 來源 B、日資料 / 月資料……而且分了類就會想**挑著跑**：補上櫃的資料時只想爬上櫃、測試時只想爬其中一組。這支 DAG 把兩件事一次做齊：**BranchPythonOperator 依觸發參數決定爬哪幾組，被選中的組內平行爬取，最後匯合**：
 
 ```
-                 ┌─ twse_branch ─┬─ crawl_twse_2330 ─┐
-                 │               ├─ crawl_twse_2317 ─┤
-start_crawler ───┤               └─ crawl_twse_2454 ─┼─── end_crawler
-                 │               ┌─ crawl_tpex_6488 ─┤
-                 └─ tpex_branch ─┼─ crawl_tpex_3105 ─┤
-                                 └─ crawl_tpex_8069 ─┘
+                                  ┌─ twse_branch ─┬─ crawl_twse_2330 ─┐
+                                  │               ├─ crawl_twse_2317 ─┤
+start_crawler ── choose_market ───┤               └─ crawl_twse_2454 ─┼─── end_crawler
+                 （分支決策）      │               ┌─ crawl_tpex_6488 ─┤
+                                  └─ tpex_branch ─┼─ crawl_tpex_3105 ─┤
+                                                  └─ crawl_tpex_8069 ─┘
 ```
 
-核心程式碼只比 `stock_crawler_dag` 多一層迴圈：
+核心程式碼比 `stock_crawler_dag` 多一層迴圈和一個分支決策函式：
 
 ```python
 STOCK_GROUPS = {
     "twse": ["2330", "2317", "2454"],  # 上市
     "tpex": ["6488", "3105", "8069"],  # 上櫃
 }
+
+def choose_market(**context):
+    """依觸發時的 conf 參數決定要爬哪個市場分組"""
+    market = (context["dag_run"].conf or {}).get("market", "all")
+    if market in STOCK_GROUPS:
+        return f"{market}_branch"                 # 回傳單一 task_id：只走一條分支
+    return [f"{m}_branch" for m in STOCK_GROUPS]  # 回傳 list：兩條分支都走
+
+market_branch = BranchPythonOperator(
+    task_id="choose_market",
+    python_callable=choose_market,
+)
 
 for market, stock_ids in STOCK_GROUPS.items():
     branch = DummyOperator(task_id=f"{market}_branch")
@@ -222,27 +234,36 @@ for market, stock_ids in STOCK_GROUPS.items():
         )
         crawl_tasks.append(task)
 
-    start_task >> branch >> crawl_tasks >> end_task
+    start_task >> market_branch >> branch >> crawl_tasks >> end_task
 ```
 
 逐段白話：
 
-- **dict 分組 + 兩層迴圈**：外層迴圈每個市場生一個分組節點、內層迴圈生組內的爬取 task。之後要加第三組（例如 ETF），只要在 dict 加一個 key——圖上自動多出第三組扇形分支，一行依賴都不用改。
-- **分組節點是 `DummyOperator`**：不做事，純粹把圖整理清楚——第 11 章積木 5 的實戰應用。
+- **`BranchPythonOperator` 是第 11 章分支積木的實戰版**：掛的函式回傳 task_id 決定走哪條路。積木範例回傳一個字串（走一條），這裡多學一招——**回傳 list 就同時走多條**。預設回傳兩個分組節點，所以不帶參數觸發時兩組都爬，行為跟沒有分支一樣。
+- **`conf` 是觸發參數**：UI 的「Trigger DAG w/ config」或 CLI 的 `--conf` 都能帶一個 dict 進來，DAG 裡從 `context["dag_run"].conf` 讀。手動觸發沒帶參數時它是 `None`，所以程式裡用 `or {}` 墊一個空 dict——這是讀 conf 的固定寫法。
+- **dict 分組 + 兩層迴圈**：外層迴圈每個市場生一個分組節點、內層迴圈生組內的爬取 task。之後要加第三組（例如 ETF），只要在 dict 加一個 key——分支函式的 list 和圖上的扇形分支自動多出一組，一行依賴都不用改。
+- **分組節點是 `DummyOperator`**：不做事，但這次它有雙重身分——既把圖整理清楚，也是分支決策的「落點」（task_id 必須跟決策函式回傳的字串對上，對不上會直接報錯）。
 - **分組概念你早就會**：第 3 章多佇列分流把任務分進 `twse` / `tpex` **佇列**，這裡是把 task 分進兩個**圖形分支**——同一個分類思維，一次用在執行層、一次用在編排層。
-- `trigger_rule="all_success"` 的 end 同時接住兩組——**任何一組有一支失敗，end 就不跑**，你可以在 Graph 上直接看到是哪一組的哪一支變紅。
+- **有分支，end 的 `trigger_rule` 就不能再用 `all_success`**：沒被選中的分支會被標成 skipped，它的下游連鎖跳過；`all_success` 遇到上游 skipped 時 end 也會被跳過。所以 end 改用 **`none_failed_min_one_success`**——「沒有上游失敗、且至少一個上游成功」就執行。這是分支 DAG 的固定搭配，忘了改是分支最常見的坑。
 
-跑起來：
+跑起來（三種觸發各試一次）：
 
 ```bash
 docker exec airflow-webserver airflow dags unpause stock_crawler_twse_tpex_dag
+
+# 不帶參數：兩組都爬
 docker exec airflow-webserver airflow dags trigger stock_crawler_twse_tpex_dag
+
+# 帶 conf 只爬上櫃（等第一輪跑完再觸發）
+docker exec airflow-webserver airflow dags trigger stock_crawler_twse_tpex_dag \
+  --conf '{"market": "tpex"}'
 ```
 
 **觀察：**
 
-1. Graph 上是兩組扇形分支：`start → 兩個 branch → 各三支平行 → end`。
-2. 六個爬取 task **同時**起跑——分組只是圖形上的整理，不影響平行度。
+1. 不帶參數那輪：Graph 上 `choose_market` 之後兩組扇形分支**全部變綠**——六個爬取 task 同時起跑，分組不影響平行度。
+2. `--conf` 那輪：`twse_branch` 和它的三支爬取 task 變成**粉紅色（skipped）**，只有 tpex 那組是綠的——分支的「沒選中＝跳過」長這樣，skipped 不是失敗。
+3. 兩輪的 `end_crawler` 都是綠的——`none_failed_min_one_success` 讓 skipped 不會擋住匯合點。
 
 **驗證上櫃資料入庫**（上櫃三支是第一次爬，之前資料庫裡沒有）：
 
@@ -265,6 +286,22 @@ def trigger_stock_crawler(stock_id):
 
 一個函式之差，執行的地方就從「Airflow 裡面」變成「Celery worker 池」。**注意用的是 `apply_async(queue="twse")` 而不是 `.delay()`**：worker 池是第 3 章的分流版，只聽 `twse` / `tpex` 佇列——`.delay()` 發到預設佇列會沒有人消費，任務永遠卡在 RabbitMQ 裡。發任務時要跟 worker 聽的佇列對上，這是分流架構的紀律（清單裡十支都是上市標的，所以都進 `twse`）。
 
+發任務前，這支 DAG 還放了一個 **BranchPythonOperator 當守門員**——這是分支的另一種經典用法。收盤爬蟲只在交易日有意義，所以在 start 之後先過一關：
+
+```python
+def check_trading_day(**context):
+    """平日走發任務路，週末走跳過路"""
+    weekday = datetime.now().weekday()   # 0~6，0 是週一
+    if weekday < 5:
+        return "send_tasks"        # 平日：走發任務那條路
+    return "skip_no_trading"       # 週末：整批跳過
+
+start_task >> trading_day_branch >> send_tasks >> stock_tasks >> end_task
+trading_day_branch >> skip_no_trading >> end_task
+```
+
+DAG 的形狀變成兩條路：`start → 分支 →（send_tasks → 10 個發任務）或（skip_no_trading）→ end`。跟串法一延伸的「參數分支」對照：那邊的條件來自**觸發參數**（conf），這邊的條件來自**時間**（第 11 章積木的分支範例正是時間條件）。守門的價值在「優雅跳過」——條件不成立時整批下游標成 skipped 而不是 failed，排程週末照跑、畫面不會一片紅。教學版只判斷平日/週末；真實系統還要對國定假日行事曆，做法是把休市日清單存成表再查表。end 一樣要用 `none_failed_min_one_success`（理由同串法一延伸——沿用 `all_success` 的話，週末那輪的 end 會跟著被跳過）。
+
 worker 在準備段已經起了——`crawler_twse` 和 `crawler_tpex` 兩個容器，各自聽 `twse`／`tpex` 佇列（第 3 章的分流版）。直接觸發：
 
 ```bash
@@ -276,7 +313,8 @@ docker exec airflow-webserver airflow dags trigger stock_crawler_producer_dag
 
 | 看哪裡 | 你會看到 | 為什麼 |
 |--------|---------|--------|
-| Airflow Graph | 10 個 task **立即變綠** | 它們只是發任務進佇列，不等爬完 |
+| Airflow Graph | `check_trading_day` 選了 `send_tasks`，`skip_no_trading` 粉紅（skipped） | 平日觸發，守門放行；跳過路備而不用 |
+| Airflow Graph | 10 個發任務 task **立即變綠** | 它們只是發任務進佇列，不等爬完 |
 | Flower (5555) | 10 筆 `crawler_finmind` 任務陸續 SUCCESS | 真正的執行在 Celery worker |
 | worker log | `docker logs crawler_twse | tail -20` | 看到 DataFrame + succeeded |
 
@@ -508,8 +546,8 @@ scheduler ──(Redis)──> airflow-celery-worker 執行「發任務」這個
 | # | 你應該看到 | 它證明了什麼 |
 |---|-----------|-------------|
 | 1 | `stock_crawler_dag` 的 10 個 task 全部變綠，MySQL 裡有 10 支股票的資料 | Airflow 能直接指揮爬蟲執行 |
-| 2 | twse_tpex_dag 的兩組分支同時平行執行，上櫃三支股票的資料入庫 | 你跑通了分組扇出加匯合的 DAG 形狀 |
-| 3 | producer_dag 觸發後立即全綠，Flower 上的任務陸續變成 SUCCESS | 編排層和執行層確實是分工的兩層 |
+| 2 | twse_tpex_dag 不帶參數時兩組平行執行；帶 `--conf '{"market":"tpex"}'` 時 twse 那組整片 skipped、end 照樣綠 | 你跑通了 BranchPythonOperator 的參數分支，且 `none_failed_min_one_success` 生效 |
+| 3 | producer_dag 的 `check_trading_day` 放行、`skip_no_trading` skipped，發任務全綠後 Flower 上的任務陸續變成 SUCCESS | 交易日守門有效，且編排層和執行層確實是分工的兩層 |
 | 4 | docker_producer_dag 執行成功，`00679B` 的資料入庫 | DockerOperator 能跑 producer，而且佇列分流的兩條路都是通的 |
 | 5 | ETL DAG 產出了 VIEW 和實體表 | 一條 DAG 就能涵蓋完整的 ETL 流程 |
 | 6 | 失敗的 task 能夠單獨 Clear 重跑 | 你用到了編排引擎的核心價值 |
@@ -561,6 +599,9 @@ LocalExecutor 像第 9 章：單機、自己的行程做事。CeleryExecutor 像
 | 任務發了、worker 也開著，但佇列一直堆積 | 佇列對不上——任務發到了預設佇列，但 worker 只聽 `-Q twse` / `tpex` 這兩條 | 發送端改用 `apply_async(queue=...)` 指定 worker 在聽的佇列；用 `rabbitmqctl list_queues name messages consumers` 查哪條佇列有訊息卻沒有消費者 |
 | docker_producer 起的容器報 Connection refused | 臨時容器不會讀 .env，`RABBITMQ_HOST` 沒給就預設連 127.0.0.1（容器自己）| 在 DockerOperator 的 `environment` 明確給 `RABBITMQ_HOST` 和 `MYSQL_HOST` |
 | Airflow 連不到 mysql 或 rabbitmq | 容器重建（down 再 up）後，network connect 的掛載消失了 | 重新執行準備 3 的四行 `docker network connect` |
+| 分支選完，end 也變成 skipped | end 的 `trigger_rule` 還是預設的 `all_success`——上游有 skipped 它就跟著跳過 | end 改 `trigger_rule="none_failed_min_one_success"`（分支 DAG 的固定搭配） |
+| 分支函式回傳後直接報錯 | 回傳的字串跟下游 task_id 對不上（打錯字、或那個 task 不存在） | 回傳值必須一字不差等於某個下游 task 的 task_id；多條路要用 list |
+| 帶了 `--conf` 但兩組還是都跑 | conf 的 key 打錯（例如 `Market`）或值不在分組裡，落入預設的「全跑」 | 檢查 JSON 的 key/value；到 task log 看 `choose_market` 印出的判斷結果 |
 | ETL 的 create_view 失敗 | MySQL 的 host 設定不對 | Airflow 的 compose 已在 `environment` 明寫 `MYSQL_HOST: mysql` 覆蓋 .env——若仍錯，確認你用的是最新版的 compose 檔 |
 | BigQuery DAG 跑不動 | 它需要 GCP 憑證才能執行 | 接第 14 章的 GCP 設定；還沒有 GCP 帳號就先跳過這一支 |
 
@@ -593,6 +634,7 @@ docker compose -f docker-compose-local.yml down
 - 三種串法各有定位：Airflow 直接做最簡單、指揮 Celery 能分工和擴充、用 DockerOperator 跑 producer 則把依賴徹底分離。
 - 發任務時要跟 worker 在聽的佇列對上：分流版 worker 只聽 `-Q` 指定的佇列，所以要用 `apply_async(queue=...)` 明確指定；用 `.delay()` 會發進預設佇列，沒有人消費。
 - 分組扇出加匯合的寫法是「dict 分組加兩層迴圈生 task」；之後要加一組，只需要在 dict 加一個 key。
+- BranchPythonOperator 的兩種經典用法都上場了：參數分支（conf 選市場，回傳 list 可走多條路）與時間守門（交易日才發任務）；有分支的 DAG，匯合點的 trigger_rule 要改 `none_failed_min_one_success`。
 - Airflow 的 task 全綠不等於爬蟲成功——fire-and-forget 模式下，編排層看不到執行結果，要自己補一步驗證。
 - ETL DAG 讓「爬取 → 清理 → 產出分析表」變成一張可以補跑、可以監控的圖。
 - LocalExecutor 和 CeleryExecutor 的關係，就是你學過的單機與分散式兩種模式在編排層重演一次。
