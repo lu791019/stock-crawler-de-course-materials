@@ -598,6 +598,32 @@ gcloud compute instances list    # 記下新的 EXTERNAL_IP
 
 防火牆規則綁的是標籤不是 IP，開機後不用重設；要換的只有你瀏覽器裡的網址。
 
+## 補充：試用結束後的永久免費機器（Always Free）
+
+$300 試用是 90 天，但 GCP 另有一個**不會過期的永久免費方案（Always Free）**——條件嚴格，三個都要中：
+
+1. 機型只能是 **e2-micro**（2 顆共享 vCPU、1GB 記憶體），而且每個帳號**每月只有一台**的額度
+2. 區域只限美國三區：**us-west1（奧勒岡）、us-central1（愛荷華）、us-east1（南卡羅來納）**——台灣區不適用
+3. 開機磁碟要用**標準永久磁碟（pd-standard）**、總量 30GB 內——**注意：不指定的話預設給的是平衡磁碟（pd-balanced），會被收費**
+
+一條指令開出符合資格的機器（跟本章 F-2 的差異就是粗體三個參數）：
+
+```bash
+gcloud compute instances create free-vm \
+  --zone=us-west1-a \
+  --machine-type=e2-micro \
+  --image-family=ubuntu-2404-lts-amd64 \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=30GB \
+  --boot-disk-type=pd-standard
+```
+
+Console 建立時的三個對應點選：區域選 us-west1、機器類型在 E2 系列選 e2-micro、「OS 和儲存空間」的開機磁碟類型改選「標準永久磁碟」。
+
+**期望管理**：1GB 記憶體跑不動課程全套（連 Airflow 一個都吃不下），它適合的是——跑一支 API、跑單一 worker、掛個人小專案或排程腳本。另外每月只有 1GB 的北美出站流量免費，超過照算。
+
+**課程其他服務的「試用後」狀況**：BigQuery 有永久免費層（10GB 儲存＋每月 1TB 查詢，第 15 章的用量遠在額度內）、Looker Studio 本來就免費——**資料倉儲和 BI 這條線試用結束照樣能玩**；Cloud SQL 沒有免費層（第 16 章的實例試用後留著就會扣試用外的錢，記得停用或刪除）。
+
 ## Console 介面對照：滑鼠版操作
 
 先認識 Console 本身。Console（console.cloud.google.com）是 GCP 的網頁控制台，頂部列從左到右：
