@@ -13,6 +13,8 @@ Stock Price API — 用 FastAPI 把 MySQL 裡的股價開成 REST API
 互動式文件（Swagger UI）：
     http://localhost:8000/docs
 """
+import os
+
 import pandas as pd                                    # 查詢結果 → DataFrame → JSON
 from fastapi import FastAPI, HTTPException, Query      # 框架本體、標準錯誤回應、查詢參數驗證
 from sqlalchemy import create_engine, text             # 連線池 + 參數化 SQL（防注入的關鍵）
@@ -21,6 +23,11 @@ from sqlalchemy import create_engine, text             # 連線池 + 參數化 S
 from crawler.config import MYSQL_ACCOUNT, MYSQL_HOST, MYSQL_PASSWORD, MYSQL_PORT
 
 MYSQL_DATABASE = "mydb"
+
+# Cloud Run 部署時（第 17 章）由 --set-env-vars 提供；本機與 VM 都沒設這個變數, 走原本的 TCP 路
+# Cloud Run 連 Cloud SQL 不走公網 IP: --add-cloudsql-instances 會把資料庫掛成
+# /cloudsql/{連線名稱} 的 unix socket, 連線走 Google 內部通道, 不需要授權網路
+MYSQL_UNIX_SOCKET = os.environ.get("MYSQL_UNIX_SOCKET")
 
 # 建立 FastAPI 應用程式物件。title / description 會顯示在 /docs 頁面的最上方
 app = FastAPI(
@@ -31,9 +38,17 @@ app = FastAPI(
 
 # create_engine 建的是「連線池管理者」（第 5 章講過），app 存活期間重複使用
 # 注意：這裡「還沒有」真的連上資料庫——第一次執行查詢時才會建立連線
-engine = create_engine(
-    f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
-)
+if MYSQL_UNIX_SOCKET:
+    # Cloud Run: 走 unix socket, URL 的 host:port 留空、socket 路徑放 query string
+    _db_url = (
+        f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@/{MYSQL_DATABASE}"
+        f"?unix_socket={MYSQL_UNIX_SOCKET}"
+    )
+else:
+    # 本機 / VM: 走 TCP, 跟第 5 章以來完全相同
+    _db_url = f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
+
+engine = create_engine(_db_url)
 
 
 # @app.get("/") 是「路由裝飾器」：把下面的函式登記成「GET / 這個路徑的處理者」
