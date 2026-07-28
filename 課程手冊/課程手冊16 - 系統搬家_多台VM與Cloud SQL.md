@@ -105,6 +105,10 @@ gcloud sql instances list
 
 `PRIMARY_ADDRESS` 就是 Cloud SQL 的 IP，抄進上面的表。
 
+Console 上也看得到（≡ → SQL）：狀態綠勾＝RUNNABLE，公開 IP 位址就是剛才的 `PRIMARY_ADDRESS`：
+
+![Cloud SQL 實例清單](images/ch16/01-CloudSQL實例清單RUNNABLE.jpg)
+
 **A-3 授權網路＋建資料庫**：
 
 Cloud SQL 預設誰都連不進來（跟 VM 防火牆同一個哲學）。把兩台 VM 的**外部 IP** 加進授權清單，並建立課程用的資料庫：
@@ -117,6 +121,10 @@ gcloud sql databases create mydb --instance=stock-mysql
 ```
 
 > 為什麼授權的是「外部 IP」？VM 連 Cloud SQL 的公網位址時，流量是從 VM 的外部 IP 出去的，Cloud SQL 看到的來源就是它。也因此：**VM 重開機換了外部 IP，就要回來重跑一次 patch**——這是本章排錯表的第一名。
+
+patch 的結果在 Console 看得到：≡ → SQL → stock-mysql → 左側「連線設定」→「網路連線」分頁。「已授權網路」列出的兩筆 /32，就是兩台 VM 的外部 IP（之後想用滑鼠加 IP，也是在這頁按「新增網路」）：
+
+![授權網路頁](images/ch16/02-授權網路兩台VM外部IP.jpg)
 
 ### Part B：VM1 收斂成 infra 角色
 
@@ -142,6 +150,10 @@ gcloud compute instances create stock-crawler-vm2 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=20GB
 ```
+
+建好後 Console 的 VM 清單（≡ → Compute Engine → VM 執行個體）會有兩台並列。注意兩欄 IP：內部 IP 是連號的 `10.140.0.x`（同一個 VPC 依序配發），外部 IP 則是兩顆不相干的公網位址——這張圖就是「先搞懂」那張內外部 IP 對照表的實景：
+
+![VM 清單兩台](images/ch16/03-VM清單兩台內外部IP.jpg)
 
 SSH 進 VM2，重演第 14 章的環境準備（裝 Docker → clone → build worker image）：
 
@@ -221,7 +233,21 @@ sudo docker run --rm mysql:8.0 \
 
 有筆數（兩支股票各數百筆）就是全通：**任務從 VM1 出發、在 VM2 被執行、資料落在 Cloud SQL**——三個零件在三個地方，協作靠的是第 1 章就認識的訊息佇列。表是 to_sql 自動建的，跟第 5 章在本機第一次寫入時一模一樣。
 
-也可以在 Console 看：≡ → SQL → stock-mysql →「**Cloud SQL 研究室（Cloud SQL Studio）**」，用 root/1234 登入直接下查詢——託管服務自帶管理介面，phpMyAdmin 在雲端段就退役了。
+跨機分工也能在 Flower 上親眼看到：瀏覽器開 `http://{VM1外部IP}:5555`——Flower 跑在 VM1，列出的兩個 worker 卻是 VM2 上的容器（worker 名稱 @ 後面的主機碼跟 VM1 不同台），各自 Succeeded 1 筆：
+
+![Flower 跨機](images/ch16/04-Flower跨機兩worker各Succeeded1.jpg)
+
+**用 Console 的圖形介面查資料——Cloud SQL Studio**：≡ → SQL → stock-mysql → 左側「Cloud SQL Studio」。這裡有個坑：登入對話框的使用者下拉裡，**root 是灰色不可選的**（顯示「不支援 'root'@'%'」）——Studio 不開放 root 帳號登入，這是它的安全限制。解法是先用 gcloud 建一個一般使用者（`--host=%` 要明確給，不給的話 host 是空值，Studio 一樣拒收）：
+
+```bash
+gcloud sql users create studio --instance=stock-mysql --password=1234 --host=%
+```
+
+回到 Studio 重新整理頁面，登入資料庫選 `mydb`、使用者選 `studio`、密碼 `1234` → 驗證。左側 Explorer 會列出 mydb 的資料表，開一個 SQL 編輯器分頁直接下查詢：
+
+![Cloud SQL Studio](images/ch16/05-CloudSQLStudio查詢TaiwanStockPrice.jpg)
+
+託管服務自帶管理介面，phpMyAdmin 在雲端段就退役了。
 
 ## Swarm 一頁＋K8s 簡介
 
@@ -279,6 +305,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 | 建實例卡很久 | Cloud SQL 建立本來就要約 10 分鐘 | `gcloud sql instances list` 看 STATUS 從 PENDING_CREATE 變 RUNNABLE |
 | Unknown database 'mydb' | 忘了建資料庫 | `gcloud sql databases create mydb --instance=stock-mysql` |
 | VM2 上莫名多一個 rabbitmq 容器 | up 沒加 `--no-deps`，depends_on 連帶啟動 | `docker rm -f rabbitmq`，之後 up 記得加 `--no-deps` |
+| Cloud SQL Studio 的使用者下拉 root 是灰的 | Studio 不開放 root 登入；gcloud 建的使用者沒給 `--host=%` 也會被拒 | `gcloud sql users create studio --password=1234 --host=%` 後重新整理頁面 |
 | 兩台 VM 內部 IP 一樣？ | 不可能——同 VPC 內部 IP 唯一；你看到的多半是外部 IP 回收再發 | 分清楚兩欄：INTERNAL_IP vs EXTERNAL_IP |
 
 ## 本章總結
