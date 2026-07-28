@@ -2,6 +2,8 @@
 Sync MySQL to BigQuery Script
 用於將 MySQL 台股股價資料同步到 BigQuery
 """
+import pandas as pd
+
 from crawler.bigquery import (
     create_dataset_if_not_exists,
     create_table,
@@ -38,6 +40,11 @@ def sync_mysql_to_bigquery():
             )
             sql = f"SELECT * FROM {table_name}"
             df = query_to_dataframe(sql=sql)
+            # 分區欄一律轉成真正的日期型別再上傳。
+            # 來源表若是 to_sql 自動建的, date 會是文字(text)欄位,
+            # 而 BigQuery 的 DAY 分區只接受 DATE/DATETIME/TIMESTAMP——不轉會被 400 擋下
+            pk = config["partition_key"]
+            df[pk] = pd.to_datetime(df[pk]).dt.date
             upload_data_to_bigquery(table_name=config["bq_table"], df=df, mode="replace")
             print(f"{table_name} 同步完成")
         except Exception as e:
