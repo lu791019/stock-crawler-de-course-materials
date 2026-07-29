@@ -1,8 +1,10 @@
-# 課程手冊18 - 每日資料線與 CI：Airflow 排程、Composer 與 GitHub Actions
+# 課程手冊17 - 每日資料線與 CI：Airflow 排程、Composer 與 GitHub Actions
 
-> 本章對應 EP20，是課程最後一章。前置：第 17 章做完（兩台 VM、Cloud SQL、Artifact Registry、Cloud Run 上的 stock-api 都在）。
+> 本章對應 EP20，是課程最後一章。前置：第 16 章做完（兩台 VM、Cloud SQL、Secret Manager 都在，只是停著）。
 >
-> 系統已經能對外服務，密碼也在第 16 章交給 Secret Manager 保管了，但還有兩件事沒做：每日同步要手動觸發、程式改了要手動測試。本章分別處理：**用自架 Airflow 排程把資料線全線串起、用 GitHub Actions 讓每次 push 自動跑測試**，最後完成雲端環境的驗證與資源清理。
+> 資料庫搬上雲了、密碼也交給 Secret Manager 保管了，但還有兩件事沒做：每日同步要手動觸發、程式改了要手動測試。本章分別處理：**用自架 Airflow 排程把資料線全線串起、用 GitHub Actions 讓每次 push 自動跑測試**，最後完成雲端環境的驗證與資源清理。
+>
+> 想把 API 也開到網路上的話，做完本章可以接著看補充G（用 Cloud Run 部署 API），那一章是選讀的。
 
 ## 做完這一章你會
 
@@ -50,15 +52,38 @@ OLTP 和 OLAP 分開的理由第 15 章講過（分析查詢不影響營運資�
 CI/CD（持續整合／持續部署）的每個環節，前面章節都做過：
 
 ```
-git push ──▶ 自動跑測試（補充C 寫好的 pytest）──▶ 自動 build/push image（第 17 章的發佈流程）──▶ 自動 deploy（第 17 章做過）
-         └────────── CI（本章實作）──────────┘└──────────────── CD（概念，指出路徑）────────────────┘
+git push ──▶ 自動跑測試（補充C 寫好的 pytest）──▶ 自動 build 並上傳 image ──▶ 自動部署到執行環境
+         └────────── CI（本章實作）──────────┘└──────────── CD（概念，本章不實作）────────────┘
 ```
 
 本章實作 CI 這一段：repo 裡放一份 GitHub Actions 的 workflow 檔，之後每次 push，GitHub 會自動開一台臨時虛擬機執行你的測試。**測試沒過的程式碼不應該上線，而且這件事不該依賴人工記得檢查**。補充C 寫的測試，在這裡成為上線前的檢查關卡。
 
 ## 一步一步
 
-> 開工前照第 16 章收工段的 SOP 喚醒系統：Cloud SQL `ALWAYS` → 兩台 VM start → 查新外部 IP → 重跑 authorized-networks patch。scopes 第 17 章已改過 `cloud-platform`，這次不用再動。
+開工前先喚醒系統。照第 16 章收工段的 SOP，但這次**趁 VM 還停著**多做一件事：
+
+```bash
+# 1. Cloud SQL 喚醒
+gcloud sql instances patch stock-mysql --activation-policy=ALWAYS
+
+# 2. 趁停機改 VM 的存取範圍（本章的 Airflow 要寫入 BigQuery，預設範圍不夠）
+gcloud compute instances set-service-account stock-crawler-vm \
+  --zone=asia-east1-b --scopes=cloud-platform
+
+# 3. 兩台 VM 開機
+gcloud compute instances start stock-crawler-vm stock-crawler-vm2 --zone=asia-east1-b
+
+# 4. 查新的外部 IP（每次開機都會換）
+gcloud compute instances list
+
+# 5. 用新 IP 重跑授權網路
+gcloud sql instances patch stock-mysql \
+  --authorized-networks={VM1外部IP}/32,{VM2外部IP}/32
+```
+
+第 2 步要解釋一下。VM 的身分是它的服務帳戶，但機器層還有一道舊式的限制叫**存取範圍（scopes）**：就算 IAM 角色有權限，scopes 沒開放的操作一樣做不了。預設的 scopes 對 BigQuery 只有唯讀，本章的 Airflow 要寫入資料，會被擋下來回報 403。`--scopes=cloud-platform` 的意思是「scopes 不設限，權限完全由 IAM 角色決定」。
+
+**這個設定只能在停機狀態下修改**，所以放在開工時跟開機一起做。開機後才想到的話，就得再停一次機（IP 會再換一次，授權網路也要重設）。
 
 ### Part A：Airflow 上雲——建立排程環境
 
@@ -72,7 +97,7 @@ git pull
 docker build -f airflow/Dockerfile -t stock-airflow:latest .   # 約 10 分鐘
 ```
 
-> 如果你第 17 章排錯時跑過 `docker system prune -af`——它會把「沒有容器在用」的 image 全部清掉，所以這裡幾乎一定要重 build。build 等待的時間可以先看 Part C 的 CI 段。
+> 如果你在 VM1 上跑過 `docker system prune -af` 清理磁碟，它會把「沒有容器在用」的 image 全部清掉，這裡就得重 build。build 等待的時間可以先看 Part C 的 CI 段。
 
 **A-2 取消 `crawler/bigquery.py` 的註解**（第 15 章在本機做過同一件事，這次在 VM 上）：把 `from crawler.config import GCP_PROJECT_ID as PROJECT_ID` 打開、把寫死的 `PROJECT_ID = "your-project-id"` 註解掉。
 
@@ -114,7 +139,7 @@ docker exec airflow-scheduler airflow dags trigger stock_bigquery_etl_dag
 
 到瀏覽器開 `http://{VM1外部IP}:8080`（帳密 admin/admin），進入這支 DAG 的 Graph 分頁，六個 task 應該全部是綠色的 success：
 
-![Airflow DAG 六個 task 全綠](images/ch18/03-Airflow-BigQueryETL-DAG六task全綠.jpg)
+![Airflow DAG 六個 task 全綠](images/ch17/03-Airflow-BigQueryETL-DAG六task全綠.jpg)
 
 左側的格狀圖是歷次執行紀錄，每一直行是一次 run。上圖左邊幾行有紅色與橘色，那是實測過程中失敗的幾次（原因見排錯表的 `DAY partitioning` 那一條），修正後才變成全綠——這也是排錯時最直觀的檢查方式。
 
@@ -137,7 +162,7 @@ bq query --nouse_legacy_sql \
 
 同一組查詢也可以在 Console 上執行（≡ → BigQuery → SQL 查詢），結果會像這樣：
 
-![BigQuery 查詢排程後的 MA5/MA20](images/ch18/01-BQ-排程後MA5MA20查詢結果.jpg)
+![BigQuery 查詢排程後的 MA5/MA20](images/ch17/01-BQ-排程後MA5MA20查詢結果.jpg)
 
 這裡的資料跟第 15 章手動同步時看到的是同一批，差別在於這次是由 Airflow 排程觸發的。
 
@@ -171,23 +196,42 @@ jobs:
 
 驗證方式：到課程 repo 的 GitHub 頁面 → **Actions** 分頁，能看到每次 push 觸發的 CI 紀錄。每一列左邊的綠色勾號代表那次 push 的測試全部通過，右邊顯示執行時間（這個專案的測試約 20 秒跑完）：
 
-![GitHub Actions 執行紀錄](images/ch18/02-GitHubActions-CI執行紀錄全綠.jpg)
+![GitHub Actions 執行紀錄](images/ch17/02-GitHubActions-CI執行紀錄全綠.jpg)
 
 想自己觸發一次：fork 課程 repo 到自己帳號、改一個檔案後 push，你自己 repo 的 Actions 頁就會執行。
 
-CD 段課程不實作，但路徑你已經看得懂：在 workflow 後面加 steps——`docker build` → `push` 到 Artifact Registry → `gcloud run deploy`。三個動作第 17 章你都手動跑過；`gcp/update-api.sh` 就是那段的腳本化，接上去 CI/CD 就全通了。
+CD 段課程不實作，但路徑是這樣：在 workflow 後面繼續加 steps，讓它做 `docker build`、把 image 上傳到倉庫、再通知執行環境換新版本。補充G 會實際做過這三個動作的手動版（Artifact Registry 與 Cloud Run），`gcp/update-api.sh` 就是把它們串成一支腳本，接到 workflow 後面 CI/CD 就完整了。
 
 ### Part D：Composer 示範（講師操作，學員選做）
 
 流程走一遍給你看（額度充足者可跟做，**做完立刻刪**）：
 
 1. 啟用 API：`gcloud services enable composer.googleapis.com`
-2. Console：≡ → Composer → 建立環境（Composer 3）→ 名稱、區域 asia-east1、規格選最小 → 建立（**等 20-30 分鐘**——它在幫你架一整套 GKE 上的 Airflow）
-3. 建好後環境詳情頁有個 **DAGs 資料夾**連結（一個 Cloud Storage bucket）——把 `airflow/dags/stock_crawler_dag.py` 上傳進去
-4. 開「Airflow 網頁介面」——跟你自架的 UI 一模一樣，DAG 幾分鐘後自動出現，unpause → trigger → 全綠
-5. **示範結束立刻刪除環境**（Console 的刪除鈕）——它按小時計費
+2. Console：≡ → Composer → 建立環境（Composer 3）→ 名稱、區域 asia-east1、規格選最小 → 建立（**等 20-30 分鐘**，它在建立一整套跑在 GKE 上的 Airflow）
+3. 建好後環境詳情頁有一個 **DAGs 資料夾**連結，那是一個 Cloud Storage bucket。把 `airflow/dags/example_first_dag.py` 上傳進去
+4. 開「Airflow 網頁介面」，操作介面跟你自架的完全一樣。DAG 幾分鐘後會自動出現，unpause → trigger → 執行成功
+5. **示範結束立刻刪除環境**（Console 的刪除鈕），它按小時計費
 
-重點是 **DAG 在兩邊通用**：你寫的編排邏輯不綁定特定機器，從自架換到託管的成本很低。這是先學自架、再看託管的好處。
+第 3 步刻意選 `example_first_dag.py` 這支範例 DAG，因為它只用 Airflow 內建的 Operator，沒有其他依賴。
+
+**課程的爬蟲 DAG 不能直接這樣上傳**，這是託管環境的第一個功課。打開 `stock_crawler_dag.py` 看第 24 行：
+
+```python
+from crawler.tasks_crawler_finmind import crawler_finmind
+```
+
+它 import 了 `crawler` 這個模組。自架環境能跑，是因為 compose 檔用 volume 把 `../crawler` 掛進容器裡（第 10 章設定的）。Composer 環境沒有這個掛載，也沒有這個模組，DAG 一上傳就會出現 import 錯誤，連 UI 都不會顯示它。
+
+要讓課程的 DAG 在 Composer 上執行，至少要處理兩件事：
+
+| 要處理什麼 | 在 Composer 上怎麼做 |
+|-----------|-------------------|
+| `crawler` 模組 | 一起上傳到 DAGs bucket（Composer 會把該目錄加進 PYTHONPATH），或打包成 Python 套件安裝 |
+| 第三方套件（FinMind、pymysql 等） | 在環境設定的「PyPI 套件」頁面逐一指定版本安裝 |
+
+這正是**託管服務的隱藏成本**：機器不用你維護了，但「環境裡有什麼」變成你要透過它的介面去管理，而不是自己寫一份 Dockerfile 就搞定。自架時你用 `docker build` 一次處理完的事，在 Composer 上要拆成上傳程式碼與設定套件兩件事。
+
+所以「DAG 在兩邊通用」這句話要講得精確一點：**編排邏輯（DAG 的結構、依賴關係、排程設定）完全通用，但執行環境要各自準備**。這個差異在評估要不要換到託管服務時，是實際會花時間的部分。
 
 ## 收工：兩種收法
 
@@ -198,10 +242,10 @@ CD 段課程不實作，但路徑你已經看得懂：在 workflow 後面加 ste
 | 順序 | 資源 | 指令／位置 | 為什麼是這個順序 |
 |------|------|-----------|----------------|
 | 1 | Composer 環境（如果有建立） | Console → Composer → 刪除 | 費用最高，優先刪除 |
-| 2 | Cloud Run 服務 | `gcloud run services delete stock-api --region=asia-east1` | 閒置本來就縮零不計費，結束時一併刪除 |
+| 2 | Cloud Run 服務（若做過補充G） | `gcloud run services delete stock-api --region=asia-east1` | 閒置本來就縮零不計費，結束時一併刪除 |
 | 3 | 兩台 VM | `gcloud compute instances delete ...` | 磁碟跟著 VM 一起消失 |
 | 4 | Cloud SQL | `gcloud sql instances delete stock-mysql` | 儲存費 |
-| 5 | Artifact Registry | `gcloud artifacts repositories delete stock-repo` | image 儲存費 |
+| 5 | Artifact Registry（若做過補充G） | `gcloud artifacts repositories delete stock-repo` | image 儲存費 |
 | 6 | BigQuery dataset | `bq rm -r -d stock` | 儲存費（免費層內，可留最後） |
 | 7 | Secret | `gcloud secrets delete mysql-password` | 費用趨近零 |
 | 8 | 整個專案（終極選項） | Console → IAM與管理 → 設定 → 關閉 | 上面全部一次帶走；**30 天寬限期**內可反悔還原 |
@@ -231,13 +275,13 @@ CD 段課程不實作，但路徑你已經看得懂：在 workflow 後面加 ste
 | 症狀 | 原因 | 處理 |
 |------|------|------|
 | config.py import 報 GCP_PROJECT_ID 未定義 | 第 16 章取消 Secret Manager 區塊註解時，上面的 GCP_PROJECT_ID 那行忘了一起取消 | 兩處一起取消註解 |
-| airflow up 報 stock-airflow image 不存在 | 第 17 章的 `prune -af` 把沒在用的 image 清了 | A-1 重 build |
+| airflow up 報 stock-airflow image 不存在 | 之前跑過 `prune -af`，把沒在用的 image 清掉了 | A-1 重 build |
 | 瀏覽器連 8081 打不開 Airflow | 雲端用的是 compose 檔原本的 8080，8081 是本機為了避開 phpMyAdmin 才改的 | 改連 `http://{VM1外部IP}:8080` |
 | 瀏覽器連 8080 逾時 | 你的對外 IP 換了，防火牆規則 allow-stock-web 還是舊 IP | `curl -4 ifconfig.me` 查目前 IP，再 `gcloud compute firewall-rules update allow-stock-web --source-ranges={新IP}/32` |
 | airflow up 報 network my_network not found | compose 宣告的外部網路還沒建 | `docker network create my_network` |
 | sync task 報 400：DAY partitioning 只接受 DATE，found STRING | 來源表是 to_sql 自動建的，`date` 欄是文字型別；舊版 sync 沒做型別轉換 | `git pull` 拉最新版（sync 上傳前已加 `pd.to_datetime`）；順便記住：**to_sql 自動建表的欄位型別要用 `SHOW COLUMNS` 驗過，不能想當然** |
 | unpause 後多一個沒觸發過的 run | 排程 DAG unpause 會補跑最近一期（catchup=False 也一樣） | 正常現象；不想要就在 unpause 前先 trigger 手動 run 驗證 |
-| BigQuery 寫入 403 | VM scopes 還是預設唯讀（沒做第 17 章 Step 0 的 scopes 步驟） | 停機 → `set-service-account --scopes=cloud-platform` → 開機 → 重授權 Cloud SQL |
+| BigQuery 寫入 403 | VM scopes 還是預設唯讀（開工 SOP 的第 2 步沒做） | 停機 → `set-service-account --scopes=cloud-platform` → 開機 → 重授權 Cloud SQL |
 | CI 的 uv sync 失敗 | uv.lock 跟 pyproject 不同步 | 本機 `uv lock` 後重新 push |
 
 ## 本章總結
@@ -245,7 +289,7 @@ CD 段課程不實作，但路徑你已經看得懂：在 workflow 後面加 ste
 - 金鑰檔只有 GCP 外面的程式才需要；VM 上的程式用自己的服務帳戶身分，不需要金鑰
 - 完整資料線：爬蟲 → Cloud SQL → 排程 Airflow → BigQuery → Looker Studio，同步改由排程自動執行
 - Composer 是託管版 Airflow：DAG 在兩邊通用，差別在誰維護機器、以及費用
-- CI 的四個步驟就是你手動做過的 clone、裝工具、裝依賴、跑測試，交給 GitHub 每次 push 自動執行；CD 是第 17 章發佈流程的自動化
+- CI 的四個步驟就是你手動做過的 clone、裝工具、裝依賴、跑測試，交給 GitHub 每次 push 自動執行；CD 是發佈流程的自動化，補充G 有手動版
 - 資源清理照順序刪：費用高的先刪，關閉整個專案是最後手段（30 天內可還原）
 
 ---

@@ -1,6 +1,6 @@
-# 課程手冊17 - 對外服務：API 上雲與 Cloud Run
+# 補充G - 對外服務：API 上雲與 Cloud Run
 
-> 本章對應 EP19。前置：第 16 章做完（兩台 VM、Cloud SQL 都在，只是停著）。
+> 這是選讀的補充章，不在主線流程裡。前置：第 16 章做完（兩台 VM、Cloud SQL、Secret Manager 都在）。做完第 17 章之後再回來看也可以。
 >
 > 到第 16 章為止，系統只對「自己人」服務：發任務、看 Flower、查資料庫，全都要嘛 SSH 進機器、要嘛靠防火牆放行你一個人的 IP。本章把補充B 寫好的 FastAPI 部署上雲——給全世界一個固定的網址，並學會雲端時代的發佈流程：**build → tag → push → deploy**。部署的目的地不是 VM，而是 **Cloud Run**：把容器交給託管服務跑，這是資料工程師實務上把服務開出去的標準做法。
 
@@ -54,7 +54,7 @@
 
 判斷的原則：**「有人呼叫才做事、做完就結束、不用記住上次做了什麼」的工作適合 Cloud Run**。API 完全符合，所以放上去很自然。
 
-Airflow 的 scheduler 剛好每一項都相反，它需要一直執行。Cloud Run 有 `--min-instances=1` 可以讓容器常駐，但那等於放棄了 Cloud Run 的所有優點（自動縮零、按量計費），成本還可能比一台 VM 高——這種時候就該用 VM 自架，或用專門的託管排程服務 Composer（第 18 章會比較）。
+Airflow 的 scheduler 剛好每一項都相反，它需要一直執行。Cloud Run 有 `--min-instances=1` 可以讓容器常駐，但那等於放棄了 Cloud Run 的所有優點（自動縮零、按量計費），成本還可能比一台 VM 高——這種時候就該用 VM 自架，或用專門的託管排程服務 Composer（第 17 章會比較）。
 
 爬蟲 worker 的情況類似：它要一直連著 RabbitMQ 等任務進來，屬於常駐型，所以留在 VM2 上。
 
@@ -263,11 +263,11 @@ curl https://stock-api-{一串數字}.asia-east1.run.app/stocks/2330/latest
 
 Console 上看得到這些 revision（≡ → Cloud Run → 點 stock-api → 修訂版本分頁）。流量欄位顯示目前是哪一版在服務：
 
-![Cloud Run 修訂版本清單](images/ch17/01-CloudRun修訂版本清單.jpg)
+![Cloud Run 修訂版本清單](images/chG/01-CloudRun修訂版本清單.jpg)
 
 **驗證密碼真的沒有明碼存在設定裡**：在同一頁往下捲，找到「環境變數」區塊。你會看到 `MYSQL_UNIX_SOCKET` 和 `MYSQL_ACCOUNT` 顯示的是實際的值，但 `MYSQL_PASSWORD` 顯示的是「密鑰：mysql-password:latest」——也就是一個參照，看不到 `1234`：
 
-![Cloud Run 環境變數](images/ch17/02-CloudRun環境變數密碼為密鑰參照.jpg)
+![Cloud Run 環境變數](images/chG/02-CloudRun環境變數密碼為密鑰參照.jpg)
 
 如果剛才用的是 `--set-env-vars="MYSQL_PASSWORD=1234"`，這裡就會直接顯示 `1234`，任何有這個專案讀取權限的人都看得到。
 
@@ -376,7 +376,7 @@ gcloud compute instances stop stock-crawler-vm --zone=asia-east1-b
 | 症狀 | 原因 | 處理 |
 |------|------|------|
 | `docker push` 回 401 unauthenticated | ①VM 的 scopes 還是預設唯讀 ②用了 `sudo docker`（讀不到你的登入設定） | ①停機 → `set-service-account --scopes=cloud-platform` → 開機（IP 換了記得重授權）②不加 sudo 重跑；`groups` 確認在 docker 群組裡 |
-| `docker build` 報 no space left on device | 20GB 磁碟被舊 image／build cache 塞滿 | `docker system prune -af` 清掉沒在用的（注意：它會把沒在跑的 image 全清掉，第 18 章要用的 stock-airflow 得重 build） |
+| `docker build` 報 no space left on device | 20GB 磁碟被舊 image／build cache 塞滿 | `docker system prune -af` 清掉沒在用的（注意：它會把沒在跑的 image 全清掉，第 17 章要用的 stock-airflow 得重 build） |
 | VM1 測試容器 curl 回 000 | uv 還在容器裡準備環境 | 等 30 秒；`docker logs stock-api` 看到 `Application startup complete` 就緒 |
 | VM1 測試 `/` 回 `degraded` | 授權網路是舊 IP，或 Cloud SQL 沒醒 | 重跑 Step 0 的第 4、5 步 |
 | `run deploy` 說 image 拉不到 | image 路徑打錯，或 push 根本沒成功 | `gcloud artifacts docker images list $REG` 確認倉庫裡有它 |
@@ -393,4 +393,4 @@ gcloud compute instances stop stock-crawler-vm --zone=asia-east1-b
 - 發佈流程 build → tag → push → deploy；revision 讓換版零停機、回滾一條指令
 - LB 沒有消失，只是 Google 幫你管了——需要自己拼七件套的場景屬於 infra／SRE，你知道找誰就夠
 
-下一章（第 18 章）是最後一章：把爬蟲到 BigQuery 的每日管線用 Airflow 排程串起來、認識 Composer 與 CI/CD——把課程的系統整理成可以交接給其他人維護的狀態。
+回到主線：第 17 章把爬蟲到 BigQuery 的每日管線用 Airflow 排程串起來，並用 GitHub Actions 讓每次 push 自動跑測試。

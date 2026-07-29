@@ -413,7 +413,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 
 ## 想一想
 
-1. 為什麼 VM2 連 RabbitMQ 用內部 IP、連 Cloud SQL 卻用外部 IP？（提示：Cloud SQL 不在你的 VPC 裡——它是 Google 託管專案裡的機器。進階解法叫「私人服務存取」，第 18 章不會用到但值得知道名字）
+1. 為什麼 VM2 連 RabbitMQ 用內部 IP、連 Cloud SQL 卻用外部 IP？（提示：Cloud SQL 不在你的 VPC 裡——它是 Google 託管專案裡的機器。進階解法叫「私人服務存取」，課程不會用到但值得知道名字）
 2. 如果爬蟲量變大，下一台該加的是 VM3 跑更多 worker，還是把 VM1 換大台？這跟第 7 章 `--scale` 的水平擴充是同一題嗎？
 3. 建立 Cloud SQL 時密碼 1234 寫在指令裡，Part B 把它移進 Secret Manager 之後，這個密碼還有哪些地方留著明碼？（提示：查一下 `history`）
 4. 密碼輪替時，正在執行的 worker 用的還是它啟動時讀到的舊密碼。什麼時候才會真的換成新密碼？這對「舊密碼何時可以停用」有什麼影響？
@@ -452,4 +452,6 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 - Swarm 已少人使用、K8s 是目前的標準但屬於另一門課的範圍——compose 練熟就是學 K8s 的基礎
 - 收工三停：VM ×2＋Cloud SQL；重開要記得「新 IP → 重 patch 授權」
 
-下一章（第 17 章）讓系統對外開門：把 FastAPI 打包成 image 推上倉庫、交給 Cloud Run 跑出一個固定的 HTTPS 網址，學會 build／tag／push／deploy 的換版發佈流程。
+下一章（第 17 章）是最後一章：用 Airflow 排程把「Cloud SQL → BigQuery」的同步變成每個交易日自動執行，並用 GitHub Actions 讓每次 push 自動跑測試。
+
+如果你也想把 API 開到網路上讓別人查詢，可以看選讀的補充G——用 Artifact Registry 與 Cloud Run 把 FastAPI 部署成一個固定的 HTTPS 網址。

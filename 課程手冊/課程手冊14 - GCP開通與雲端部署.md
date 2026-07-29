@@ -57,10 +57,10 @@
 | 模式 | 供應商提供 | 你負責 | 課程對應 |
 |------|-----------|--------|---------|
 | IaaS（Infrastructure as a Service） | 基礎設施：VM、儲存、網路 | OS 以上全部自己來（裝 Docker、跑程式） | **Compute Engine**——本章開的 VM |
-| PaaS（Platform as a Service） | 平台與執行環境 | 只管程式和資料，不管底層機器 | **BigQuery**（第 15 章）、**Cloud Composer**（第 18 章） |
+| PaaS（Platform as a Service） | 平台與執行環境 | 只管程式和資料，不管底層機器 | **BigQuery**（第 15 章）、**Cloud Composer**（第 17 章） |
 | SaaS（Software as a Service） | 完整應用程式，開瀏覽器直接用 | 只管使用，不裝不維護 | **Looker Studio**（第 15 章）、Gmail |
 
-方向感：越往 IaaS 自由度越高、要管的越多；越往 SaaS 越省事、可調整的越少。這個取捨會貫穿整個雲端段——第 16 章「自架 MySQL 容器 vs 託管 Cloud SQL」、第 18 章「自架 Airflow vs Composer」都是同一道選擇題。
+方向感：越往 IaaS 自由度越高、要管的越多；越往 SaaS 越省事、可調整的越少。這個取捨會貫穿整個雲端段——第 16 章「自架 MySQL 容器 vs 託管 Cloud SQL」、第 17 章「自架 Airflow vs Composer」都是同一道選擇題。
 
 ### 三朵雲：AWS、Azure、GCP
 
@@ -120,17 +120,17 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 
 | 分類 | 代表服務 | 課程對應 |
 |------|---------|---------|
-| 運算 Compute | **Compute Engine**（IaaS VM）、GKE（託管 K8s）、**Cloud Run**（跑容器的 Serverless）、App Engine、Cloud Functions | GCE：本章；Cloud Run：第 17 章 |
+| 運算 Compute | **Compute Engine**（IaaS VM）、GKE（託管 K8s）、**Cloud Run**（跑容器的 Serverless）、App Engine、Cloud Functions | GCE：本章；Cloud Run：補充G |
 | 儲存與資料庫 | **Cloud SQL**（託管 MySQL/PostgreSQL/SQL Server）、**Cloud Storage**（物件儲存：檔案、備份）、Firestore（NoSQL，角色近 MongoDB）、Bigtable（超大規模 NoSQL） | Cloud SQL：第 16 章 |
-| 資料分析與工程 | **BigQuery**（全託管資料倉儲）、**Cloud Composer**（全託管 Airflow）、**Looker Studio**（免費 BI）、Dataflow（託管 ETL／串流）、Dataproc（託管 Hadoop/Spark）、Pub/Sub（訊息佇列，角色近課程的 RabbitMQ） | BigQuery：第 15 章；Composer：第 18 章；Looker Studio：第 15 章 |
-| 網路 | Cloud Load Balancing、**防火牆規則**、Cloud DNS、Cloud CDN | 防火牆：本章（LB 第 17 章會說明為什麼你不用自己架） |
-| 身分與安全 | **IAM**（誰能做什麼）、**Secret Manager**（機密管理）、KMS | 第 18 章 |
+| 資料分析與工程 | **BigQuery**（全託管資料倉儲）、**Cloud Composer**（全託管 Airflow）、**Looker Studio**（免費 BI）、Dataflow（託管 ETL／串流）、Dataproc（託管 Hadoop/Spark）、Pub/Sub（訊息佇列，角色近課程的 RabbitMQ） | BigQuery：第 15 章；Composer：第 17 章；Looker Studio：第 15 章 |
+| 網路 | Cloud Load Balancing、**防火牆規則**、Cloud DNS、Cloud CDN | 防火牆：本章（LB 見補充G，說明為什麼你不用自己架） |
+| 身分與安全 | **IAM**（誰能做什麼）、**Secret Manager**（機密管理）、KMS | IAM：第 15 章；Secret Manager：第 16 章 |
 
 選型的方向跟第 5 章學過的一樣：物件檔案放 Cloud Storage、交易型資料放 Cloud SQL（OLTP）、分析放 BigQuery（OLAP）、非關聯式選 Firestore／Bigtable——資料庫的分工概念不變，只是每種分工在雲端變成一個獨立產品。
 
 ### 全段地圖：本機的每個零件，最後都去哪裡
 
-雲端段（14 到 18 章）做的事，一句話：**把第 13 章那套本機系統的零件，一格一格換成雲端對應物——程式幾乎不動**。先把整張地圖看過一遍，之後每一章都是在點亮其中幾格：
+雲端段（14 到 17 章，另有選讀的補充G）做的事，一句話：**把第 13 章那套本機系統的零件，一格一格換成雲端對應物——程式幾乎不動**。先把整張地圖看過一遍，之後每一章都是在點亮其中幾格：
 
 | 本機的零件（1-13 章） | 雲端去向 | 章節 | 程式要改什麼 | 為什麼要換／換了差在哪 |
 |---------------------|---------|------|-------------|----------------------|
@@ -142,16 +142,16 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 | RabbitMQ／worker 容器 | 拆到**多台 GCE** 分工 | 第 16 章 | 不改，compose 拆檔 | 補充A 的「分散式」第一次真的跨機器 |
 | Metabase 容器 | **Looker Studio**（免費 SaaS BI） | 第 15 章 | 不用程式，滑鼠操作 | 免安裝免維運、內建 BigQuery 連接器——SaaS 的教科書案例 |
 | ——（本機沒有這層） | **BigQuery**（分析倉儲，新增） | 第 15 章 | 跑課程現成的 sync 程式 | OLTP／OLAP 分工：分析不再拖累營運資料庫 |
-| FastAPI（補充B） | **Cloud Run**（容器託管執行環境） | 第 17 章 | 不改，加發佈流程 | 系統第一次有對外門牌：固定 HTTPS 網址、自動擴縮、閒置縮零不計費——不用管機器 |
-| 手動 docker build／换版 | **CI/CD**（GitHub Actions：push → 測試 → build → 換版） | 第 18 章 | 加 workflow yml | 補充C 寫的測試在這裡變成上線守門員 |
-| 自架 Airflow 容器 | 主線**仍在 GCE 自架**；**Cloud Composer**（託管 Airflow）認識＋對照示範 | 第 18 章 | DAG 兩邊通用 | Composer 省維運但每月數百美元起跳——託管 vs 自架的期末考題，課程用示範讓你看見差異、錢包不用受傷 |
-| `.env` 檔 | **Secret Manager** | 第 18 章 | config.py 加 fallback | 機密集中管理、可稽核、可輪替——.env 紀律的雲端完全體 |
-| 個人 Google 帳號操作一切 | **IAM 最小權限**（服務帳戶各司其職） | 本章埋、第 18 章收 | — | 本章的服務帳戶是第一步，18 章補完整權限體系 |
-| docker logs／Flower 看狀態 | 照用＋**Cloud Monitoring／Logging** 補機器層 | 本章導覽、第 18 章用 | — | 容器層工具照舊，機器層（CPU／記憶體／帳單）交給雲端監控 |
+| FastAPI（補充B） | **Cloud Run**（容器託管執行環境） | 補充G（選讀） | 不改，加發佈流程 | 固定 HTTPS 網址、自動擴縮、閒置縮零不計費，不用管機器 |
+| 手動 docker build／换版 | **CI/CD**（GitHub Actions：push → 自動跑測試） | 第 17 章 | 加 workflow yml | 補充C 寫的測試在這裡成為上線前的檢查關卡 |
+| 自架 Airflow 容器 | 主線**仍在 GCE 自架**；**Cloud Composer**（託管 Airflow）認識＋對照示範 | 第 17 章 | DAG 的編排邏輯兩邊通用 | Composer 省維運但每月數百美元起跳，課程用示範讓你看見差異 |
+| `.env` 檔 | **Secret Manager** | 第 16 章 | config.py 加 fallback | 機密集中管理、可查詢誰讀過、可換版本——密碼一上雲就改用它 |
+| 個人 Google 帳號操作一切 | **IAM 最小權限**（服務帳戶各司其職） | 本章建立、第 15 章授權 | — | 本章的服務帳戶刻意不給角色，第 15 章才補上剛好夠用的兩個 |
+| docker logs／Flower 看狀態 | 照用＋**Cloud Monitoring／Logging** 補機器層 | 本章導覽 | — | 容器層工具照舊，機器層（CPU／記憶體／帳單）交給雲端監控 |
 
 **原樣保留、不搬的**：爬蟲程式本體、Celery 任務、佇列分流設計、compose 檔結構、Flower——這正是前十三章「config 中心、分層架構」紀律的回報：換環境時，動的是設定與部署，不是程式。
 
-### 系統的五個階段：每一章加了什麼
+### 系統的階段：每一章加了什麼
 
 上面那張表是逐項對照，這裡換個角度看——**系統的形狀是怎麼一章一章長出來的**：
 
@@ -179,19 +179,19 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
                           └────────────────┘
      密碼改由 Secret Manager 保管，不寫在檔案裡
 
-第 17 章：對外開門
+補充G（選讀）：對外開門
                           ┌────────────────┐
      使用者 ──HTTPS──────▶│   Cloud Run    │ 固定網址、自動擴縮
                           │   stock-api    │
                           └───────┬────────┘
                                   │ 查詢 Cloud SQL
 
-第 18 章：讓它自己跑
+第 17 章：讓它自己跑
      VM1 的 Airflow ──每個交易日 20:00──▶ 執行「Cloud SQL → BigQuery」同步
      GitHub Actions ──每次 push──▶ 自動執行測試
 ```
 
-五章做完之後，系統的完整形態是這樣（括號標的是哪一章建的）：
+全部做完之後，系統的完整形態是這樣（括號標的是哪一章建的，補充G 是選讀）：
 
 ```
                                     ┌──────────────────┐
@@ -207,7 +207,7 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
     └───────┬───────┘                       ▼
             │                     ┌──────────────────┐
             │ 每個交易日 20:00      │    Cloud SQL     │（16 章）
-            │ 觸發同步（18 章）     │   託管 MySQL      │
+            │ 觸發同步（17 章）     │   託管 MySQL      │
             └────────────────────▶ └────────┬─────────┘
                                             │ 同步
                                             ▼
@@ -226,7 +226,7 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 
 看這張圖時注意兩件事。
 
-**第一，Cloud Run 只用在 API，Airflow 留在 VM 上自架**，這不是偷懶，是兩種工作的形狀不同：API 是「有人呼叫才做事」，沒人用的時候縮到零最省錢；Airflow 的 scheduler 要**一直醒著**每分鐘檢查有沒有到期的排程，縮到零就不排程了。第 17 章會再說明這個判斷。
+**第一，Cloud Run 只用在 API，Airflow 留在 VM 上自架**，這是因為兩種工作的形狀不同：API 是「有人呼叫才做事」，沒人用的時候縮到零最省錢；Airflow 的 scheduler 要**一直醒著**每分鐘檢查有沒有到期的排程，縮到零就不排程了。補充G 會再說明這個判斷。
 
 **第二，本機的東西沒有全部消失。** RabbitMQ 和 Flower 從第 1 章活到最後，只是搬到 VM1 上；爬蟲程式本體一行都沒改過。換掉的只有「有狀態、掛掉最痛」的 MySQL，以及「維護成本高於價值」的部分。
 
@@ -770,7 +770,7 @@ Part F 到收工用的都是 gcloud 指令。同樣的事在 GCP Console 網頁�
 
 1. 服務帳戶的金鑰檔如果不小心 commit 到公開的 GitHub repo，會發生什麼事？該怎麼補救？
 2. 為什麼防火牆規則不開放 3306 和 5672？如果你人在外面想連雲端的 MySQL，正確的做法是什麼？（提示：SSH）
-3. VM 停機後外部 IP 會變，對「把網址發給別人用」這件事是什麼問題？固定的對外網址可能怎麼做？（第 17 章會回答）
+3. VM 停機後外部 IP 會變，對「把網址發給別人用」這件事是什麼問題？固定的對外網址可能怎麼做？（補充G 會回答）
 
 ## 練習
 
