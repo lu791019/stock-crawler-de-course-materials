@@ -256,21 +256,28 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
    ![連接器清單](images/ch15/B04-連接器選擇-BigQuery.jpg)
 2. 點 **BigQuery** → 第一次會再要求一次授權（「數據分析必須先取得授權，才能與您的 BigQuery 專案連結」）→ 按「授權」
    ![BigQuery 授權](images/ch15/B05-BigQuery連接器授權.jpg)
-3. 依序點選：Project 搜「stock」→ 你的專案 → 資料集「stock」→ Table 搜「trend」→ 選 **stock_trend_analysis**（選實體 Table 而非 View，載入較快）
+3. 依序點選：Project 搜「stock」→ 你的專案
+   ![選專案](images/ch15/B06-選專案.jpg)
+4. 資料集選「stock」→ 右欄列出這個資料集底下的表與 View
+   ![選資料集與表清單](images/ch15/B07-選資料集與表清單.jpg)
+5. Table 搜「trend」→ 選 **stock_trend_analysis**（選實體 Table 而非 View，載入較快）
    ![選定資料表](images/ch15/B08-選定stock_trend_analysis.jpg)
-4. 右下角「**新增**」→ 確認視窗按「**加入報表**」
-5. 進入編輯器後，右側「資料」面板列出所有欄位（close、ma5、ma20、stock_id、trade_date……）——這就是你在 Step 3 建的分析表
+6. 右下角「**新增**」→ 確認視窗按「**加入報表**」
+   ![加入報表確認](images/ch15/B09-加入報表確認.jpg)
+7. 進入編輯器後，右側「資料」面板列出所有欄位（close、ma5、ma20、stock_id、trade_date……）——這就是你在 Step 3 建的分析表
    ![資料欄位面板](images/ch15/B10-編輯器與資料欄位面板.jpg)
 
 **Bonus-3 畫兩支股票的收盤走勢**
 
 1. 上方工具列「**新增圖表**」→「時間序列」的第一個樣式 → 在畫布上點一下放置
-2. 圖表預設用 Record Count 當指標，改右側設定面板三個欄位：
+2. 圖表預設用 Record Count 當指標，畫出來是一條沒有意義的水平線：
+   ![初始的 Record Count](images/ch15/B11-時間序列圖初始RecordCount.jpg)
+3. 改右側設定面板三個欄位：
    - **維度-X 軸**：`trade_date`（通常自動選好）
    - **細目維度**：點「新增維度」→ 選 `stock_id`（讓每支股票各畫一條線）
    - **指標-Y 軸**：點預設的 Record Count → 換成 `close`
    ![設定完成](images/ch15/B12-設定完成兩條走勢線.jpg)
-3. 左上角把「未命名的報表」改名，按右上角「**查看**」切到檢視模式——兩支股票的收盤價走勢線完成
+4. 左上角把「未命名的報表」改名，按右上角「**查看**」切到檢視模式——兩支股票的收盤價走勢線完成
    ![成品](images/ch15/B13-查看模式成品.jpg)
 
 **跟第 8 章 Metabase 的對照**（這就是雲端段的 BI 交接）：
