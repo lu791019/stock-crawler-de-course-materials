@@ -54,7 +54,7 @@ asia-east1-docker.pkg.dev / stock-crawler-course / stock-repo / stock-api : v1
 └──── 倉庫伺服器（區域）────┘ └───── 專案 ID ─────┘ └─ 倉庫名 ─┘ └─ image ─┘ └tag┘
 ```
 
-`:v1` 這段叫 **tag**——同一個 image 的版本標籤（第 10 章 `build -t` 的 `-t` 就是它，只是當時沒管版本）。發佈新版本不是覆蓋舊的，而是推一個新 tag（v2）上去；舊版還在倉庫裡，出事隨時退回去。這是本章結尾「換版」的伏筆。
+`:v1` 這段叫 **tag**——同一個 image 的版本標籤（第 10 章 `build -t` 的 `-t` 就是它，只是當時沒管版本）。發佈新版本不是覆蓋舊的，而是推一個新 tag（v2）上去；舊版還在倉庫裡，出問題時可以退回去。本章結尾的「換版」就是用這個機制。
 
 ### 發佈流程：雲端時代的「上版本」
 
@@ -206,14 +206,14 @@ gcloud run deploy stock-api \
 - `--allow-unauthenticated`：允許匿名存取——這是「開放 API」，誰都能打；不加的話要帶 Google 身分憑證才能呼叫
 - `--memory=1Gi`：容器記憶體上限（預設 512Mi 對 pandas 偏緊）
 
-跑完的最後兩行是本章的高光時刻：
+跑完的最後兩行是這一章的重點輸出：
 
 ```
 Service [stock-api] revision [stock-api-00001-kfp] has been deployed and is serving 100 percent of traffic.
 Service URL: https://stock-api-{一串數字}.asia-east1.run.app
 ```
 
-**Service URL 就是你的門牌**——固定、HTTPS、全球可達。從你自己的電腦（或手機）驗證：
+**Service URL 就是這個服務對外的網址**：固定、HTTPS、全球可連。從你自己的電腦（或手機）驗證：
 
 ```bash
 curl https://stock-api-{一串數字}.asia-east1.run.app/
@@ -223,7 +223,7 @@ curl https://stock-api-{一串數字}.asia-east1.run.app/stocks/2330/latest
 # {"date":"...","stock_id":"2330","close":...,...}
 ```
 
-這個網址可以貼給任何人——不用 SSH、不用防火牆授權、VM 關掉也照樣活著（它跑的是倉庫裡的 image，跟 VM 已經無關）。**系統第一次有了對外的門牌**，而你沒有管理任何一台機器。
+這個網址可以給任何人使用：不需要 SSH、不需要防火牆授權，VM 關機也不影響（它執行的是倉庫裡的 image，跟 VM 已經無關）。**系統第一次有了對外可用的網址**，而過程中你沒有管理任何一台機器。
 
 另外留意輸出裡的 `revision [stock-api-00001-kfp]`——**revision 是這次部署的版本快照**（image＋環境變數＋設定的組合）。每 deploy 一次就多一個 revision，舊的留著——Part F 的換版與回滾靠的就是它。
 
@@ -289,7 +289,7 @@ curl -s -o /dev/null -w "%{http_code}\n" https://stock-api-{一串數字}.asia-e
 gcloud run services update-traffic stock-api --region=asia-east1 --to-latest
 ```
 
-版本化的 image（倉庫裡的 v1/v2）＋版本化的部署（revision）＝兩層後悔藥。`--to-revisions` 還能寫 `00001=50,00002=50` 各分一半流量——那叫**金絲雀發佈**（先給新版一小撮流量試水溫），名字聽過就好，指令你已經會了。
+倉庫裡的 image 有版本（v1/v2），Cloud Run 的部署也有版本（revision），兩層都能退回。`--to-revisions` 也可以寫 `00001=50,00002=50` 讓兩個版本各分一半流量，這種做法叫**金絲雀發佈**：先讓新版承接一小部分流量，確認沒問題再全部切換。
 
 ### 那 Load Balancer 呢？
 
@@ -312,7 +312,7 @@ gcloud compute instances stop stock-crawler-vm --zone=asia-east1-b
 - [ ] VM1 能用倉庫路徑跑起容器，`curl localhost:8000/` 回 `"status":"ok"`
 - [ ] `gcloud run services list` 看得到 stock-api；從自己電腦 curl Service URL 通
 - [ ] `ab` 壓測 Failed requests = 0
-- [ ] 走完 v1 → v2 換版與回滾，`revisions list` 看得到兩個版本
+- [ ] 完成 v1 → v2 的換版與回滾，`revisions list` 看得到兩個版本
 - [ ] 收工：VM 與 Cloud SQL 已停（Cloud Run 留著，縮零不計費）
 
 ## 想一想
@@ -323,7 +323,7 @@ gcloud compute instances stop stock-crawler-vm --zone=asia-east1-b
 
 ## 練習
 
-1. 真的改一次程式：在 `api/main.py` 的 `/` 回應裡加一個 `"version": "v3"` 欄位，走完整的 build → tag v3 → push → deploy，用 curl 驗證新欄位上線且全程不斷線
+1. 實際改一次程式：在 `api/main.py` 的 `/` 回應裡加一個 `"version": "v3"` 欄位，完整執行 build → tag v3 → push → deploy，用 curl 驗證新欄位上線且過程中服務不中斷
 2. 用 `--to-revisions={v3的revision}=50,{v2的revision}=50` 做一次金絲雀發佈，連續 curl `/` 十次，觀察 version 欄位兩種值交替出現
 3. 把 `ab` 的 `-c` 從 10 拉到 50，比較 Requests per second 與 Time per request 的變化——吞吐量和延遲的取捨
 
@@ -349,4 +349,4 @@ gcloud compute instances stop stock-crawler-vm --zone=asia-east1-b
 - 發佈流程 build → tag → push → deploy；revision 讓換版零停機、回滾一條指令
 - LB 沒有消失，只是 Google 幫你管了——需要自己拼七件套的場景屬於 infra／SRE，你知道找誰就夠
 
-下一章（第 18 章）收官：帳密不再寫 1234（Secret Manager）、爬蟲到 BigQuery 的每日管線串起來、看一眼 Composer 與 CI/CD——把課程系統修成「可以交接給下一個人」的樣子。
+下一章（第 18 章）是最後一章：用 Secret Manager 管理密碼、把爬蟲到 BigQuery 的每日管線用排程串起來、認識 Composer 與 CI/CD——把課程的系統整理成可以交接給其他人維護的狀態。

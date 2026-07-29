@@ -45,7 +45,7 @@
 
 - **VM1（既有的 stock-crawler-vm）**：收斂成 infra 角色，只跑 RabbitMQ 與 Flower
 - **VM2（本章新開）**：只跑兩個 worker——爬蟲的勞力工作獨立成一台，之後要加速就再開 VM3、VM4（第 7 章 `--scale` 的跨機器版）
-- **Cloud SQL**：取代 MySQL 容器。程式端只改 `MYSQL_HOST`——第 6 章 config 中心設計的紅利在這裡兌現
+- **Cloud SQL**：取代 MySQL 容器。程式端只改 `MYSQL_HOST`——第 6 章把設定集中在 config 的做法，效果在這裡顯現
 
 ### 內部 IP vs 外部 IP（跨機器前必懂）
 
@@ -233,7 +233,7 @@ sudo docker run --rm mysql:8.0 \
 
 有筆數（兩支股票各數百筆）就是全通：**任務從 VM1 出發、在 VM2 被執行、資料落在 Cloud SQL**——三個零件在三個地方，協作靠的是第 1 章就認識的訊息佇列。表是 to_sql 自動建的，跟第 5 章在本機第一次寫入時一模一樣。
 
-跨機分工也能在 Flower 上親眼看到：瀏覽器開 `http://{VM1外部IP}:5555`——Flower 跑在 VM1，列出的兩個 worker 卻是 VM2 上的容器（worker 名稱 @ 後面的主機碼跟 VM1 不同台），各自 Succeeded 1 筆：
+跨機分工在 Flower 上也看得到：瀏覽器開 `http://{VM1外部IP}:5555`——Flower 跑在 VM1，列出的兩個 worker 卻是 VM2 上的容器（worker 名稱 @ 後面的主機碼跟 VM1 不同台），各自 Succeeded 1 筆：
 
 ![Flower 跨機](images/ch16/04-Flower跨機兩worker各Succeeded1.jpg)
 
@@ -255,7 +255,7 @@ gcloud sql users create studio --instance=stock-mysql --password=1234 --host=%
 
 - **Docker Swarm**：Docker 原生的編排，指令跟 compose 很像、上手最快。但業界大勢已定——**Kubernetes（K8s）成為標準，Swarm 沒落**，知道它存在即可
 - **Kubernetes**：解決大規模容器的調度、自癒（容器掛了自動重啟補位）、滾動更新、水平擴縮。發源於 Google 內部系統 Borg 的經驗，GCP 上的託管版就是第 14 章對照表裡的 GKE
-- **為什麼本課程不教 K8s**：它是一整門課的量；而且概念上你已經有了梯子——compose 管一台機器的容器，K8s 管一群機器的容器。**先把 compose 練熟，是學 K8s 的正路**。課程規模（兩三台 VM、十來個容器）用 compose＋手動分工完全夠
+- **為什麼本課程不教 K8s**：它的內容量相當於一整門課；而且概念上你已經有基礎——compose 管一台機器上的容器，K8s 管一群機器上的容器。**先把 compose 練熟，是學 K8s 的合理順序**。課程規模（兩三台 VM、十來個容器）用 compose 加手動分工就足夠
 
 ## 收工：三個東西都要停
 
@@ -312,9 +312,9 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 
 - 託管 vs 自架是雲的核心交易：用錢買維運。資料庫最有資格先換成託管——有狀態、掛了最痛
 - 內部 IP 給機器互連（免費、不變、免防火牆），外部 IP 給對外（會回收、要授權）——分清楚這兩個，跨機器架構就通了
-- compose override 檔讓「搬家」縮小成兩個 HOST 的差異——config 中心＋分層設計的紅利
+- compose override 檔讓「搬家」縮小成兩個 HOST 的差異，這是設定集中管理與分層設計帶來的效果
 - 跨機器閉環：VM1 發 → VM2 做 → Cloud SQL 存。把零件放到三個地方，協作靠訊息佇列
-- Swarm 沒落、K8s 是標準但屬於下一門課——compose 練熟就是 K8s 的地基
+- Swarm 已少人使用、K8s 是目前的標準但屬於另一門課的範圍——compose 練熟就是學 K8s 的基礎
 - 收工三停：VM ×2＋Cloud SQL；重開要記得「新 IP → 重 patch 授權」
 
 下一章（第 17 章）讓系統對外開門：把 FastAPI 打包成 image 推上倉庫、交給 Cloud Run 跑出一個固定的 HTTPS 網址，學會 build／tag／push／deploy 的換版發佈流程。

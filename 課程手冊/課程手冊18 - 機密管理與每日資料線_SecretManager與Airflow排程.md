@@ -1,59 +1,39 @@
-# 課程手冊18 - 雲端收官：IAM、Secret Manager 與完整資料線
+# 課程手冊18 - 機密管理與每日資料線：Secret Manager、Airflow 排程與 CI
 
 > 本章對應 EP20，是課程最後一章。前置：第 17 章做完（兩台 VM、Cloud SQL、Artifact Registry、Cloud Run 上的 stock-api 都在）。
 >
-> 系統已經能對外服務了，但還欠三件「正式環境」的事：密碼還是明碼 1234 躺在 `.env` 裡、每日同步還要手動觸發、程式改了要手動測試手動發佈。本章補齊：**Secret Manager 收密碼、自架 Airflow 排程把資料線全線串起、GitHub Actions 把測試變守門員**——然後畢業。
+> 系統已經能對外服務了，但還有三件事沒做：密碼是明碼 1234 寫在 `.env` 裡、每日同步要手動觸發、程式改了要手動測試手動發佈。本章分別處理：**用 Secret Manager 管理密碼、用自架 Airflow 排程把資料線全線串起、用 GitHub Actions 讓每次 push 自動跑測試**。
 
 ## 做完這一章你會
 
-1. 把雲端段四章用過的 IAM 收攏成一套：基本角色 vs 預定義角色、範圍縮到單一資源
-2. 用 Secret Manager 管理資料庫密碼：建立、授權、程式讀取、fallback 設計
+1. 用 Secret Manager 管理資料庫密碼：建立、授權、程式讀取、fallback 設計
+2. 把權限範圍從「整個專案」縮到「單一資源」——第 15 章 IAM 授權的進階做法
 3. 在 GCE 上自架 Airflow 跑每日排程，跑通完整雲端資料線：爬蟲 → Cloud SQL → BigQuery
-4. 說得出 Cloud Composer 是什麼、跟自架 Airflow 怎麼選——託管 vs 自架的期末考題
+4. 說得出 Cloud Composer 是什麼、跟自架 Airflow 怎麼選
 5. 看懂 GitHub Actions 的 CI 流程：push 自動跑測試
-6. 完成雲端收官驗證與畢業清理
+6. 完成雲端環境的最終驗證與資源清理
 
 ## 先搞懂
 
-### IAM 收攏：這條線你其實走了四章
+### Secret Manager 是什麼：把密碼從 .env 搬到雲端
 
-IAM（Identity and Access Management）不是本章才出現的新東西——雲端段的每一章你都在用它，現在把這條線收起來：
+**Secret Manager 是 GCP 的密碼保管服務**：你把密碼、API 金鑰這類機密存進去，程式要用的時候跟它要。它解決的是 `.env` 檔在雲端環境的三個限制。
 
-| 章 | 你做過的事 | 當時學到的 |
-|----|-----------|-----------|
-| 14 | 建服務帳戶，**刻意一個角色都不給** | 服務帳戶＝程式的身分；最小權限的起點 |
-| 15 | `add-iam-policy-binding` 給它兩個 BigQuery 角色 | 成員×角色×資源三個詞；需要什麼才給什麼 |
-| 17 | VM 的預設服務帳戶（Editor）＋scopes 第二道閘門 | 身分有權限 ≠ 做得了事，機器層還有存取範圍 |
-| 18 | 授權讀取**單一 secret** | 範圍可以縮到單一資源——本章的教科書示範 |
-
-第 15 章那張三個詞的表（成員誰、角色能做什麼、資源在哪生效）是骨架，本章補上骨架外的兩件事。
-
-**第一件：角色分兩類，差在顆粒大小。**
-
-- **基本角色（Owner／Editor／Viewer）**：雲端早期的粗顆粒設計，一個角色包山包海。VM 預設服務帳戶掛的就是 **Editor**——它幾乎什麼都能做（建 VM、刪資料庫、改設定）。教學方便，但正式環境是反面教材：這台 VM 一旦被入侵，整個專案跟著淪陷
-- **預定義角色**：每個服務自己的細顆粒角色，名字長得像 `roles/服務.動作`。第 15 章的 `bigquery.dataEditor`、本章的 `secretmanager.secretAccessor` 都屬於這類。**實務原則：能用預定義角色就別用基本角色**
-
-**第二件：範圍可以比「整個專案」更小。**
-
-第 15 章的授權綁在專案上（`add-iam-policy-binding` 接的是專案名），那已經比給 Editor 好很多，但還不是最小。本章的 Secret Manager 授權會綁在**單一 secret** 上——同樣一個服務帳戶，它能讀這顆密碼，但列不出、讀不到專案裡的其他 secret。這就是最小權限的完整形態：**最小的角色 × 最小的範圍**。
-
-### 密碼的畢業之路：.env → Secret Manager
-
-補充E 建立的 `.env` 紀律（密碼不進 git）在本機夠用，上雲之後極限就露出來了：
+補充E 建立的 `.env` 紀律（密碼不進 git）在本機夠用，機器一多就會遇到問題：
 
 | | `.env` 檔 | Secret Manager |
 |---|----------|----------------|
-| 存放 | 明碼躺在每台機器的磁碟上 | 集中在 GCP，加密儲存 |
-| 誰能看 | 登得進機器的人都能 cat | IAM 逐一授權，能稽核「誰在何時讀過」 |
-| 換密碼 | 逐台改 `.env`、逐台重啟 | 加一個新版本，程式下次讀 `latest` 自動拿到 |
-| 版本 | 沒有——改壞了就沒了 | 每版保留，可停用、可回滾 |
-| 費用 | 免費 | 每 secret 每月 $0.06，課程用量趨近零 |
+| 存放位置 | 明碼存在每台機器的磁碟上 | 集中存在 GCP，加密儲存 |
+| 誰讀得到 | 登得進機器的人都能 `cat` | 用 IAM 逐一授權，且可查詢「誰在何時讀過」 |
+| 換密碼 | 每台機器各改一次 `.env`、各重啟一次 | 新增一個版本，程式下次讀 `latest` 就是新值 |
+| 版本管理 | 沒有，改掉就找不回舊值 | 每個版本都保留，可停用、可切回舊版 |
+| 費用 | 免費 | 每個 secret 每月 $0.06，課程用量趨近於零 |
 
-程式端的正確姿勢是 **fallback 設計**：先問 Secret Manager，拿不到就退回環境變數。同一份程式碼，在有授權的 VM 上自動用雲端機密、在你的筆電上照舊用 `.env`——部署環境變了，程式碼一行都不用改（config 中心設計的最後一次兌現）。
+程式端的做法是 **fallback（後備）設計**：先跟 Secret Manager 要，要不到就用環境變數的值。這樣同一份程式碼，在有授權的 VM 上會用雲端的機密、在你的筆電上會用 `.env`——換部署環境時程式碼不用改，這跟第 6 章 config 中心的設計是同一個原則。
 
-### 完整資料線：這門課的最終形態
+### 完整資料線：從手動同步變成每日排程
 
-本章把第 15 章「手動跑一次」的同步，升級成 Airflow 排程的每日管線。全線如下——每一段你都親手建過：
+本章把第 15 章「手動跑一次」的同步，改成由 Airflow 排程的每日管線。全線如下，每一段前面章節都建過：
 
 ```
 VM2 worker 爬蟲 ──寫入──▶ Cloud SQL（OLTP：即時、逐筆）
@@ -67,32 +47,32 @@ VM2 worker 爬蟲 ──寫入──▶ Cloud SQL（OLTP：即時、逐筆）
                      Looker Studio（BI 儀表板，第 15 章 Bonus 已接）
 ```
 
-OLTP 和 OLAP 分開的理由第 15 章講過（分析不拖累營運庫）；本章的新東西是**排程**：讓「同步」從一個你要記得做的動作，變成一條自己會跑的管線。
+OLTP 和 OLAP 分開的理由第 15 章講過（分析查詢不影響營運資料庫）。本章新增的是**排程**：同步這件事不再需要人記得執行，改由 Airflow 每個交易日自動跑。
 
-### Composer：託管版 Airflow，期末考題
+### Composer：託管版的 Airflow
 
-排程主線用的是 GCE 上自架的 Airflow 容器——跟第 10 章以來完全同一套 image 和 DAG。GCP 也有託管版：**Cloud Composer**，第 16 章「託管 vs 自架」的期末考題：
+排程主線用的是 GCE 上自架的 Airflow 容器，跟第 10 章以來同一套 image 和 DAG。GCP 也有託管版本，叫 **Cloud Composer**。這是第 16 章「託管 vs 自架」的同一道選擇題，換到排程工具上：
 
 | | 自架 Airflow（本章主線） | Cloud Composer |
 |---|------------------------|----------------|
-| 機器與維運 | 你的 VM、你顧 | Google 全包（底層其實是 GKE） |
-| 費用 | VM 錢（已經在付了，邊際成本≈0） | **最小環境每月數百美元起** |
-| 建置 | image build 約 10 分鐘 | 環境建置 20-30 分鐘 |
-| DAG 部署 | 放進 dags/ 目錄 | 上傳到指定的 Cloud Storage bucket |
-| 適合誰 | 學習、小規模、預算敏感 | DAG 多、團隊大、沒人想半夜修 scheduler |
+| 機器與維運 | 你的 VM，你自己維護 | Google 負責（底層是 GKE） |
+| 費用 | VM 費用（已經在付，不會多花） | **最小環境每月數百美元起** |
+| 建置時間 | image build 約 10 分鐘 | 環境建置 20-30 分鐘 |
+| DAG 部署方式 | 放進 dags/ 目錄 | 上傳到指定的 Cloud Storage bucket |
+| 適合的情況 | 學習、小規模、預算有限 | DAG 數量多、團隊規模大、不希望自己維護 scheduler |
 
-課程的選擇：**主線自架（學員零額外費用），Composer 由講師 demo**——看一次建置流程、把同一支 DAG 上傳到 bucket、在託管的 UI 上觸發成功，體會「DAG 兩邊通用、差的只是誰養機器」，然後**立刻刪除環境**（它按小時計費，留著過夜就是在燒錢）。額度充足又好奇的同學可以照 demo 步驟自己走一遍，做完務必刪。
+課程的安排：**主線用自架（學員不用額外付費），Composer 由講師示範**——示範建置流程、把同一支 DAG 上傳到 bucket、在託管的介面上觸發成功，說明「DAG 在兩邊通用，差別只在誰維護機器」，示範完**立刻刪除環境**（它按小時計費）。額度充足的同學可以照示範步驟自己走一遍，做完務必刪除。
 
-### CI/CD：你已經有全部零件
+### CI/CD：把手動流程自動化
 
-CI/CD（持續整合／持續部署）聽起來很大，拆開看你每個零件都有了：
+CI/CD（持續整合／持續部署）的每個環節，前面章節都做過：
 
 ```
 git push ──▶ 自動跑測試（補充C 寫好的 pytest）──▶ 自動 build/push image（第 17 章的發佈流程）──▶ 自動 deploy（第 17 章做過）
          └────────── CI（本章實作）──────────┘└──────────────── CD（概念，指出路徑）────────────────┘
 ```
 
-本章實作 CI 段：repo 裡放一份 GitHub Actions 的 workflow 檔，之後每次 push，GitHub 自動開一台臨時虛擬機跑你的測試——**紅燈的程式碼不該上線，而且這件事不該靠人記得**。補充C 那句「測試是上線守門員」在這裡兌現。
+本章實作 CI 段：repo 裡放一份 GitHub Actions 的 workflow 檔，之後每次 push，GitHub 自動開一台臨時虛擬機跑你的測試——**紅燈的程式碼不該上線，而且這件事不該靠人記得**。補充C 寫的測試，在這裡成為上線前的檢查關卡。
 
 ## 一步一步
 
@@ -101,7 +81,7 @@ git push ──▶ 自動跑測試（補充C 寫好的 pytest）──▶ 自動
 ### Part A：把密碼收進 Secret Manager
 
 ```bash
-# 1. 啟用 API（老規矩）
+# 1. 啟用 API（每個服務第一次用都要）
 gcloud services enable secretmanager.googleapis.com
 
 # 2. 建立 secret：名字 mysql-password、內容 1234
@@ -109,7 +89,7 @@ gcloud services enable secretmanager.googleapis.com
 printf "1234" | gcloud secrets create mysql-password \
   --data-file=- --replication-policy=automatic
 
-# 3. 授權 VM 的服務帳戶讀這顆 secret（最小權限的教科書示範）
+# 3. 授權 VM 的服務帳戶讀這顆 secret
 #    專案編號先查出來：
 gcloud projects describe {你的專案ID} --format="value(projectNumber)"
 
@@ -118,7 +98,11 @@ gcloud secrets add-iam-policy-binding mysql-password \
   --role="roles/secretmanager.secretAccessor"
 ```
 
-第 3 步值得慢讀：授的角色是 `secretAccessor`（只能讀 secret 內容，不能改不能刪不能列別的），綁的範圍是 `mysql-password` **這一顆**（不是專案層級）——「誰、能做什麼、在哪個範圍」三個維度都收到最小。VM 的服務帳戶雖然掛著 Editor，但 **Editor 不含讀取 secret 內容的權限**——不補這行授權，程式讀 secret 會被 403 擋下。
+第 3 步要對照第 15 章的授權看。第 15 章用的是 `gcloud projects add-iam-policy-binding`，後面接專案名稱，權限在**整個專案**內生效；這次用的是 `gcloud secrets add-iam-policy-binding`，後面接的是 `mysql-password`，權限只在**這一顆 secret** 上生效。同一個服務帳戶能讀這顆密碼，但讀不到、也列不出專案裡的其他 secret。
+
+這就是最小權限原則的完整做法：**角色收到最小**（`secretAccessor` 只能讀內容，不能改、不能刪、不能列出其他 secret），**範圍也收到最小**（單一資源，不是整個專案）。
+
+另外注意一件事：VM 的服務帳戶雖然掛著 Editor 這個大角色，但 **Editor 不包含讀取 secret 內容的權限**——不補這行授權，程式讀 secret 會被 403 擋下。
 
 驗證（兩邊都做）：
 
@@ -268,7 +252,7 @@ jobs:
 
 四個 step 就是你在本機做過無數次的動作：clone → 裝工具 → 裝依賴 → 跑測試。`-m "not integration"` 排除需要真實 MySQL 的整合測試（CI 的臨時機器上沒有 MySQL；補充C 設計的標記在這裡發揮作用）。
 
-驗證方式：到課程 repo 的 GitHub 頁面 → **Actions** 分頁，能看到每次 push 觸發的 CI 紀錄與綠勾。想親手觸發：fork 課程 repo 到自己帳號、隨便改個檔案 push，你自己 repo 的 Actions 頁就會跑起來。
+驗證方式：到課程 repo 的 GitHub 頁面 → **Actions** 分頁，能看到每次 push 觸發的 CI 紀錄與綠勾。想自己觸發一次：fork 課程 repo 到自己帳號、改一個檔案後 push，你自己 repo 的 Actions 頁就會執行。
 
 CD 段課程不實作，但路徑你已經看得懂：在 workflow 後面加 steps——`docker build` → `push` 到 Artifact Registry → `gcloud run deploy`。三個動作第 17 章你都手動跑過；`gcp/update-api.sh` 就是那段的腳本化，接上去 CI/CD 就全通了。
 
@@ -282,18 +266,18 @@ CD 段課程不實作，但路徑你已經看得懂：在 workflow 後面加 ste
 4. 開「Airflow 網頁介面」——跟你自架的 UI 一模一樣，DAG 幾分鐘後自動出現，unpause → trigger → 全綠
 5. **示範結束立刻刪除環境**（Console 的刪除鈕）——它按小時計費
 
-要帶走的一句話：**DAG 兩邊通用**。你寫的編排邏輯不綁機器，搬家成本趨近零——這是先學自架再看託管的紅利。
+重點是 **DAG 在兩邊通用**：你寫的編排邏輯不綁定特定機器，從自架換到託管的成本很低。這是先學自架、再看託管的好處。
 
 ## 收工：兩種收法
 
 **今天先收工（課程還沒結束）**——照第 16 章三停：SQL `NEVER`、兩台 VM stop。
 
-**畢業清理（課程結束、確定不玩了）**——照順序全刪，刪完帳單歸零：
+**課程結束、確定不再使用**——照順序全部刪除，刪完帳單歸零：
 
 | 順序 | 資源 | 指令／位置 | 為什麼是這個順序 |
 |------|------|-----------|----------------|
 | 1 | Composer 環境（若建了） | Console → Composer → 刪除 | 最貴，秒殺 |
-| 2 | Cloud Run 服務 | `gcloud run services delete stock-api --region=asia-east1` | 閒置本來就縮零不計費，但畢業就一起收掉 |
+| 2 | Cloud Run 服務 | `gcloud run services delete stock-api --region=asia-east1` | 閒置本來就縮零不計費，結束時一併刪除 |
 | 3 | 兩台 VM | `gcloud compute instances delete ...` | 磁碟跟著 VM 一起消失 |
 | 4 | Cloud SQL | `gcloud sql instances delete stock-mysql` | 儲存費 |
 | 5 | Artifact Registry | `gcloud artifacts repositories delete stock-repo` | image 儲存費 |
@@ -309,7 +293,7 @@ CD 段課程不實作，但路徑你已經看得懂：在 workflow 後面加 ste
 - [ ] bq 查得到 TaiwanStockPrice 主表與 stock_trend_analysis 的 MA 值
 - [ ] GitHub Actions 頁看得到 CI 綠勾
 - [ ] 說得出 Composer 與自架的取捨、CD 段還缺哪些 step
-- [ ] 收工（三停），或畢業清理（全刪）
+- [ ] 收工（三停），或課程結束的資源全部刪除
 
 ## 想一想
 
@@ -338,14 +322,14 @@ CD 段課程不實作，但路徑你已經看得懂：在 workflow 後面加 ste
 
 ## 本章總結
 
-- IAM 從 14 章埋到 18 章收攏：成員×角色×資源三個詞，加上「預定義角色優於基本角色」「範圍縮到單一資源」兩條原則——`secretAccessor` 綁單顆 secret 是教科書示範；Editor 很方便，也很危險
-- 密碼從 .env 畢業到 Secret Manager：集中、可稽核、版本化；程式端用 fallback 讓同一份 code 雲端讀機密、本機讀 .env
-- 金鑰檔只有「GCP 外面的程式」才需要；VM 上的程式用自己的服務帳戶身分，零金鑰
-- 完整資料線：爬蟲 → Cloud SQL → 排程 Airflow → BigQuery → Looker Studio；排程讓管線從「記得做」變成「自己跑」
-- Composer＝託管 Airflow：DAG 兩邊通用，差的是誰養機器和多少錢——託管 vs 自架這道題你現在能自己答了
-- CI 四步＝你手動做過無數次的 clone/裝工具/裝依賴/跑測試，交給 GitHub 每次 push 自動跑；CD 是第 17 章發佈流程的自動化，零件你全有了
-- 畢業清理照順序刪：貴的先刪、專案關閉是終極選項（30 天可反悔）
+- Secret Manager 管理密碼：集中儲存、可查詢誰讀過、每個版本都保留；程式端用 fallback 設計，讓同一份程式碼在雲端讀機密、在本機讀 `.env`
+- 授權時範圍可以綁在單一資源上（`gcloud secrets add-iam-policy-binding`），比第 15 章的專案層級更精確
+- 金鑰檔只有 GCP 外面的程式才需要；VM 上的程式用自己的服務帳戶身分，不需要金鑰
+- 完整資料線：爬蟲 → Cloud SQL → 排程 Airflow → BigQuery → Looker Studio，同步改由排程自動執行
+- Composer 是託管版 Airflow：DAG 在兩邊通用，差別在誰維護機器、以及費用
+- CI 的四個步驟就是你手動做過的 clone、裝工具、裝依賴、跑測試，交給 GitHub 每次 push 自動執行；CD 是第 17 章發佈流程的自動化
+- 資源清理照順序刪：費用高的先刪，關閉整個專案是最後手段（30 天內可還原）
 
 ---
 
-十八章走完：從一支印「發送任務」的 Celery 腳本，到一條有佇列分流、失敗重試、去重冪等、容器化、多機分工、託管資料庫、對外服務、機密管理、每日排程、自動測試的**雲端資料管線**。課程給你的不是這條管線本身，而是拆解它的每一刀——下一條管線，換你自己切。
+十八章的內容到此結束。起點是一支印出「發送任務」的 Celery 腳本，終點是一條具備佇列分流、失敗重試、去重冪等、容器化、多機分工、託管資料庫、對外服務、機密管理、每日排程與自動測試的雲端資料管線。這門課要傳達的不是這條管線本身，而是拆解它的方法——之後你會需要自己設計別的管線。
