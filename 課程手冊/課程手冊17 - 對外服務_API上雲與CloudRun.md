@@ -8,7 +8,7 @@
 
 1. 說得出對外服務要解的三個問題，以及託管服務怎麼一次回答
 2. 用 Artifact Registry 開一個私有 image 倉庫，走通 build → tag → push
-3. 一條指令把 API 容器部署上 Cloud Run，拿到固定的 HTTPS 網址
+3. 一條指令把 API 容器部署上 Cloud Run，拿到固定的 HTTPS 網址，並用 `--set-secrets` 讓密碼不出現在設定裡
 4. 用 ApacheBench 對正式網址壓測，讀懂 Requests per second 與 Failed requests
 5. 走一次 v1 → v2 的換版發佈與回滾，理解 revision 版本機制
 6. 說得出 Load Balancer 是什麼、為什麼你不用自己架一個
@@ -100,7 +100,9 @@ gcloud compute instances list
 gcloud sql instances patch stock-mysql --authorized-networks={VM1外部IP}/32
 ```
 
-第 2 步解釋一下。VM 的「身分」是它的服務帳戶（Compute Engine 預設服務帳戶，Editor 角色，權限很大），但 VM 上還有一道舊式的閘門叫**存取範圍（scopes）**：就算身分有權限，scopes 沒開的操作一樣做不了。預設 scopes 對 Storage 只有唯讀——推 image 是寫入，會被擋下來吃 401。`--scopes=cloud-platform` 的意思是「scopes 不設限，權限全交給 IAM 角色決定」。**這個設定只能在停機狀態改**——所以放在 Step 0，跟開機一氣呵成；開機後才想到的話，就得再停一次（IP 又要換、授權又要重跑）。
+第 2 步解釋一下。VM 的「身分」是它的服務帳戶（Compute Engine 預設服務帳戶，掛的是 Editor 這個涵蓋很廣的角色），但 VM 上還有一道舊式的限制叫**存取範圍（scopes）**：就算身分有權限，scopes 沒開放的操作一樣做不了。預設的 scopes 對 Storage 只有唯讀權限，而推 image 屬於寫入，會被擋下來並回報 401 錯誤。`--scopes=cloud-platform` 的意思是「scopes 不設限，權限完全由 IAM 角色決定」。**這個設定只能在停機狀態下修改**，所以放在 Step 0 跟開機一起做；開機後才想到的話，就得再停一次機（IP 會再換一次，授權網路也要重設）。
+
+另外確認一件事：Cloud Run 執行容器時，預設也是用 Compute Engine 預設服務帳戶的身分。第 16 章 Part B-2 授權過這個帳戶讀取 `mysql-password`，所以本章的 Cloud Run 直接就有權限。如果你當時授權給的是別的服務帳戶，這裡要補一次授權，指令跟第 16 章相同。
 
 ### Part A：開一個 image 倉庫
 
@@ -154,11 +156,13 @@ docker run -d --name stock-api -p 8000:8000 \
   -e MYSQL_HOST={CloudSQL IP} \
   -e MYSQL_PORT=3306 \
   -e MYSQL_ACCOUNT=root \
-  -e MYSQL_PASSWORD=1234 \
+  -e GCP_PROJECT_ID={你的專案ID} \
   $REG/stock-api:v1
 ```
 
-四個 `-e` 蓋掉 `crawler/config.py` 的預設值，讓 API 連向 Cloud SQL——跟第 16 章 override 檔同一個哲學，只是這次用 `docker run -e` 傳。資料庫名不用傳：`api/main.py` 裡固定連 `mydb`，正是第 16 章 worker 寫入的那個庫。
+這些 `-e` 蓋掉 `crawler/config.py` 的預設值，讓 API 連向 Cloud SQL——跟第 16 章 override 檔同一個做法，只是這次用 `docker run -e` 傳。
+
+**注意這裡沒有傳密碼**，只傳了 `GCP_PROJECT_ID`。密碼由第 16 章建立的 Secret Manager 提供：容器裡的 `config.py` 會拿這個專案 ID 去讀 secret，用的是 VM 的服務帳戶身分。資料庫名也不用傳，`api/main.py` 裡固定連 `mydb`，正是第 16 章 worker 寫入的那個資料庫。
 
 **容器起來後要等約 30 秒**（uv 在容器裡準備環境），再驗證：
 
@@ -193,18 +197,31 @@ gcloud run deploy stock-api \
   --region=asia-east1 \
   --port=8000 \
   --add-cloudsql-instances={Cloud SQL連線名稱} \
-  --set-env-vars="MYSQL_UNIX_SOCKET=/cloudsql/{Cloud SQL連線名稱},MYSQL_ACCOUNT=root,MYSQL_PASSWORD=1234" \
+  --set-env-vars="MYSQL_UNIX_SOCKET=/cloudsql/{Cloud SQL連線名稱},MYSQL_ACCOUNT=root" \
+  --set-secrets="MYSQL_PASSWORD=mysql-password:latest" \
   --allow-unauthenticated \
   --memory=1Gi
 ```
 
 參數逐一看：
 
-- `--image`：跑倉庫裡的哪顆 image——Cloud Run 自己去 pull，這就是 Part B push 的意義
-- `--port=8000`：容器裡 uvicorn 聽的 port，Cloud Run 把對外流量轉進來
-- `--add-cloudsql-instances`＋`MYSQL_UNIX_SOCKET`：**這兩個是一組的**——前者幫你在容器裡接好一條到 Cloud SQL 的專線，後者告訴程式「改走這條專線」。走專線的好處：**授權網路完全不用碰**（Cloud Run 的容器沒有固定 IP 可以授權，Google 直接從內部把線接好）。`api/main.py` 裡有一小段切換邏輯：有設 `MYSQL_UNIX_SOCKET` 就走專線、沒設就照舊走 `MYSQL_HOST`——所以本機和 VM 的用法完全不受影響
-- `--allow-unauthenticated`：允許匿名存取——這是「開放 API」，誰都能打；不加的話要帶 Google 身分憑證才能呼叫
-- `--memory=1Gi`：容器記憶體上限（預設 512Mi 對 pandas 偏緊）
+- `--image`：要執行倉庫裡的哪顆 image。Cloud Run 自己去 pull，這就是 Part B 把 image push 上去的意義
+- `--port=8000`：容器裡 uvicorn 監聽的 port，Cloud Run 把對外流量轉進來
+- `--add-cloudsql-instances` 搭配 `MYSQL_UNIX_SOCKET`：**這兩個是一組的**。前者會在容器裡接好一條通往 Cloud SQL 的專線，後者告訴程式改走這條專線。好處是**授權網路完全不用設定**——Cloud Run 的容器沒有固定 IP 可以填進授權清單，Google 直接從內部把線接好。`api/main.py` 裡有一段切換邏輯：有設 `MYSQL_UNIX_SOCKET` 就走專線、沒設就走 `MYSQL_HOST`，所以本機和 VM 的用法不受影響
+- **`--set-secrets`：密碼不寫在指令裡**，寫的是「去 Secret Manager 拿 `mysql-password` 這顆的最新版」。這是第 16 章建立的那顆 secret
+- `--allow-unauthenticated`：允許匿名存取，也就是誰都能呼叫這個 API。不加的話，呼叫方要帶 Google 身分憑證
+- `--memory=1Gi`：容器記憶體上限（預設的 512Mi 對 pandas 來說偏緊）
+
+**`--set-env-vars` 和 `--set-secrets` 的差別要分清楚**，這是本章的安全重點：
+
+| | `--set-env-vars` | `--set-secrets` |
+|---|-----------------|----------------|
+| 你寫進指令的 | 值本身（例如 `MYSQL_PASSWORD=1234`） | 一個參照（secret 名稱＋版本） |
+| 部署後存在哪 | 值存在 Cloud Run 的設定裡 | 設定裡只有參照，值留在 Secret Manager |
+| Console 上看得到什麼 | 看得到 `1234` | 看得到「密鑰：mysql-password:latest」 |
+| 換密碼要做什麼 | 重新部署一次 | Secret Manager 加新版本，容器重啟就拿到 |
+
+用途也很明確：**不敏感的設定用 `--set-env-vars`，密碼、金鑰這類機密用 `--set-secrets`**。
 
 跑完的最後兩行是這一章的重點輸出：
 
@@ -225,11 +242,21 @@ curl https://stock-api-{一串數字}.asia-east1.run.app/stocks/2330/latest
 
 這個網址可以給任何人使用：不需要 SSH、不需要防火牆授權，VM 關機也不影響（它執行的是倉庫裡的 image，跟 VM 已經無關）。**系統第一次有了對外可用的網址**，而過程中你沒有管理任何一台機器。
 
-另外留意輸出裡的 `revision [stock-api-00001-kfp]`——**revision 是這次部署的版本快照**（image＋環境變數＋設定的組合）。每 deploy 一次就多一個 revision，舊的留著——Part F 的換版與回滾靠的就是它。
+另外留意輸出裡的 `revision [stock-api-00001-kfp]`。**revision 是這次部署的版本快照**，內容包含 image、環境變數與各項設定。每部署一次就多一個 revision，舊的會保留下來，Part F 的換版與回滾用的就是它。
+
+Console 上看得到這些 revision（≡ → Cloud Run → 點 stock-api → 修訂版本分頁）。流量欄位顯示目前是哪一版在服務：
+
+![Cloud Run 修訂版本清單](images/ch17/01-CloudRun修訂版本清單.jpg)
+
+**驗證密碼真的沒有明碼存在設定裡**：在同一頁往下捲，找到「環境變數」區塊。你會看到 `MYSQL_UNIX_SOCKET` 和 `MYSQL_ACCOUNT` 顯示的是實際的值，但 `MYSQL_PASSWORD` 顯示的是「密鑰：mysql-password:latest」——也就是一個參照，看不到 `1234`：
+
+![Cloud Run 環境變數](images/ch17/02-CloudRun環境變數密碼為密鑰參照.jpg)
+
+如果剛才用的是 `--set-env-vars="MYSQL_PASSWORD=1234"`，這裡就會直接顯示 `1234`，任何有這個專案讀取權限的人都看得到。
 
 ### Part E：壓力測試
 
-門開了，扛得住多少人？用 ApacheBench 壓一下（macOS 內建，路徑 `/usr/sbin/ab`；Windows 可用 WSL 安裝 `apache2-utils`）：
+服務開出去了，接下來測它能承受多少流量。用 ApacheBench 壓測（macOS 內建，路徑 `/usr/sbin/ab`；Windows 可用 WSL 安裝 `apache2-utils`）：
 
 ```bash
 ab -n 200 -c 10 https://stock-api-{一串數字}.asia-east1.run.app/stocks
@@ -349,4 +376,4 @@ gcloud compute instances stop stock-crawler-vm --zone=asia-east1-b
 - 發佈流程 build → tag → push → deploy；revision 讓換版零停機、回滾一條指令
 - LB 沒有消失，只是 Google 幫你管了——需要自己拼七件套的場景屬於 infra／SRE，你知道找誰就夠
 
-下一章（第 18 章）是最後一章：用 Secret Manager 管理密碼、把爬蟲到 BigQuery 的每日管線用排程串起來、認識 Composer 與 CI/CD——把課程的系統整理成可以交接給其他人維護的狀態。
+下一章（第 18 章）是最後一章：把爬蟲到 BigQuery 的每日管線用 Airflow 排程串起來、認識 Composer 與 CI/CD——把課程的系統整理成可以交接給其他人維護的狀態。

@@ -9,9 +9,10 @@
 1. 說得出「託管服務 vs 自架」的取捨——雲的核心交易
 2. 用 gcloud 建立一個 Cloud SQL（MySQL 8.0）實例，設定授權網路
 3. 分清楚內部 IP 與外部 IP，知道同一個 VPC 裡的機器怎麼互相溝通
-4. 開第二台 VM 專跑 worker，用 compose override 檔讓它連到別台機器的服務
-5. 跑通跨機器的完整閉環：VM1 發任務 → VM2 消化 → 資料落進 Cloud SQL
-6. 說得出 Swarm 與 Kubernetes 是什麼、為什麼本課程用 compose 就夠
+4. 用 Secret Manager 保管資料庫密碼，讓程式不必把密碼寫在檔案裡
+5. 開第二台 VM 專跑 worker，用 compose override 檔讓它連到別台機器的服務
+6. 跑通跨機器的完整閉環：VM1 發任務 → VM2 消化 → 資料落進 Cloud SQL
+7. 說得出 Swarm 與 Kubernetes 是什麼、為什麼本課程用 compose 就夠
 
 ## 先搞懂
 
@@ -126,7 +127,118 @@ patch 的結果在 Console 看得到：≡ → SQL → stock-mysql → 左側「
 
 ![授權網路頁](images/ch16/02-授權網路兩台VM外部IP.jpg)
 
-### Part B：VM1 收斂成 infra 角色
+### Part B：把資料庫密碼交給 Secret Manager 保管
+
+上一步建立 Cloud SQL 時，密碼 `1234` 直接寫在指令裡。這在本機沒問題（第 1 到 13 章都是這樣用的），但資料已經上雲，密碼的處理方式也該跟著調整。原因有三個：
+
+1. 指令歷史會留下這個密碼（`history` 指令查得到）
+2. 等一下 Part E 的 override 檔如果要填密碼，那個檔案就會明碼放在 VM 的磁碟上
+3. 之後要換密碼，每台機器的檔案都要各改一次
+
+**Secret Manager 是 GCP 的密碼保管服務**：你把密碼存進去，程式執行時再跟它要。這是 `.env` 做法的雲端版本——`.env` 解決的是「密碼不進 git」，Secret Manager 再往前一步解決「密碼不留在機器上」。
+
+補充E 教 `.env` 時就預告過這個服務，現在資料庫上雲了，正好是換過來的時機。
+
+**B-1 啟用 API 並建立 secret**：
+
+```bash
+gcloud services enable secretmanager.googleapis.com
+
+# 建立一顆名叫 mysql-password 的 secret，內容是 1234
+# printf 不會在字串後面加換行；--data-file=- 表示「內容從管線讀進來」
+# 這樣寫的好處是密碼不會出現在指令的參數裡，指令歷史不會留下它
+printf "1234" | gcloud secrets create mysql-password \
+  --data-file=- --replication-policy=automatic
+```
+
+**B-2 授權兩台 VM 讀取這顆 secret**：
+
+VM 上的程式要讀 secret，得先取得權限。這裡用第 15 章學過的 IAM 授權，但範圍不一樣：
+
+```bash
+# 先查出專案編號（跟專案 ID 不同，是一串數字）
+gcloud projects describe {你的專案ID} --format="value(projectNumber)"
+
+# 授權 VM 的預設服務帳戶讀取這顆 secret
+gcloud secrets add-iam-policy-binding mysql-password \
+  --member="serviceAccount:{專案編號}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+跟第 15 章的授權比較，差別在**範圍**：
+
+| | 第 15 章 | 這裡 |
+|---|---------|------|
+| 指令 | `gcloud projects add-iam-policy-binding` | `gcloud secrets add-iam-policy-binding` |
+| 後面接的對象 | 專案名稱 | `mysql-password` 這一顆 secret |
+| 權限生效範圍 | 整個專案 | 只有這顆 secret |
+
+這是最小權限原則更精確的做法：**角色收到最小**（`secretAccessor` 只能讀取內容，不能修改、刪除，也不能列出其他 secret），**範圍也收到最小**（單一資源，不是整個專案）。
+
+要注意的是，VM 的預設服務帳戶雖然掛著 Editor 這個涵蓋很廣的角色，但 **Editor 不包含讀取 secret 內容的權限**。不做這一步授權，程式讀 secret 會被 403 拒絕。
+
+**B-3 驗證**：
+
+```bash
+# 在你自己的電腦上（你是專案 Owner，本來就讀得到）
+gcloud secrets versions access latest --secret=mysql-password
+# 1234
+
+# SSH 進 VM1 再執行一次（這次用的是 VM 服務帳戶的身分，證明 B-2 的授權生效）
+gcloud compute ssh stock-crawler-vm --zone=asia-east1-b
+gcloud secrets versions access latest --secret=mysql-password
+# 1234
+```
+
+**B-4 讓程式去讀 secret**：
+
+打開 `crawler/config.py`，把 Secret Manager 區塊的註解取消（連同上面的 `GCP_PROJECT_ID` 那行，第 15 章取消過的話它已經是開的）。取消後的邏輯是：
+
+```python
+def _password_from_secret_manager():
+    """讀 Secret Manager 的 mysql-password；任何原因失敗就回 None，讓呼叫端用原本的值"""
+    try:
+        from google.cloud import secretmanager
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{GCP_PROJECT_ID}/secrets/mysql-password/versions/latest"
+        return client.access_secret_version(name=name).payload.data.decode()
+    except Exception:
+        return None
+
+MYSQL_PASSWORD = _password_from_secret_manager() or MYSQL_PASSWORD
+```
+
+這種寫法叫 **fallback（後備）設計**：先跟 Secret Manager 要密碼，要不到就用環境變數的值。這樣同一份程式碼，在有授權的 VM 上會用雲端的密碼、在你自己的電腦上會用 `.env` 的預設值——換部署環境時程式碼不用改。這跟第 6 章把設定集中在 config 的做法是同一個原則。
+
+在 VM1 上驗證。這裡會遇到一個問題：secret 的值和 `.env` 的預設值都是 1234，印出來看不出密碼是從哪邊來的。解法是利用 Secret Manager 的**版本**功能，先加一個容易辨識的值，測完再換回來：
+
+```bash
+# 在你自己的電腦上：新增一個版本，內容改成好辨識的字串
+# versions add 是新增版本，latest 會指向最新的這一版
+printf "sm-test-42" | gcloud secrets versions add mysql-password --data-file=-
+
+# 在 VM1 的 ~/stock-crawler 目錄下：
+export PATH="$HOME/.local/bin:$PATH"
+GCP_PROJECT_ID={你的專案ID} uv run python -c \
+  "from crawler.config import MYSQL_PASSWORD; print('password =', MYSQL_PASSWORD)"
+# password = sm-test-42      ← 值來自 Secret Manager，不是 .env
+
+# 再驗證 fallback：故意給一個不存在的專案 ID，讀取會失敗
+GCP_PROJECT_ID=no-such-project uv run python -c \
+  "from crawler.config import MYSQL_PASSWORD; print('password =', MYSQL_PASSWORD)"
+# password = 1234            ← 退回 .env 的預設值
+
+# 在你自己的電腦上：再新增一個版本把密碼換回 1234
+printf "1234" | gcloud secrets versions add mysql-password --data-file=-
+```
+
+上面這三個動作就是**密碼輪替**的完整流程：新增一個版本，所有讀 `latest` 的程式下次啟動就會拿到新值，不需要逐台修改檔案。
+
+Console 上可以看到剛才產生的所有版本（≡ → 安全性 → Secret Manager → 點 mysql-password → 版本分頁）。每個版本都保留著，可以停用、也可以切回舊版：
+
+![Secret Manager 版本清單](images/ch16/06-SecretManager版本清單.jpg)
+
+### Part C：VM1 收斂成 infra 角色
 
 ```bash
 gcloud compute ssh stock-crawler-vm --zone=asia-east1-b
@@ -138,7 +250,7 @@ sudo docker ps --format '{{.Names}}\t{{.Status}}'      # 只剩 rabbitmq、flowe
 
 同一份 repo、同一批 compose 檔——**機器的「角色」由你 up 哪些服務決定**。VM1 從「全能機」變「訊息中樞」，只花兩條指令。
 
-### Part C：開 VM2 並準備 worker
+### Part D：開 VM2 並準備 worker
 
 worker 不需要 8GB，開小台的就好：
 
@@ -167,24 +279,28 @@ cd stock-crawler && cp .env.example .env
 sudo docker compose -f docker-compose-local.yml build worker_twse worker_tpex
 ```
 
-### Part D：override 檔——「只改 HOST」的實作
+### Part E：override 檔——「只改 HOST」的實作
 
-worker 在 compose 檔裡寫的是 `RABBITMQ_HOST=rabbitmq`、`MYSQL_HOST=mysql`——那是「大家都在同一台的容器名」。現在 RabbitMQ 在別台、MySQL 在 Cloud SQL，**用一個 override 檔只蓋掉這兩個值**（在 VM2 的 `~/stock-crawler` 下建立）：
+worker 在 compose 檔裡寫的是 `RABBITMQ_HOST=rabbitmq`、`MYSQL_HOST=mysql`——那是「大家都在同一台的容器名」。現在 RabbitMQ 在別台、MySQL 在 Cloud SQL，**用一個 override 檔蓋掉這兩個值**（在 VM2 的 `~/stock-crawler` 下建立）：
 
 ```bash
 cat > gcp-worker-override.yml <<'YML'
-# worker 上雲的 override：只覆蓋兩個 HOST，其餘沿用 docker-compose-local.yml
+# worker 上雲的 override：覆蓋兩個 HOST 加上專案 ID，其餘沿用 docker-compose-local.yml
 services:
   worker_twse:
     environment:
-      - RABBITMQ_HOST={VM1內部IP}     # 例：10.140.0.2——同 VPC 用內部 IP
-      - MYSQL_HOST={CloudSQL IP}      # 例：35.229.208.220
+      - RABBITMQ_HOST={VM1內部IP}       # 例：10.140.0.2——同 VPC 用內部 IP
+      - MYSQL_HOST={CloudSQL IP}        # 例：35.229.208.220
+      - GCP_PROJECT_ID={你的專案ID}     # config.py 要用它去 Secret Manager 拿密碼
   worker_tpex:
     environment:
       - RABBITMQ_HOST={VM1內部IP}
       - MYSQL_HOST={CloudSQL IP}
+      - GCP_PROJECT_ID={你的專案ID}
 YML
 ```
+
+注意這裡**沒有寫密碼**。密碼由 Part B 的 Secret Manager 提供：容器裡的 `config.py` 會拿 `GCP_PROJECT_ID` 去讀 secret。容器本身不需要金鑰檔——它跑在 VM 上，會用 VM 的服務帳戶身分去讀，這正是 Part B-2 授權的那個帳戶。
 
 用「兩個 -f」啟動——compose 會把兩份檔案**合併**，後面的蓋前面的：
 
@@ -202,9 +318,21 @@ Connected to amqp://worker:**@{VM1內部IP}:5672//
 twse@xxxx ready.
 ```
 
-worker 跨機器連上了 VM1 的 RabbitMQ。`--no-deps` 是「只起我點名的服務」——不加的話，compose 會照 `depends_on` 把本機的 rabbitmq 也一起帶起來（worker 實際連的是 VM1，本機那顆是白吃記憶體的閒置品）。注意這裡沒有動任何防火牆——內部 IP 互連走 `default-allow-internal`。帳密也一個都沒改：Cloud SQL 的 root/1234 跟 `.env` 預設一致。**整次搬家，程式與設定的改動就是 override 檔裡那兩個 HOST。**
+worker 跨機器連上了 VM1 的 RabbitMQ。`--no-deps` 的意思是「只啟動我指定的服務」——不加的話，compose 會照 `depends_on` 把本機的 rabbitmq 也一起啟動（worker 實際連的是 VM1，本機這顆只會佔用記憶體）。
 
-### Part E：跨機器端到端
+注意這裡沒有動任何防火牆設定，內部 IP 互連走的是 `default-allow-internal` 這條預設規則。**整次搬家，程式碼一行都沒改，設定的改動就是 override 檔裡那三個值。**
+
+確認密碼真的來自 Secret Manager（而不是退回 `.env` 的預設值）：
+
+```bash
+# 在 VM2 上，看容器裡讀到的密碼從哪來
+sudo docker exec crawler_twse python -c \
+  "from crawler.config import MYSQL_PASSWORD; print(MYSQL_PASSWORD)"
+```
+
+搭配 Part B-4 的測試手法（先把 secret 換成 `sm-test-42` 再看這裡印出什麼），就能確認容器是去 Secret Manager 拿的。
+
+### Part F：跨機器端到端
 
 回 VM1 發任務（producer 在 VM1 上跑，連的是本機的 RabbitMQ）：
 
@@ -287,7 +415,8 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 
 1. 為什麼 VM2 連 RabbitMQ 用內部 IP、連 Cloud SQL 卻用外部 IP？（提示：Cloud SQL 不在你的 VPC 裡——它是 Google 託管專案裡的機器。進階解法叫「私人服務存取」，第 18 章不會用到但值得知道名字）
 2. 如果爬蟲量變大，下一台該加的是 VM3 跑更多 worker，還是把 VM1 換大台？這跟第 7 章 `--scale` 的水平擴充是同一題嗎？
-3. Cloud SQL 的 root 密碼設 1234 在教學裡方便，正式環境該怎麼辦？（第 18 章 Secret Manager 會回答）
+3. 建立 Cloud SQL 時密碼 1234 寫在指令裡，Part B 把它移進 Secret Manager 之後，這個密碼還有哪些地方留著明碼？（提示：查一下 `history`）
+4. 密碼輪替時，正在執行的 worker 用的還是它啟動時讀到的舊密碼。什麼時候才會真的換成新密碼？這對「舊密碼何時可以停用」有什麼影響？
 
 ## 練習
 
@@ -307,12 +436,18 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 | VM2 上莫名多一個 rabbitmq 容器 | up 沒加 `--no-deps`，depends_on 連帶啟動 | `docker rm -f rabbitmq`，之後 up 記得加 `--no-deps` |
 | Cloud SQL Studio 的使用者下拉 root 是灰的 | Studio 不開放 root 登入；gcloud 建的使用者沒給 `--host=%` 也會被拒 | `gcloud sql users create studio --password=1234 --host=%` 後重新整理頁面 |
 | 兩台 VM 內部 IP 一樣？ | 不可能——同 VPC 內部 IP 唯一；你看到的多半是外部 IP 回收再發 | 分清楚兩欄：INTERNAL_IP vs EXTERNAL_IP |
+| 程式讀 secret 回 403 Permission denied | 沒做 B-2 的授權，或 member 填錯（要填 VM 用的那個服務帳戶） | 用 `gcloud secrets get-iam-policy mysql-password` 檢查授權對象 |
+| config.py import 時報 GCP_PROJECT_ID 未定義 | Secret Manager 區塊取消註解了，但上面的 `GCP_PROJECT_ID` 那行還註解著 | 兩處要一起取消註解 |
+| 容器讀到的密碼還是 .env 的預設值 | override 檔沒給 `GCP_PROJECT_ID`，或 secret 名稱打錯，fallback 就退回預設值 | 檢查 override 檔；用 B-4 的辨識值測試法確認來源 |
 
 ## 本章總結
 
 - 託管 vs 自架是雲的核心交易：用錢買維運。資料庫最有資格先換成託管——有狀態、掛了最痛
 - 內部 IP 給機器互連（免費、不變、免防火牆），外部 IP 給對外（會回收、要授權）——分清楚這兩個，跨機器架構就通了
-- compose override 檔讓「搬家」縮小成兩個 HOST 的差異，這是設定集中管理與分層設計帶來的效果
+- Secret Manager 保管密碼：集中儲存、可查詢誰讀過、每個版本都保留；程式端用 fallback 設計，讓同一份程式碼在雲端讀 secret、在本機讀 `.env`
+- 授權可以綁在單一資源上（`gcloud secrets add-iam-policy-binding`），範圍比第 15 章的專案層級更精確
+- 在 VM 上執行的容器不需要金鑰檔，它用 VM 的服務帳戶身分讀 Secret Manager
+- compose override 檔讓「搬家」縮小成三個值的差異，這是設定集中管理與分層設計帶來的效果
 - 跨機器閉環：VM1 發 → VM2 做 → Cloud SQL 存。把零件放到三個地方，協作靠訊息佇列
 - Swarm 已少人使用、K8s 是目前的標準但屬於另一門課的範圍——compose 練熟就是學 K8s 的基礎
 - 收工三停：VM ×2＋Cloud SQL；重開要記得「新 IP → 重 patch 授權」
