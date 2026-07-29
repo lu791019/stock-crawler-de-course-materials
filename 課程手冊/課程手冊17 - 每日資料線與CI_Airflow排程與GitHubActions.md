@@ -43,9 +43,13 @@ OLTP 和 OLAP 分開的理由第 15 章講過（分析查詢不影響營運資�
 | 費用 | VM 費用（已經在付，不會多花） | **最小環境每月數百美元起** |
 | 建置時間 | image build 約 10 分鐘 | 環境建置 20-30 分鐘 |
 | DAG 部署方式 | 放進 dags/ 目錄 | 上傳到指定的 Cloud Storage bucket |
+| 套件與環境變數 | 寫進 Dockerfile 與 compose，一次處理完 | 各自透過 Composer 的介面與指令設定 |
+| 不用的時候 | VM `stop` 就不計費，資料設定都留著 | **沒有停機選項，只能刪除環境** |
 | 適合的情況 | 學習、小規模、預算有限 | DAG 數量多、團隊規模大、不希望自己維護 scheduler |
 
-課程的安排：**主線用自架（學員不用額外付費），Composer 由講師示範**——示範建置流程、把同一支 DAG 上傳到 bucket、在託管的介面上觸發成功，說明「DAG 在兩邊通用，差別只在誰維護機器」，示範完**立刻刪除環境**（它按小時計費）。額度充足的同學可以照示範步驟自己走一遍，做完務必刪除。
+課程的安排：**主線用自架（學員不用額外付費），Composer 由講師示範**——Part D 會把主線這支 `stock_bigquery_etl_dag` 原封不動搬到 Composer 上跑一次，DAG 的程式碼一行都不改，示範完**立刻刪除環境**。額度充足的同學可以照 Part D 的步驟自己走一遍，做完務必刪除。
+
+先講結論，Part D 會逐步驗證：編排邏輯在兩邊通用，要各自準備的是執行環境——程式碼怎麼進去、套件怎麼裝、連線設定怎麼給。
 
 ### CI/CD：把手動流程自動化
 
@@ -204,34 +208,194 @@ CD 段課程不實作，但路徑是這樣：在 workflow 後面繼續加 steps�
 
 ### Part D：Composer 示範（講師操作，學員選做）
 
-流程走一遍給你看（額度充足者可跟做，**做完立刻刪**）：
+把 Part B 剛跑過的 `stock_bigquery_etl_dag` 原封不動搬到 Composer 上執行一次，用來對照託管與自架的差別。**做完立刻刪除環境**，它按小時計費。
 
-1. 啟用 API：`gcloud services enable composer.googleapis.com`
-2. Console：≡ → Composer → 建立環境（Composer 3）→ 名稱、區域 asia-east1、規格選最小 → 建立（**等 20-30 分鐘**，它在建立一整套跑在 GKE 上的 Airflow）
-3. 建好後環境詳情頁有一個 **DAGs 資料夾**連結，那是一個 Cloud Storage bucket。把 `airflow/dags/example_first_dag.py` 上傳進去
-4. 開「Airflow 網頁介面」，操作介面跟你自架的完全一樣。DAG 幾分鐘後會自動出現，unpause → trigger → 執行成功
-5. **示範結束立刻刪除環境**（Console 的刪除鈕），它按小時計費
+#### D-1 啟用 API 並授權服務帳戶
 
-第 3 步刻意選 `example_first_dag.py` 這支範例 DAG，因為它只用 Airflow 內建的 Operator，沒有其他依賴。
+```bash
+gcloud services enable composer.googleapis.com iamcredentials.googleapis.com
 
-**課程的爬蟲 DAG 不能直接這樣上傳**，這是託管環境的第一個功課。打開 `stock_crawler_dag.py` 看第 24 行：
-
-```python
-from crawler.tasks_crawler_finmind import crawler_finmind
+gcloud projects add-iam-policy-binding {你的專案ID} \
+  --member="serviceAccount:{專案編號}-compute@developer.gserviceaccount.com" \
+  --role="roles/composer.worker"
 ```
 
-它 import 了 `crawler` 這個模組。自架環境能跑，是因為 compose 檔用 volume 把 `../crawler` 掛進容器裡（第 10 章設定的）。Composer 環境沒有這個掛載，也沒有這個模組，DAG 一上傳就會出現 import 錯誤，連 UI 都不會顯示它。
+Composer 除了自己的 API，還相依 `iamcredentials.googleapis.com`。只開前者，建立環境時會被擋下來：
 
-要讓課程的 DAG 在 Composer 上執行，至少要處理兩件事：
+```
+FAILED_PRECONDITION: Please enable all APIs Cloud Composer depends on.
+List of APIs: iamcredentials.googleapis.com.
+```
 
-| 要處理什麼 | 在 Composer 上怎麼做 |
-|-----------|-------------------|
-| `crawler` 模組 | 一起上傳到 DAGs bucket（Composer 會把該目錄加進 PYTHONPATH），或打包成 Python 套件安裝 |
-| 第三方套件（FinMind、pymysql 等） | 在環境設定的「PyPI 套件」頁面逐一指定版本安裝 |
+環境要跑在一個服務帳戶身分下，這裡沿用第 14 章就存在的 Compute Engine 預設服務帳戶，補上 `composer.worker` 角色。
 
-這正是**託管服務的隱藏成本**：機器不用你維護了，但「環境裡有什麼」變成你要透過它的介面去管理，而不是自己寫一份 Dockerfile 就搞定。自架時你用 `docker build` 一次處理完的事，在 Composer 上要拆成上傳程式碼與設定套件兩件事。
+#### D-2 建立環境
 
-所以「DAG 在兩邊通用」這句話要講得精確一點：**編排邏輯（DAG 的結構、依賴關係、排程設定）完全通用，但執行環境要各自準備**。這個差異在評估要不要換到託管服務時，是實際會花時間的部分。
+```bash
+gcloud composer environments create stock-composer \
+  --location=asia-east1 \
+  --image-version=composer-3-airflow-2 \
+  --environment-size=small \
+  --service-account={專案編號}-compute@developer.gserviceaccount.com \
+  --async
+```
+
+`--async` 讓指令立刻返回，環境在背景建立，需要 20-30 分鐘——它在準備一整套跑在 GKE 上的 Airflow。查進度：
+
+```bash
+gcloud composer environments list --locations=asia-east1
+```
+
+STATE 從 `CREATING` 變成 `RUNNING` 才算建好。
+
+**這裡有一個要先知道的限制：建立中的環境刪不掉。**
+
+```
+ERROR: Cannot delete environment in state CREATING.
+Environment must be in RUNNING or ERROR state.
+```
+
+也就是說按下建立之後就沒有反悔的餘地，那 20-30 分鐘的費用一定會發生。這一點跟 VM 和 Cloud SQL 很不一樣，下面的 D-7 會再說明。
+
+#### D-3 查出這個環境的 DAGs bucket 與網頁介面
+
+```bash
+gcloud composer environments describe stock-composer --location=asia-east1 \
+  --format="value(config.dagGcsPrefix,config.airflowUri)"
+```
+
+第一個值是 DAGs bucket 路徑，長得像 `gs://asia-east1-stock-composer-{編號}-bucket/dags`；第二個是 Airflow 網頁介面的網址，開起來跟你自架的那個介面一模一樣。
+
+#### D-4 上傳 DAG 與 crawler 模組
+
+自架環境能跑爬蟲 DAG，是因為 compose 檔用 volume 把 `../crawler` 掛進容器（第 10 章設定的）。Composer 沒有這個掛載，所以 `crawler` 要自己送上去。
+
+`stock_crawler_etl_bigquery_dag.py` 第 10 行需要的就是它：
+
+```python
+from crawler.stock_sync_mysql_to_bigquery import sync_mysql_to_bigquery
+```
+
+**Composer 會把 DAGs 資料夾加進 PYTHONPATH**，所以把整個 `crawler` 目錄放進去，DAG 就 import 得到：
+
+```bash
+BUCKET=gs://asia-east1-stock-composer-{編號}-bucket/dags
+
+# DAG 本身
+gcloud storage cp airflow/dags/stock_crawler_etl_bigquery_dag.py $BUCKET/
+
+# crawler 模組整包（DAG 靠它 import）
+gcloud storage cp -r crawler $BUCKET/
+```
+
+上傳的 `crawler/` 就是你本機這一份——`config.py` 的 `GCP_PROJECT_ID` 與 `bigquery.py` 的 `PROJECT_ID` 匯入在第 15 章已經取消註解，維持那個狀態即可。
+
+Composer 大約一到兩分鐘同步一次 bucket，再由 Airflow 解析。等 DAG 出現：
+
+```bash
+gcloud composer environments run stock-composer --location=asia-east1 dags list
+```
+
+清單裡看得到 `stock_bigquery_etl_dag`，代表 `crawler` 匯入成功。如果 import 有問題，DAG 不會出現在清單裡，UI 上也看不到。
+
+#### D-5 套用環境變數
+
+DAG 要連 Cloud SQL、要知道 BigQuery 專案，這些值在自架環境是 override 檔給的，在 Composer 是環境設定的一部分：
+
+```bash
+gcloud composer environments update stock-composer --location=asia-east1 \
+  --update-env-variables=MYSQL_HOST={CloudSQL IP},MYSQL_ACCOUNT=root,MYSQL_PASSWORD=1234,MYSQL_PORT=3306,GCP_PROJECT_ID={你的專案ID}
+```
+
+這是一次環境更新，要等幾分鐘，不是改完立刻生效。
+
+漏掉 `GCP_PROJECT_ID` 的話，`config.py` 會退回預設值 `your-project-id`，任務失敗並回報：
+
+```
+Access Denied: Project your-project-id: User does not have bigquery.datasets.create permission
+```
+
+#### D-6 讓 Composer 連得到 Cloud SQL
+
+Cloud SQL 的授權網路認的是來源 IP，所以要先知道 Composer 的工作節點對外時用哪個 IP。這個值 `describe` 查不到，用一支一次性的 DAG 問出來：
+
+```python
+# probe_network_dag.py：查 Composer 的對外 IP
+from datetime import datetime
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+
+def egress_ip():
+    import urllib.request
+    print("EGRESS_IP=" + urllib.request.urlopen("https://ifconfig.me/ip", timeout=20).read().decode())
+
+with DAG("probe_network_dag", start_date=datetime(2024, 1, 1),
+         schedule_interval=None, catchup=False) as dag:
+    PythonOperator(task_id="egress_ip", python_callable=egress_ip)
+```
+
+上傳、觸發，然後讀 log。**Composer 3 的任務 log 送到 Cloud Logging，不放在 bucket 裡**：
+
+```bash
+gcloud composer environments run stock-composer --location=asia-east1 \
+  dags trigger -- probe_network_dag
+
+gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"EGRESS_IP"' \
+  --limit=1 --freshness=10m --format="value(textPayload)"
+```
+
+拿到 IP 之後加進授權網路，做法跟第 16 章給兩台 VM 授權完全一樣：
+
+```bash
+gcloud sql instances patch stock-mysql \
+  --authorized-networks={Composer對外IP}/32,{VM1外部IP}/32,{VM2外部IP}/32
+```
+
+授權前後各觸發一次，就會看到 `TCP_CONNECT` 從逾時變成連得上。
+
+#### D-7 觸發並驗證
+
+```bash
+gcloud composer environments run stock-composer --location=asia-east1 \
+  dags trigger -- stock_bigquery_etl_dag
+
+# 看整個 run 的狀態
+gcloud composer environments run stock-composer --location=asia-east1 \
+  dags list-runs -- -d stock_bigquery_etl_dag -o plain
+
+# 看六個 task 各自的狀態
+gcloud composer environments run stock-composer --location=asia-east1 \
+  tasks states-for-dag-run -- stock_bigquery_etl_dag {run_id} -o plain
+```
+
+六個 task 全部 `success`，回頭用 `bq query` 查 `stock.stock_trend_analysis`，資料跟自架環境跑出來的一致——**同一支 DAG、同一份 crawler、同一個 Cloud SQL 與 BigQuery，換的只是誰在跑 scheduler**。
+
+也可以直接開 D-3 查到的網頁介面，用 UI 觸發與觀察，操作方式跟自架的完全相同。
+
+#### D-8 刪除環境
+
+```bash
+gcloud composer environments delete stock-composer --location=asia-east1 --quiet
+gcloud composer environments list --locations=asia-east1   # 清單空了才是真的停止計費
+```
+
+**Composer 沒有「停機」這個選項。** VM 可以 `stop`、Cloud SQL 可以設 `activation-policy=NEVER`、Cloud Run 沒流量自動縮到零——它們停下來之後資料和設定都還在，要用再開回來。Composer 只有 create、update、delete 三種操作，環境存在就計費，唯一的省錢方式是刪掉，而刪掉就什麼都不留。
+
+這也是為什麼「示範完立刻刪除」不是建議而是必要步驟。
+
+#### 這次示範帶出的三件事
+
+**一、套件不一定要自己裝，但要先查。** 這支 DAG 需要的 pandas、PyMySQL、SQLAlchemy、google-cloud-bigquery、pyarrow，Composer 3 的映像都已經內建，一個都不用裝。查法：
+
+```bash
+gcloud composer environments list-packages stock-composer --location=asia-east1
+```
+
+反過來說，`FinMind` 不在內建清單裡。要跑會呼叫 FinMind API 的那幾支爬蟲 DAG，就得在環境設定的「PyPI 套件」頁面另外指定安裝，而每次安裝都是一次環境更新。同一份清單也會告訴你版本可能跟你本機不同——例如 SQLAlchemy 是 1.4 而不是專案 `pyproject.toml` 寫的 2.x，程式用到 2.0 才有的寫法就會出問題。
+
+**二、「環境裡有什麼」變成要透過它的介面管理。** 自架時 `docker build` 一次處理完的事——程式碼進 image、套件裝進 image、環境變數寫在 compose——在 Composer 上拆成三件獨立的事：上傳程式碼到 bucket、在設定頁裝套件、用 update 指令改環境變數。每一件都是一次操作，套件與環境變數還各自要等一次環境更新。這是託管服務的隱藏成本：省下維護機器的力氣，換來一套要學的管理介面。
+
+**三、「DAG 兩邊通用」要講得精確一點。** 編排邏輯——DAG 的結構、任務依賴、排程設定、Operator 用法——完全通用，這次連一行都沒改。要各自準備的是執行環境：程式碼怎麼進去、套件怎麼裝、連線設定怎麼給、對外 IP 怎麼授權。評估要不要換到託管服務時，會花時間的是後面那一半。
 
 ## 收工：兩種收法
 
@@ -241,7 +405,7 @@ from crawler.tasks_crawler_finmind import crawler_finmind
 
 | 順序 | 資源 | 指令／位置 | 為什麼是這個順序 |
 |------|------|-----------|----------------|
-| 1 | Composer 環境（如果有建立） | Console → Composer → 刪除 | 費用最高，優先刪除 |
+| 1 | Composer 環境（如果有建立） | `gcloud composer environments delete stock-composer --location=asia-east1` | 費用最高，而且沒有停機選項，只能刪除 |
 | 2 | Cloud Run 服務（若做過補充G） | `gcloud run services delete stock-api --region=asia-east1` | 閒置本來就縮零不計費，結束時一併刪除 |
 | 3 | 兩台 VM | `gcloud compute instances delete ...` | 磁碟跟著 VM 一起消失 |
 | 4 | Cloud SQL | `gcloud sql instances delete stock-mysql` | 儲存費 |
@@ -283,12 +447,19 @@ from crawler.tasks_crawler_finmind import crawler_finmind
 | unpause 後多一個沒觸發過的 run | 排程 DAG unpause 會補跑最近一期（catchup=False 也一樣） | 正常現象；不想要就在 unpause 前先 trigger 手動 run 驗證 |
 | BigQuery 寫入 403 | VM scopes 還是預設唯讀（開工 SOP 的第 2 步沒做） | 停機 → `set-service-account --scopes=cloud-platform` → 開機 → 重授權 Cloud SQL |
 | CI 的 uv sync 失敗 | uv.lock 跟 pyproject 不同步 | 本機 `uv lock` 後重新 push |
+| Composer 建立回報 `FAILED_PRECONDITION: Please enable all APIs` | 只開了 `composer.googleapis.com`，還相依 `iamcredentials.googleapis.com` | 兩個一起 enable 後重下建立指令 |
+| Composer 環境刪不掉，回報 `Cannot delete environment in state CREATING` | 建立中的環境不能刪 | 等 STATE 變成 `RUNNING` 再刪；建立那 20-30 分鐘的費用無法迴避 |
+| DAG 上傳了但 `dags list` 看不到 | `crawler` 模組沒一起上傳，DAG import 失敗 | `gcloud storage cp -r crawler {bucket}/dags/`，等 bucket 同步後重查 |
+| Composer 上任務報 `Access Denied: Project your-project-id` | 沒設 `GCP_PROJECT_ID` 環境變數，`config.py` 退回預設值 | `environments update --update-env-variables=GCP_PROJECT_ID=...` |
+| Composer 上連 Cloud SQL 逾時 | 授權網路沒有 Composer 的對外 IP | 用探測 DAG 查出對外 IP（D-6），加進 `authorized-networks` |
+| 找不到 Composer 的任務 log | Composer 3 的 log 送到 Cloud Logging，不在 bucket | `gcloud logging read 'resource.type="cloud_composer_environment"'` |
 
 ## 本章總結
 
 - 金鑰檔只有 GCP 外面的程式才需要；VM 上的程式用自己的服務帳戶身分，不需要金鑰
 - 完整資料線：爬蟲 → Cloud SQL → 排程 Airflow → BigQuery → Looker Studio，同步改由排程自動執行
-- Composer 是託管版 Airflow：DAG 在兩邊通用，差別在誰維護機器、以及費用
+- Composer 是託管版 Airflow：編排邏輯兩邊通用（同一支 DAG 一行都不用改），要各自準備的是執行環境——程式碼上傳、套件安裝、連線設定、對外 IP 授權
+- Composer 沒有停機選項，只有 create／update／delete，環境存在就計費——示範完必須刪除
 - CI 的四個步驟就是你手動做過的 clone、裝工具、裝依賴、跑測試，交給 GitHub 每次 push 自動執行；CD 是發佈流程的自動化，補充G 有手動版
 - 資源清理照順序刪：費用高的先刪，關閉整個專案是最後手段（30 天內可還原）
 
