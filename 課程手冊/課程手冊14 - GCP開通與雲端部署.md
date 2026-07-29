@@ -120,10 +120,10 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 
 | 分類 | 代表服務 | 課程對應 |
 |------|---------|---------|
-| 運算 Compute | **Compute Engine**（IaaS VM）、GKE（託管 K8s）、Cloud Run（跑容器的 Serverless）、App Engine、Cloud Functions | GCE：本章 |
+| 運算 Compute | **Compute Engine**（IaaS VM）、GKE（託管 K8s）、**Cloud Run**（跑容器的 Serverless）、App Engine、Cloud Functions | GCE：本章；Cloud Run：第 17 章 |
 | 儲存與資料庫 | **Cloud SQL**（託管 MySQL/PostgreSQL/SQL Server）、**Cloud Storage**（物件儲存：檔案、備份）、Firestore（NoSQL，角色近 MongoDB）、Bigtable（超大規模 NoSQL） | Cloud SQL：第 16 章 |
 | 資料分析與工程 | **BigQuery**（全託管資料倉儲）、**Cloud Composer**（全託管 Airflow）、**Looker Studio**（免費 BI）、Dataflow（託管 ETL／串流）、Dataproc（託管 Hadoop/Spark）、Pub/Sub（訊息佇列，角色近課程的 RabbitMQ） | BigQuery：第 15 章；Composer：第 18 章；Looker Studio：第 15 章 |
-| 網路 | **Cloud Load Balancing**、**防火牆規則**、Cloud DNS、Cloud CDN | 防火牆：本章；LB：第 17 章 |
+| 網路 | Cloud Load Balancing、**防火牆規則**、Cloud DNS、Cloud CDN | 防火牆：本章（LB 第 17 章會說明為什麼你不用自己架） |
 | 身分與安全 | **IAM**（誰能做什麼）、**Secret Manager**（機密管理）、KMS | 第 18 章 |
 
 選型的方向跟第 5 章學過的一樣：物件檔案放 Cloud Storage、交易型資料放 Cloud SQL（OLTP）、分析放 BigQuery（OLAP）、非關聯式選 Firestore／Bigtable——資料庫的分工概念不變，只是每種分工在雲端變成一個獨立產品。
@@ -142,7 +142,7 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 | RabbitMQ／worker 容器 | 拆到**多台 GCE** 分工 | 第 16 章 | 不改，compose 拆檔 | 補充A 的「分散式」第一次真的跨機器 |
 | Metabase 容器 | **Looker Studio**（免費 SaaS BI） | 第 15 章 | 不用程式，滑鼠操作 | 免安裝免維運、內建 BigQuery 連接器——SaaS 的教科書案例 |
 | ——（本機沒有這層） | **BigQuery**（分析倉儲，新增） | 第 15 章 | 跑課程現成的 sync 程式 | OLTP／OLAP 分工：分析不再拖累營運資料庫 |
-| FastAPI（補充B） | GCE 上線＋**Cloud Load Balancing** | 第 17 章 | 不改，加發佈流程 | 系統第一次有對外門牌；LB 分流與健康檢查 |
+| FastAPI（補充B） | **Cloud Run**（容器託管執行環境） | 第 17 章 | 不改，加發佈流程 | 系統第一次有對外門牌：固定 HTTPS 網址、自動擴縮、閒置縮零不計費——不用管機器 |
 | 手動 docker build／换版 | **CI/CD**（GitHub Actions：push → 測試 → build → 換版） | 第 18 章 | 加 workflow yml | 補充C 寫的測試在這裡變成上線守門員 |
 | 自架 Airflow 容器 | 主線**仍在 GCE 自架**；**Cloud Composer**（託管 Airflow）認識＋對照示範 | 第 18 章 | DAG 兩邊通用 | Composer 省維運但每月數百美元起跳——託管 vs 自架的期末考題，課程用示範讓你看見差異、錢包不用受傷 |
 | `.env` 檔 | **Secret Manager** | 第 18 章 | config.py 加 fallback | 機密集中管理、可稽核、可輪替——.env 紀律的雲端完全體 |
@@ -691,7 +691,7 @@ Part F 到收工用的都是 gcloud 指令。同樣的事在 GCP Console 網頁�
 
 1. 服務帳戶的金鑰檔如果不小心 commit 到公開的 GitHub repo，會發生什麼事？該怎麼補救？
 2. 為什麼防火牆規則不開放 3306 和 5672？如果你人在外面想連雲端的 MySQL，正確的做法是什麼？（提示：SSH）
-3. VM 停機後外部 IP 會變，對「把網址發給別人用」這件事是什麼問題？固定 IP 可能怎麼做？（第 17 章會回答）
+3. VM 停機後外部 IP 會變，對「把網址發給別人用」這件事是什麼問題？固定的對外網址可能怎麼做？（第 17 章會回答）
 
 ## 練習
 

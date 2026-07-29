@@ -317,4 +317,4 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 - Swarm 沒落、K8s 是標準但屬於下一門課——compose 練熟就是 K8s 的地基
 - 收工三停：VM ×2＋Cloud SQL；重開要記得「新 IP → 重 patch 授權」
 
-下一章（第 17 章）讓系統對外開門：FastAPI 部署上雲、掛 Load Balancer、學會 image 的 build/push/tag 換版發佈流程。
+下一章（第 17 章）讓系統對外開門：把 FastAPI 打包成 image 推上倉庫、交給 Cloud Run 跑出一個固定的 HTTPS 網址，學會 build／tag／push／deploy 的換版發佈流程。

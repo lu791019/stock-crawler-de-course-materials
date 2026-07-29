@@ -147,7 +147,19 @@ GCP 帳號註冊、建立專案、建立服務帳戶（Service Account）與下�
 gcloud services enable bigquery.googleapis.com
 ```
 
-**2. 幫服務帳戶加上 BigQuery 權限**（兩個角色：Data Editor 管資料的讀寫建表、Job User 准它執行查詢工作））。第 14 章建服務帳戶時刻意一個角色都不給，就是等這一刻——「需要什麼、才給什麼」的最小權限原則，現在補上剛好夠用的兩個：
+**2. 幫服務帳戶加上 BigQuery 權限**
+
+打指令之前，先認識雲端權限系統 **IAM（Identity and Access Management）** 的三個詞——它們就是下面那條指令的三個部分：
+
+| 詞 | 白話 | 這次的值 |
+|----|------|---------|
+| **成員（誰）** | 人（Google 帳號）或程式（服務帳戶） | `stock-crawler-sa@…`——第 14 章建的那個服務帳戶 |
+| **角色（能做什麼）** | 一組權限的包裝，名字長得像 `roles/服務.動作` | `bigquery.dataEditor`（讀寫資料、建表）＋`bigquery.jobUser`（執行查詢工作） |
+| **資源（在哪生效）** | 權限的作用範圍：整個專案、或單一資源 | `stock-crawler-course`——整個專案 |
+
+一句話：**把「某個角色」綁在「某個成員」身上，在「某個資源範圍」內生效**——指令名稱 `add-iam-policy-binding` 的 binding（綁定）就是這個意思。
+
+為什麼要兩個角色而不是給一個大的？第 14 章建服務帳戶時刻意一個角色都不給，就是等這一刻——**最小權限原則：需要什麼、才給什麼**。給大角色（例如 Editor）它連刪 VM 都做得到，金鑰一旦外流損失就無法收斂。這條原則第 17、18 章還會遇到兩次，第 18 章會把整套 IAM 收攏講完。
 
 ```bash
 SA="stock-crawler-sa@stock-crawler-course.iam.gserviceaccount.com"   # 換成你的服務帳戶 email
