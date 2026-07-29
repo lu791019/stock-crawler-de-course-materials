@@ -127,6 +127,12 @@ bq query --nouse_legacy_sql \
 # 每支股票最近日期的 MA5 / MA20 有值
 ```
 
+同一組查詢也可以在 Console 上執行（≡ → BigQuery → SQL 查詢），結果會像這樣：
+
+![BigQuery 查詢排程後的 MA5/MA20](images/ch18/01-BQ-排程後MA5MA20查詢結果.jpg)
+
+這裡的資料跟第 15 章手動同步時看到的是同一批，差別在於這次是由 Airflow 排程觸發的。
+
 到這裡完整資料線就串起來了：worker 爬進 Cloud SQL 的資料，由排程的 Airflow 同步進 BigQuery、算出技術指標，第 15 章接好的 Looker Studio 儀表板下次重新整理就會顯示新資料。這條線之後每個交易日 20:00 自動執行，前提是 VM1 開著。
 
 > 要讓它每天實際執行，VM1 必須一直開著，每月費用約 NT$1,600。課程的做法是上課期間手動觸發驗證，確認排程設定正確即可。這也正是 Composer 這類託管服務的價值之一：執行排程的機器由 Google 維護。
@@ -155,7 +161,11 @@ jobs:
 
 四個 step 就是你在本機做過無數次的動作：clone → 裝工具 → 裝依賴 → 跑測試。`-m "not integration"` 排除需要真實 MySQL 的整合測試（CI 的臨時機器上沒有 MySQL；補充C 設計的標記在這裡發揮作用）。
 
-驗證方式：到課程 repo 的 GitHub 頁面 → **Actions** 分頁，能看到每次 push 觸發的 CI 紀錄與綠勾。想自己觸發一次：fork 課程 repo 到自己帳號、改一個檔案後 push，你自己 repo 的 Actions 頁就會執行。
+驗證方式：到課程 repo 的 GitHub 頁面 → **Actions** 分頁，能看到每次 push 觸發的 CI 紀錄。每一列左邊的綠色勾號代表那次 push 的測試全部通過，右邊顯示執行時間（這個專案的測試約 20 秒跑完）：
+
+![GitHub Actions 執行紀錄](images/ch18/02-GitHubActions-CI執行紀錄全綠.jpg)
+
+想自己觸發一次：fork 課程 repo 到自己帳號、改一個檔案後 push，你自己 repo 的 Actions 頁就會執行。
 
 CD 段課程不實作，但路徑你已經看得懂：在 workflow 後面加 steps——`docker build` → `push` 到 Artifact Registry → `gcloud run deploy`。三個動作第 17 章你都手動跑過；`gcp/update-api.sh` 就是那段的腳本化，接上去 CI/CD 就全通了。
 
