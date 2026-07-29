@@ -28,7 +28,8 @@ gcloud run deploy "${SERVICE}" \
   --region="${REGION}" \
   --port=8000 \
   --add-cloudsql-instances="${CLOUDSQL_CONN}" \
-  --set-env-vars="MYSQL_UNIX_SOCKET=/cloudsql/${CLOUDSQL_CONN},MYSQL_ACCOUNT=root,MYSQL_PASSWORD=1234" \
+  --set-env-vars="MYSQL_UNIX_SOCKET=/cloudsql/${CLOUDSQL_CONN},MYSQL_ACCOUNT=root" \
+  --set-secrets="MYSQL_PASSWORD=mysql-password:latest" \
   --allow-unauthenticated \
   --memory=1Gi
 
