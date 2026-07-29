@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# API 一鍵換版（第 17 章 Part F 的腳本版）：build → tag → push → 本機重啟新版容器
-# 在 VM 上、專案根目錄執行：bash gcp/update-api.sh v3
-# 多台環境：每台輪流跑「重啟」那段（先跑一台、確認 LB 照常回 200、再跑下一台）
+# API 一鍵換版（第 17 章的腳本版）：build → tag → push → deploy 上 Cloud Run
+# 在 VM1 上、專案根目錄執行：bash gcp/update-api.sh v3
+# 這支腳本就是 CI/CD 的 CD 段（第 18 章）——把它接到 GitHub Actions 後面就自動化了
 set -euo pipefail
 
 # ===== 改成你自己的值 =====
 PROJECT_ID="stock-crawler-course"
 REGION="asia-east1"
-CLOUDSQL_IP="35.229.208.220"
+SERVICE="stock-api"
+# Cloud SQL 連線名稱：gcloud sql instances describe stock-mysql --format="value(connectionName)"
+CLOUDSQL_CONN="stock-crawler-course:asia-east1:stock-mysql"
 # ==========================
 
 VERSION="${1:?用法: bash gcp/update-api.sh <版本號，例如 v3>}"
@@ -20,15 +22,17 @@ echo "=== 2/3 tag + push ==="
 docker tag "stock-api:${VERSION}" "${REG}/stock-api:${VERSION}"
 docker push "${REG}/stock-api:${VERSION}"
 
-echo "=== 3/3 本機換版（停舊、起新）==="
-docker rm -f stock-api 2>/dev/null || true
-docker run -d --name stock-api -p 8000:8000 \
-  -e MYSQL_HOST="${CLOUDSQL_IP}" \
-  -e MYSQL_PORT=3306 \
-  -e MYSQL_ACCOUNT=root \
-  -e MYSQL_PASSWORD=1234 \
-  "${REG}/stock-api:${VERSION}"
+echo "=== 3/3 deploy 上 Cloud Run（零停機切換）==="
+gcloud run deploy "${SERVICE}" \
+  --image="${REG}/stock-api:${VERSION}" \
+  --region="${REGION}" \
+  --port=8000 \
+  --add-cloudsql-instances="${CLOUDSQL_CONN}" \
+  --set-env-vars="MYSQL_UNIX_SOCKET=/cloudsql/${CLOUDSQL_CONN},MYSQL_ACCOUNT=root,MYSQL_PASSWORD=1234" \
+  --allow-unauthenticated \
+  --memory=1Gi
 
-echo "等 API 啟動（uv 準備環境約 30 秒）..."
-sleep 30
-curl -s -o /dev/null -w "本機健康檢查: %{http_code}\n" http://localhost:8000/
+URL=$(gcloud run services describe "${SERVICE}" --region="${REGION}" --format="value(status.url)")
+curl -s -o /dev/null -w "健康檢查 ${URL}/ → %{http_code}\n" "${URL}/"
+
+echo "出問題要退版：gcloud run services update-traffic ${SERVICE} --region=${REGION} --to-revisions={舊revision}=100"

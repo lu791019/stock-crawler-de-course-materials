@@ -5,7 +5,7 @@
 | 檔案 | 用途 | 對應章節 |
 |------|------|---------|
 | `create-vm.sh` | 建立課程主力 VM（e2-standard-2） | 第 14 章 Part F |
-| `update-api.sh` | API 一鍵換版：build → tag → push → 逐台重啟 | 第 17 章 Part F 的腳本化 |
+| `update-api.sh` | API 一鍵換版：build → tag → push → deploy 上 Cloud Run | 第 17 章的腳本化；第 18 章 CI/CD 的 CD 段 |
 
 ## 為什麼要把指令存成腳本
 
