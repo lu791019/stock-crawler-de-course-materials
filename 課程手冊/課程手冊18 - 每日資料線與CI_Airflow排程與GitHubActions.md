@@ -112,6 +112,14 @@ docker exec airflow-scheduler airflow dags trigger stock_bigquery_etl_dag
 
 > unpause 之後 Graph 上可能突然多出一個你沒有觸發的 run。那是排程 DAG 被 unpause 時補跑的最近一期，即使 `catchup=False` 也會跑這一期，屬於正常行為。
 
+到瀏覽器開 `http://{VM1外部IP}:8080`（帳密 admin/admin），進入這支 DAG 的 Graph 分頁，六個 task 應該全部是綠色的 success：
+
+![Airflow DAG 六個 task 全綠](images/ch18/03-Airflow-BigQueryETL-DAG六task全綠.jpg)
+
+左側的格狀圖是歷次執行紀錄，每一直行是一次 run。上圖左邊幾行有紅色與橘色，那是實測過程中失敗的幾次（原因見排錯表的 `DAY partitioning` 那一條），修正後才變成全綠——這也是排錯時最直觀的檢查方式。
+
+注意這裡的 port 是 **8080**，跟第 10 到 13 章本機環境用的 8081 不同。本機當時改成 8081 是為了避開 phpMyAdmin，雲端的 VM1 上沒有 phpMyAdmin，所以用 compose 檔原本的 8080。
+
 等 run 全綠後，回**本機**用 bq 驗證資料真的落地：
 
 ```bash
@@ -223,11 +231,13 @@ CD 段課程不實作，但路徑你已經看得懂：在 workflow 後面加 ste
 | 症狀 | 原因 | 處理 |
 |------|------|------|
 | config.py import 報 GCP_PROJECT_ID 未定義 | 第 16 章取消 Secret Manager 區塊註解時，上面的 GCP_PROJECT_ID 那行忘了一起取消 | 兩處一起取消註解 |
-| airflow up 報 stock-airflow image 不存在 | 第 17 章的 `prune -af` 把沒在用的 image 清了 | C-1 重 build |
+| airflow up 報 stock-airflow image 不存在 | 第 17 章的 `prune -af` 把沒在用的 image 清了 | A-1 重 build |
+| 瀏覽器連 8081 打不開 Airflow | 雲端用的是 compose 檔原本的 8080，8081 是本機為了避開 phpMyAdmin 才改的 | 改連 `http://{VM1外部IP}:8080` |
+| 瀏覽器連 8080 逾時 | 你的對外 IP 換了，防火牆規則 allow-stock-web 還是舊 IP | `curl -4 ifconfig.me` 查目前 IP，再 `gcloud compute firewall-rules update allow-stock-web --source-ranges={新IP}/32` |
 | airflow up 報 network my_network not found | compose 宣告的外部網路還沒建 | `docker network create my_network` |
 | sync task 報 400：DAY partitioning 只接受 DATE，found STRING | 來源表是 to_sql 自動建的，`date` 欄是文字型別；舊版 sync 沒做型別轉換 | `git pull` 拉最新版（sync 上傳前已加 `pd.to_datetime`）；順便記住：**to_sql 自動建表的欄位型別要用 `SHOW COLUMNS` 驗過，不能想當然** |
 | unpause 後多一個沒觸發過的 run | 排程 DAG unpause 會補跑最近一期（catchup=False 也一樣） | 正常現象；不想要就在 unpause 前先 trigger 手動 run 驗證 |
-| BigQuery 寫入 403 | VM scopes 還是預設唯讀（沒做第 17 章 Step 0 的 scopes 步驟） | 停機 → `set-service-account --scopes=cloud-platform` → 開機 → 重授權 SQL |
+| BigQuery 寫入 403 | VM scopes 還是預設唯讀（沒做第 17 章 Step 0 的 scopes 步驟） | 停機 → `set-service-account --scopes=cloud-platform` → 開機 → 重授權 Cloud SQL |
 | CI 的 uv sync 失敗 | uv.lock 跟 pyproject 不同步 | 本機 `uv lock` 後重新 push |
 
 ## 本章總結
