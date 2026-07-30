@@ -1,0 +1,130 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram name="GCP雲端架構" id="gcp-arch">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="股票爬蟲系統：GCP 雲端架構（第 14 到 17 章）" style="text;html=1;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="60" y="24" width="1040" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="optional_box" value="補充G（選讀）" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#999999;fontColor=#666666;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="250" y="84" width="220" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vm1_box" value="VM1（第 14 章）" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#4285f4;fontColor=#1a73e8;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="280" width="230" height="270" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vm2_box" value="VM2（第 16 章）" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#4285f4;fontColor=#1a73e8;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="280" width="230" height="270" as="geometry" />
+        </mxCell>
+
+        <mxCell id="user" value="使用者" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="90" y="105" width="40" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cloudrun" value="Cloud Run　stock-api" style="sketch=0;html=1;aspect=fixed;strokeColor=none;shadow=0;fillColor=#4284F3;verticalAlign=top;labelPosition=center;verticalLabelPosition=bottom;align=center;fontSize=12;shape=mxgraph.gcp2.cloud_run;" vertex="1" parent="1">
+          <mxGeometry x="326" y="110" width="68" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ce1" value="" style="sketch=0;html=1;aspect=fixed;strokeColor=none;shadow=0;fillColor=#4284F3;verticalAlign=top;labelPosition=center;verticalLabelPosition=bottom;align=center;fontSize=11;shape=mxgraph.gcp2.compute_engine;" vertex="1" parent="1">
+          <mxGeometry x="232" y="288" width="44" height="38" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ce2" value="" style="sketch=0;html=1;aspect=fixed;strokeColor=none;shadow=0;fillColor=#4284F3;verticalAlign=top;labelPosition=center;verticalLabelPosition=bottom;align=center;fontSize=11;shape=mxgraph.gcp2.compute_engine;" vertex="1" parent="1">
+          <mxGeometry x="532" y="288" width="44" height="38" as="geometry" />
+        </mxCell>
+
+        <mxCell id="airflow" value="Airflow&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;排程（第 17 章）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="340" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="rabbitmq" value="RabbitMQ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="415" width="190" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="flower" value="Flower" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#333333;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="485" width="190" height="45" as="geometry" />
+        </mxCell>
+
+        <mxCell id="worker" value="爬蟲 worker&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;crawler_twse&lt;br&gt;crawler_tpex&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="380" y="390" width="190" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cloudsql" value="Cloud SQL&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;託管 MySQL（第 16 章）&lt;/font&gt;" style="sketch=0;html=1;aspect=fixed;strokeColor=none;shadow=0;fillColor=#4284F3;verticalAlign=middle;labelPosition=right;verticalLabelPosition=middle;align=left;spacingLeft=10;fontSize=13;shape=mxgraph.gcp2.cloud_sql;" vertex="1" parent="1">
+          <mxGeometry x="700" y="300" width="68" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bigquery" value="BigQuery&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;分析倉儲（第 15 章）&lt;/font&gt;" style="sketch=0;html=1;aspect=fixed;strokeColor=none;shadow=0;fillColor=#4284F3;verticalAlign=middle;labelPosition=right;verticalLabelPosition=middle;align=left;spacingLeft=10;fontSize=13;shape=mxgraph.gcp2.bigquery;" vertex="1" parent="1">
+          <mxGeometry x="700" y="460" width="68" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="looker" value="Looker Studio&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;BI 儀表板（第 15 章）&lt;br&gt;圖庫裡的舊名是 Data Studio&lt;/font&gt;" style="sketch=0;html=1;aspect=fixed;strokeColor=none;shadow=0;fillColor=#4284F3;verticalAlign=middle;labelPosition=right;verticalLabelPosition=middle;align=left;spacingLeft=10;fontSize=13;shape=mxgraph.gcp2.data_studio;" vertex="1" parent="1">
+          <mxGeometry x="700" y="620" width="68" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_user_run" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;fontSize=12;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="user" target="cloudrun">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_run_sql" value="查詢" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;dashed=1;strokeColor=#999999;fontSize=12;fontColor=#666666;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="cloudrun" target="cloudsql">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="900" y="140" />
+              <mxPoint x="900" y="265" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_mq_worker" value="任務" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;fontSize=12;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="rabbitmq" target="worker">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_worker_sql" value="寫入股價" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;fontSize=12;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="worker" target="cloudsql">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="640" y="450" />
+              <mxPoint x="640" y="330" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_airflow_sql" value="每個交易日 20:00 觸發同步" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#6c8ebf;fontSize=12;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.3;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="airflow" target="cloudsql">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="175" y="245" />
+              <mxPoint x="734" y="245" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_sql_bq" value="同步" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="cloudsql" target="bigquery">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_bq_looker" value="讀取分析表" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="bigquery" target="looker">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="composer_box" value="" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#999999;" vertex="1" parent="1">
+          <mxGeometry x="60" y="580" width="530" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="composer" value="" style="sketch=0;html=1;aspect=fixed;strokeColor=none;shadow=0;fillColor=#9AA0A6;verticalAlign=top;labelPosition=center;verticalLabelPosition=bottom;align=center;fontSize=11;shape=mxgraph.gcp2.cloud_composer;" vertex="1" parent="1">
+          <mxGeometry x="86" y="605" width="48" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="composer_text" value="Cloud Composer 是託管版的 Airflow，可以取代 VM1 上自架的那一個。&lt;br&gt;第 17 章 Part D 是講師示範，環境用完就刪。" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="155" y="595" width="420" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="secret_note" value="資料庫密碼由 Secret Manager 保管（第 16 章）：連 Cloud SQL 的元件啟動時去跟它拿，密碼不寫在檔案裡。" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=middle;fontSize=12;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="690" width="530" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="note" value="跟本地端那張圖對照著看：RabbitMQ、Flower、爬蟲 worker 三個框原地不動，只是搬到 VM 上跑；換掉的是 MySQL（改用託管的 Cloud SQL）與 Metabase（改用 Looker Studio）；新增的是 BigQuery 這一層分析倉儲。" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;verticalAlign=middle;fontSize=12;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="620" y="690" width="480" height="60" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

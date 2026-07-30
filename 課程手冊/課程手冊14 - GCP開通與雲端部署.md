@@ -224,6 +224,8 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
   資料庫密碼由 Secret Manager 保管（16 章），連到 Cloud SQL 的元件都跟它拿
 ```
 
+> 這張圖也有用 GCP 官方圖示畫的 draw.io 版本：`課程手冊/drawio/GCP雲端架構圖.drawio`。畫法見補充H。
+
 看這張圖時注意兩件事。
 
 **第一，Cloud Run 只用在 API，Airflow 留在 VM 上自架**，這是因為兩種工作的形狀不同：API 是「有人呼叫才做事」，沒人用的時候縮到零最省錢；Airflow 的 scheduler 要**一直醒著**每分鐘檢查有沒有到期的排程，縮到零就不排程了。補充G 會再說明這個判斷。

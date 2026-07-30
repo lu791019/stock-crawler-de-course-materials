@@ -1,0 +1,105 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram name="本地端架構" id="local-arch">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="股票爬蟲系統：本地端架構（第 1 到 13 章）" style="text;html=1;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="60" y="30" width="1040" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="airflow" value="Airflow&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;:8081　排程觸發（第 10 到 12 章）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="finmind" value="FinMind API&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;外部資料來源（第 2 章）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="560" y="120" width="200" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="producer" value="Producer&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;發任務（第 1 到 3 章）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="290" width="180" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="rabbitmq" value="RabbitMQ&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;:5672　:15672&lt;br&gt;訊息佇列（第 1、4、7 章）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=14;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="320" y="290" width="180" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="worker" value="Celery Worker&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;crawler_twse　crawler_tpex&lt;br&gt;分佇列執行（第 3 章）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="580" y="290" width="180" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mysql" value="MySQL&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;:3306　mydb&lt;br&gt;股價資料（第 5、6 章）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="840" y="290" width="180" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flower" value="Flower&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;:5555　任務監控（第 1、7 章）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#333333;fontSize=13;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="320" y="470" width="180" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="phpmyadmin" value="phpMyAdmin&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;:8080　資料庫管理（第 5、7 章）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#333333;fontSize=13;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="700" y="470" width="180" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="metabase" value="Metabase&lt;br&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;:3000　BI 圖表（第 8 章）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#333333;fontSize=13;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="920" y="470" width="180" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_airflow_producer" value="觸發" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#6c8ebf;fontSize=12;" edge="1" parent="1" source="airflow" target="producer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_producer_mq" value="發任務" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;fontSize=12;" edge="1" parent="1" source="producer" target="rabbitmq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_mq_worker" value="派送任務" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;fontSize=12;" edge="1" parent="1" source="rabbitmq" target="worker">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_worker_mysql" value="寫入" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;fontSize=12;" edge="1" parent="1" source="worker" target="mysql">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_worker_finmind" value="呼叫 API 取股價" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;dashed=1;strokeColor=#d6b656;fontSize=12;" edge="1" parent="1" source="worker" target="finmind">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_flower_mq" value="監控" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;fontSize=12;fontColor=#666666;" edge="1" parent="1" source="flower" target="rabbitmq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_pma_mysql" value="管理" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;fontSize=12;fontColor=#666666;" edge="1" parent="1" source="phpmyadmin" target="mysql">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_metabase_mysql" value="查詢畫圖" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;fontSize=12;fontColor=#666666;" edge="1" parent="1" source="metabase" target="mysql">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="620" width="420" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_title" value="圖例" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="630" width="100" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_l1" value="" style="endArrow=classic;html=1;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="90" y="676" as="sourcePoint" />
+            <mxPoint x="160" y="676" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend_t1" value="實線：任務與資料實際流動的方向" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="175" y="664" width="290" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_l2" value="" style="endArrow=classic;html=1;strokeWidth=1;dashed=1;strokeColor=#999999;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="90" y="716" as="sourcePoint" />
+            <mxPoint x="160" y="716" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend_t2" value="虛線：給人看的介面，或對外部服務的呼叫" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="175" y="704" width="300" height="24" as="geometry" />
+        </mxCell>
+
+        <mxCell id="note" value="這張圖畫 8 個框，但 docker-compose-all.yml 定義了 13 個容器。&lt;br&gt;airflow 的 postgres、init、webserver、scheduler 四個容器收成一個「Airflow」框，&lt;br&gt;補充F 的 mongodb 與 mongo-express 沒有畫進來。&lt;br&gt;&lt;br&gt;架構圖畫的是「讀者需要理解的層級」，不是把 docker ps 抄一遍。" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;fontSize=12;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="540" y="620" width="560" height="130" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
