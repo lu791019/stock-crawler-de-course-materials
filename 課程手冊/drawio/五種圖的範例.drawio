@@ -1,0 +1,187 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram name="1-流程圖" id="p1">
+    <mxGraphModel dx="900" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="800" pageHeight="500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t" value="流程圖：一支爬蟲任務的處理順序" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="500" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" value="開始" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="100" y="70" width="120" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="取得股票代號" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="150" width="160" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="呼叫 FinMind API" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="230" width="160" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="有拿到資料嗎" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="310" width="160" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="a5" value="寫入 MySQL" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="380" y="230" width="160" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="a6" value="等待後重試" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="380" y="400" width="160" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="a7" value="結束" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="400" y="120" width="120" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="a1" target="a2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="a2" target="a3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="a3" target="a4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" value="有" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontSize=12;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="a4" target="a5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" value="沒有" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="a4" target="a6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="a5" target="a7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" value="回上一步再試一次" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="a6" target="a3">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="460" y="490" /><mxPoint x="30" y="490" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="n1" value="流程圖回答的是「事情按什麼順序發生」。菱形是判斷，一進一出變成兩條路。" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="440" width="560" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram name="2-系統架構圖" id="p2">
+    <mxGraphModel dx="900" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="800" pageHeight="400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t" value="系統架構圖：系統由哪些元件組成、資料往哪走" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="600" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="b1" value="Producer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="130" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="RabbitMQ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="230" y="130" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" value="Celery Worker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="420" y="130" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="b4" value="MySQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="610" y="130" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="發任務" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontSize=12;" edge="1" parent="1" source="b1" target="b2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="c2" value="派送" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontSize=12;" edge="1" parent="1" source="b2" target="b3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="c3" value="寫入" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontSize=12;" edge="1" parent="1" source="b3" target="b4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="n2" value="這是本章要畫的圖，上面只取了主幹四個框；完整版在 Part B 到 Part D 一步步加上去。" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="700" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram name="3-泳道圖" id="p3">
+    <mxGraphModel dx="900" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="800" pageHeight="420" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t" value="泳道圖：每一步是誰負責的" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="500" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="l1" value="Airflow" style="swimlane;horizontal=0;startSize=100;html=1;fillColor=none;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;fontColor=#3B5FA0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="720" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="s1" value="排程時間到，觸發 DAG" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="l1">
+          <mxGeometry x="130" y="22" width="170" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="l2" value="RabbitMQ" style="swimlane;horizontal=0;startSize=100;html=1;fillColor=none;strokeColor=#d79b00;fontSize=13;fontStyle=1;fontColor=#A06D00;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="720" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="任務排進佇列等人領" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="l2">
+          <mxGeometry x="330" y="22" width="170" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="l3" value="Celery Worker" style="swimlane;horizontal=0;startSize=100;html=1;fillColor=none;strokeColor=#82b366;fontSize=13;fontStyle=1;fontColor=#3F7A45;" vertex="1" parent="1">
+          <mxGeometry x="40" y="250" width="720" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="領走任務、爬取並寫入 MySQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="l3">
+          <mxGeometry x="520" y="22" width="180" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="d1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s1" target="s2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="d2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s2" target="s3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="n3" value="同樣的三個步驟，流程圖只畫順序，泳道圖多回答一件事：這一步是誰做的。" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="355" width="700" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram name="4-循序圖" id="p4">
+    <mxGraphModel dx="900" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="800" pageHeight="460" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t" value="循序圖：元件之間依時間順序來回呼叫了什麼" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="600" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="h1" value="使用者" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="60" y="70" width="130" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="h2" value="stock-api" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="70" width="130" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="h3" value="MySQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="600" y="70" width="130" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="v1" style="html=1;endArrow=none;dashed=1;strokeColor=#999999;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="125" y="115" as="sourcePoint" /><mxPoint x="125" y="380" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="v2" style="html=1;endArrow=none;dashed=1;strokeColor=#999999;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="395" y="115" as="sourcePoint" /><mxPoint x="395" y="380" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="v3" style="html=1;endArrow=none;dashed=1;strokeColor=#999999;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="665" y="115" as="sourcePoint" /><mxPoint x="665" y="380" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="m1" value="GET /stock/2330" style="html=1;strokeWidth=2;endArrow=block;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="125" y="160" as="sourcePoint" /><mxPoint x="395" y="160" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="m2" value="SELECT ... WHERE stock_id='2330'" style="html=1;strokeWidth=2;endArrow=block;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="395" y="220" as="sourcePoint" /><mxPoint x="665" y="220" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="m3" value="回傳查到的資料列" style="html=1;strokeWidth=2;endArrow=open;dashed=1;fontSize=12;strokeColor=#666666;fontColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="665" y="280" as="sourcePoint" /><mxPoint x="395" y="280" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="m4" value="回傳 JSON" style="html=1;strokeWidth=2;endArrow=open;dashed=1;fontSize=12;strokeColor=#666666;fontColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="395" y="340" as="sourcePoint" /><mxPoint x="125" y="340" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="n4" value="垂直虛線是每個元件的時間軸，由上往下代表時間經過；實線是發出的請求，虛線是回傳的結果。" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="400" width="720" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram name="5-實體關聯圖" id="p5">
+    <mxGraphModel dx="900" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="800" pageHeight="400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t" value="實體關聯圖：資料表之間怎麼關聯" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="500" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" value="&lt;b&gt;stock_info（股票基本資料）&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;font style=&quot;font-size: 12px;&quot;&gt;stock_id　主鍵&lt;br&gt;stock_name&lt;br&gt;market&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacing=10;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="60" y="90" width="230" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="&lt;b&gt;TaiwanStockPrice（每日股價）&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;font style=&quot;font-size: 12px;&quot;&gt;stock_id　外鍵&lt;br&gt;date　　　與 stock_id 合為主鍵&lt;br&gt;close&lt;br&gt;Trading_Volume&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;verticalAlign=top;spacing=10;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="470" y="90" width="270" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="r1" style="html=1;strokeWidth=2;endArrow=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="t1" target="t2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="r1lbl" value="一支股票有多筆每日股價" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="285" y="170" width="200" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="1" style="text;html=1;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="135" width="30" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="N" style="text;html=1;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="430" y="135" width="30" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="n5" value="兩張表用 stock_id 串起來。1 對 N 的意思是：左邊一列對應右邊很多列（第 5、6 章與補充D 的主鍵、外鍵就是在講這件事）。" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="270" width="720" height="40" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
