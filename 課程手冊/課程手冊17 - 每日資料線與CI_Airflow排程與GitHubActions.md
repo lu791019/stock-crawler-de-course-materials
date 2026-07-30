@@ -19,17 +19,16 @@
 
 本章把第 15 章「手動跑一次」的同步，改成由 Airflow 排程的每日管線。全線如下，每一段前面章節都建過：
 
+```mermaid
+flowchart TD
+    W["VM2 worker 爬蟲"] -->|逐筆寫入| SQL[("Cloud SQL<br/>OLTP：即時、逐筆")]
+    SQL --> SYNC["sync_mysql_to_bigquery<br/>＋三個 transform task"]
+    SYNC --> BQ[("BigQuery<br/>OLAP：分析、聚合<br/>主表＋每日行情／MA5·MA20 趨勢／大盤摘要")]
+    BQ -->|讀取分析表| LS["Looker Studio<br/>BI 儀表板（第 15 章 Bonus 已接）"]
+    AF["VM1 自架 Airflow"] -.->|每個交易日 20:00 觸發| SYNC
 ```
-VM2 worker 爬蟲 ──寫入──▶ Cloud SQL（OLTP：即時、逐筆）
-                              │
-              VM1 自架 Airflow 每個交易日 20:00 觸發 sync
-                              ▼
-                        BigQuery（OLAP：分析、聚合）
-                         主表＋每日行情／MA5·MA20 趨勢／大盤摘要
-                              │
-                              ▼
-                     Looker Studio（BI 儀表板，第 15 章 Bonus 已接）
-```
+
+看這張圖要分清楚兩種線。**實線是資料實際流動的路徑**：爬蟲寫進 Cloud SQL，同步任務把資料搬進 BigQuery 並在上面建好分析表，Looker Studio 再讀那些分析表。**虛線是觸發**：Airflow 不在資料路徑上，資料不經過它，它只負責在時間到的時候叫同步任務去做事。
 
 OLTP 和 OLAP 分開的理由第 15 章講過（分析查詢不影響營運資料庫）。本章新增的是**排程**：同步這件事不再需要人記得執行，改由 Airflow 每個交易日自動跑。
 
