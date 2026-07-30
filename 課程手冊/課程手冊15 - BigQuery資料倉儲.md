@@ -315,7 +315,20 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 ![表結構與分區提示](images/ch15/02-BQ-表結構與分區提示.jpg)
 
-點上方「查詢」開查詢編輯器，貼下面這段 SQL、按「執行」（快捷鍵 Cmd/Ctrl+Enter），結果表直接列出收盤價與均線——順帶注意 Console 跳出的「控管費用」專家提示，講的正是本章的省錢觀念：
+點上方「查詢」開查詢編輯器，貼下面這段 SQL、按「執行」（快捷鍵 Cmd/Ctrl+Enter）：
+
+```sql
+SELECT stock_id, trade_date, ROUND(close, 2) AS close,
+       ROUND(ma5, 2) AS ma5, ROUND(ma20, 2) AS ma20
+FROM `你的專案ID.stock.stock_trend_analysis`
+WHERE ma20 IS NOT NULL
+ORDER BY trade_date DESC, stock_id
+LIMIT 10
+```
+
+`WHERE ma20 IS NOT NULL` 是必要的：每支股票最早的 19 個交易日還湊不滿 20 天，`ma20` 那幾列會是 NULL。`ORDER BY` 補上 `stock_id` 當第二排序條件，同一天的多支股票才會有固定的順序。
+
+結果表直接列出收盤價與均線——順帶注意 Console 跳出的「控管費用」專家提示，講的正是本章的省錢觀念：
 
 ![查詢 MA5 結果](images/ch15/03-BQ-查詢MA5結果.jpg)
 

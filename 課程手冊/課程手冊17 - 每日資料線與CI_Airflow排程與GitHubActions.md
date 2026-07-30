@@ -319,20 +319,46 @@ Access Denied: Project your-project-id: User does not have bigquery.datasets.cre
 
 Cloud SQL 的授權網路認的是來源 IP，所以要先知道 Composer 的工作節點對外時用哪個 IP。這個值 `describe` 查不到，用一支一次性的 DAG 問出來：
 
+這支 DAG 有兩個 task：第一個問出對外 IP，第二個直接試著連 Cloud SQL 的 3306，用來確認授權網路有沒有生效。
+
 ```python
-# probe_network_dag.py：查 Composer 的對外 IP
+# probe_network_dag.py：查 Composer 的對外 IP，並測試能不能連到 Cloud SQL
 from datetime import datetime
+
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
+
 def egress_ip():
     import urllib.request
-    print("EGRESS_IP=" + urllib.request.urlopen("https://ifconfig.me/ip", timeout=20).read().decode())
+
+    ip = urllib.request.urlopen("https://ifconfig.me/ip", timeout=20).read().decode()
+    print(f"EGRESS_IP={ip}")
+    return ip
+
+
+def try_mysql():
+    import socket
+
+    host, port = "{CloudSQL 公用 IP}", 3306
+    s = socket.socket()
+    s.settimeout(15)
+    try:
+        s.connect((host, port))
+        print("TCP_CONNECT=OK")
+    except Exception as e:
+        print(f"TCP_CONNECT=FAIL {type(e).__name__}: {e}")
+    finally:
+        s.close()
+
 
 with DAG("probe_network_dag", start_date=datetime(2024, 1, 1),
          schedule_interval=None, catchup=False) as dag:
-    PythonOperator(task_id="egress_ip", python_callable=egress_ip)
+    PythonOperator(task_id="egress_ip", python_callable=egress_ip) >> \
+        PythonOperator(task_id="try_mysql", python_callable=try_mysql)
 ```
+
+`try_mysql` 只做 TCP 連線測試，不需要帳號密碼——連得上代表授權網路通了，連不上會是逾時。把網路問題跟帳號密碼問題分開驗證，排錯時才知道是哪一層出事。
 
 上傳、觸發，然後讀 log。**Composer 3 的任務 log 送到 Cloud Logging，不放在 bucket 裡**：
 
@@ -340,7 +366,11 @@ with DAG("probe_network_dag", start_date=datetime(2024, 1, 1),
 gcloud composer environments run stock-composer --location=asia-east1 \
   dags trigger -- probe_network_dag
 
+# 兩個 task 的輸出各讀一次，過濾字串要跟程式裡印的關鍵字對上
 gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"EGRESS_IP"' \
+  --limit=1 --freshness=10m --format="value(textPayload)"
+
+gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"TCP_CONNECT"' \
   --limit=1 --freshness=10m --format="value(textPayload)"
 ```
 
@@ -351,7 +381,9 @@ gcloud sql instances patch stock-mysql \
   --authorized-networks={Composer對外IP}/32,{VM1外部IP}/32,{VM2外部IP}/32
 ```
 
-授權前後各觸發一次，就會看到 `TCP_CONNECT` 從逾時變成連得上。
+授權前後各觸發一次，`TCP_CONNECT` 會從 `FAIL TimeoutError` 變成 `OK`。
+
+> 重新觸發之後如果讀到的還是上一次的結果，是 Cloud Logging 還沒收到新 log。`--freshness` 縮短到 `2m` 再讀一次，或等一分鐘。
 
 #### D-7 觸發並驗證
 
