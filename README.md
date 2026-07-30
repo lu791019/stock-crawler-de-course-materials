@@ -138,6 +138,8 @@ stock-crawler/
 | 補充D | MySQL 深入：約束/索引/外鍵/交易/權限/分區 + phpMyAdmin 實戰 | `example/ecommerce.sql`、`example/mock_stock_price_data.sql` |
 | 補充E | .env 與環境變數：${} 替換 vs env_file 注入、三層哲學、三個坑 | `docker-compose-dotenv-demo.yml`、`.env.dotenv-demo.example` |
 | 補充F | ACID 與 CAP：交易保證、三選二、MongoDB+pymongo 對照實戰（mongo-express 8082）| `crawler/tasks_crawler_finmind_mongo.py`、`producer_crawler_finmind_mongo.py` |
+| 補充G | 對外服務：API 上雲與 Cloud Run（image 倉庫、發佈流程、revision 換版）| `api/main.py`、`api/Dockerfile` |
+| 補充H | 系統架構圖：用 draw.io 畫本地端與雲端（含 GCP 圖示庫與 Mermaid 對照）| `課程手冊/drawio/` |
 
 ---
 
