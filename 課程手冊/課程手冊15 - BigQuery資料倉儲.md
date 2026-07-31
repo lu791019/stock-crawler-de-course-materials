@@ -6,6 +6,17 @@
 
 ---
 
+## 本章用到的工具與服務
+
+| 工具／服務 | 類型 | 在本章做什麼 |
+|-----------|------|-------------|
+| BigQuery | GCP 服務 | 資料倉儲：接收 MySQL 同步來的股價，用視窗函數算分析表 |
+| IAM | GCP 服務 | 給服務帳戶補上兩個 BigQuery 角色——課程的第一條授權指令 |
+| Looker Studio | Google 免費 SaaS | Bonus 段接 BigQuery 畫收盤走勢圖 |
+| JSON 金鑰 | 憑證 | 本機程式對 GCP 的身分，`GOOGLE_APPLICATION_CREDENTIALS` 指向它 |
+| gcloud／bq CLI | 指令工具 | 開 API、授權、用查詢驗證資料落地 |
+| uv | 既有工具 | 在本機執行同步與轉換兩支程式 |
+
 ## 做完這一章你會
 
 1. 說得出 OLTP（交易型）和 OLAP（分析型）資料庫的差別。

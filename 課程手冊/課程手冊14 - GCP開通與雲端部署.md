@@ -4,6 +4,20 @@
 >
 > 本章需要一張信用卡（或簽帳金融卡）與一個從未用過 GCP 的 Google 帳號。**課前請準備好這兩樣東西。**
 
+## 本章用到的工具與服務
+
+| 工具／服務 | 類型 | 在本章做什麼 |
+|-----------|------|-------------|
+| Compute Engine（GCE） | GCP 服務 | 開出第一台雲端 VM，整套系統搬上去跑 |
+| VPC 防火牆規則 | GCP 服務 | 對外開放 Web 介面的 port，來源限制在自己的 IP |
+| IAM | GCP 服務 | 建立服務帳戶並發金鑰；Part J 用它把組員加進專案 |
+| Cloud Billing 預算與警告 | GCP 服務 | 開通後第一件事，額度用到門檻會寄通知信 |
+| Cloud Monitoring／Logging | GCP 服務 | 看 VM 的 CPU、記憶體與機器層日誌 |
+| gcloud CLI | 指令工具 | 用指令開關 VM、建防火牆規則、SSH 連線 |
+| Docker／Docker Compose | 既有工具 | 跟本機同一套，整組容器在 VM 上重現 |
+| Git／GitHub | 既有工具 | 在 VM 上 clone 課程 repo |
+| nginx-demo | 示範專案 | Part G 熱身用的最小網頁容器 |
+
 ## 做完這一章你會
 
 1. 開通 Google Cloud 的 $300 美元免費試用，並在第一時間設好預算警告

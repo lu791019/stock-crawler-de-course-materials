@@ -6,6 +6,19 @@
 >
 > 想把 API 也開到網路上的話，做完本章可以接著看補充G（用 Cloud Run 部署 API），那一章是選讀的。
 
+## 本章用到的工具與服務
+
+| 工具／服務 | 類型 | 在本章做什麼 |
+|-----------|------|-------------|
+| Compute Engine（GCE） | GCP 服務 | VM1 自架 Airflow，跑每個交易日的排程 |
+| BigQuery | GCP 服務 | 排程同步的目的地；寫入需要 VM 的 scopes 開到 cloud-platform |
+| Cloud Composer | GCP 服務 | 託管版 Airflow，講師示範與自架對照，示範完刪除 |
+| Cloud Logging | GCP 服務 | Composer 3 的任務 log 集中在這裡讀 |
+| 存取範圍（scopes） | GCP 功能 | VM 機器層的舊式權限閘門，與 IAM 疊加的第二道 |
+| GitHub Actions | 外部服務 | 每次 push 自動跑 pytest 的 CI |
+| gcloud／bq CLI | 指令工具 | 開工 SOP、操作 Composer、驗證資料 |
+| Airflow | 既有工具 | 第 10 章以來同一套 image 與 DAG |
+
 ## 做完這一章你會
 
 1. 在 GCE 上自架 Airflow 跑每日排程，跑通完整雲端資料線：爬蟲 → Cloud SQL → BigQuery

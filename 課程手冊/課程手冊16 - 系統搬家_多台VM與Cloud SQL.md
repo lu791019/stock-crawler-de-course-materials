@@ -4,6 +4,18 @@
 >
 > 第 14 章把整套系統塞進一台 VM——能動，但所有服務擠在一起：資料庫跟 worker 搶記憶體、一台掛全部掛。本章把它拆開：**資料庫換成託管的 Cloud SQL、worker 搬到第二台 VM**——補充A 講的「分散式」，這次真的跨機器。
 
+## 本章用到的工具與服務
+
+| 工具／服務 | 類型 | 在本章做什麼 |
+|-----------|------|-------------|
+| Cloud SQL | GCP 服務 | 託管 MySQL，取代 VM 上的 MySQL 容器 |
+| Secret Manager | GCP 服務 | 保管資料庫密碼，程式啟動時向它取用 |
+| Compute Engine（GCE） | GCP 服務 | 開第二台 VM，worker 獨立成一台機器 |
+| VPC 內部網路 | GCP 服務 | 跨 VM 用內部 IP 互連，`default-allow-internal` 預設放行 |
+| Cloud SQL Studio | Console 功能 | 在 Console 直接查 Cloud SQL 裡的資料表 |
+| gcloud CLI | 指令工具 | 建實例、設授權網路、建 secret 並授權 |
+| compose override 檔 | 既有工具 | 只改連線變數，就把同一套系統接上新的後端 |
+
 ## 做完這一章你會
 
 1. 說得出「託管服務 vs 自架」的取捨——雲的核心交易
