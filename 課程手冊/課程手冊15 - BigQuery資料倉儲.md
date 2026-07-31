@@ -145,7 +145,7 @@ gcloud services enable bigquery.googleapis.com
 
 **2. 幫服務帳戶加上 BigQuery 權限**
 
-打指令之前，先認識雲端權限系統 **IAM（Identity and Access Management）** 的三個詞——它們就是下面那條指令的三個部分：
+第 14 章 Part J 用 Console 給組員授過權；這裡改用指令做同一件事。打指令之前，先認識 **IAM** 的三個詞——它們就是下面那條指令的三個部分：
 
 | 詞 | 白話 | 這次的值 |
 |----|------|---------|

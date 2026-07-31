@@ -13,7 +13,8 @@
 5. 開出第一台雲端 VM，SSH 進去安裝 Docker
 6. 把整套股票爬蟲系統（`docker-compose-all.yml`）搬上雲端，跑通完整閉環
 7. 設定防火牆規則，從自己的瀏覽器打開雲端上的 Airflow、Flower、phpMyAdmin
-8. 用停機指令保住試用額度
+8. 用 IAM 把組員加進專案，全組共用同一台 VM 協作
+9. 用停機指令保住試用額度
 
 ## 先搞懂：為什麼要上雲
 
@@ -239,7 +240,7 @@ IAM 的內容不集中在單一章，而是分散在雲端段各章——每一�
 
 | 站 | 章節 | 教什麼 | 當章用在哪裡 |
 |---|------|--------|-------------|
-| 1 | 本章 Part D | 服務帳戶是給程式用的身分；先建身分、暫不授權（理由見 Part D） | 幫第 15 章把憑證發好 |
+| 1 | 本章 Part D＋Part J | 服務帳戶是給程式用的身分；先建身分、暫不授權（理由見 Part D）；Part J 用 Console 給組員授權、完成小組協作 | 幫第 15 章把憑證發好；讓全組共用同一台 VM |
 | 2 | 第 15 章 | IAM 的三個詞（成員、角色、權限）與第一條授權指令；最小權限的實作 | 服務帳戶要能寫 BigQuery |
 | 3 | 第 16 章 | 授權可以細到單一資源；VM 上的程式用機器自己的身分，不需要金鑰檔 | worker 要讀 Secret Manager 裡的密碼 |
 | 4 | 第 17 章 | scopes 是 IAM 之外的另一道舊式閘門，兩道都通過才放行 | Airflow 要寫入 BigQuery |
@@ -852,6 +853,113 @@ port 不對公網開，系統自己人要用怎麼辦——分兩種情況，都
 | worker 連線的 host | 跨機器後 localhost 連不到服務 | 第 16 章 override 檔把 `RABBITMQ_HOST` 改成 VM1 的**內部 IP** |
 | 防火牆規則 | 預設全擋，Web 介面要自己開 | Part G 熱身＋本段 `allow-stock-web`，來源一律限自己的 IP |
 | GitHub 連線 | 私有 repo 在 VM 上 clone 要另外處理認證 | 課程 repo 是公開的，`git clone` 免帳密；反過來記住：**金鑰與 .env 絕不 push 上公開 repo**（Part D 講過，Google 會自動停用被掃到的金鑰） |
+
+### Part J：IAM 與小組協作——把組員加進專案
+
+系統已經上雲、防火牆也開好了，最後一個場景是**多人**：期末專題分組後，專案是其中一位組員開的（帳單也算在這個人頭上），其他組員要能進來一起操作這台 VM。先搞懂區的 IAM 總覽講過概念，這裡把它變成日常工具。
+
+**J-1 在 Console 授予組員存取權**
+
+左上 ≡ 選單 →「IAM 與管理」→「身分與存取權管理」→ 上方「**授予存取權**」。表單兩個欄位：
+
+1. 「新增主體」填組員的 Gmail
+2. 「指派角色」用搜尋找角色——輸入「執行個體管理員」，選 **Compute 執行個體管理員 (v1)**：
+
+![IAM 授予存取權：角色搜尋](images/ch14/51-IAM授予存取權-角色搜尋.jpg)
+
+3. 按「＋新增其他角色」，再加一個 **服務帳戶使用者**（Service Account User），然後儲存：
+
+![IAM 授予存取權：填好的表單](images/ch14/52-IAM授予存取權-填好表單.jpg)
+
+為什麼是這兩個角色：
+
+| 角色 | 給組員的能力 | 少了它會怎樣 |
+|------|-------------|-------------|
+| Compute 執行個體管理員 (v1) | 開關機、SSH、管理 VM 與磁碟 | 看不到也連不進任何 VM |
+| 服務帳戶使用者 | SSH 時以 VM 附掛的服務帳戶身分執行 | SSH 會被拒絕——VM 是掛著服務帳戶跑的，操作它的人要有「使用這個身分」的權限 |
+
+不直接給「編輯者（Editor）」的理由，就是第 15 章之後反覆用到的最小權限原則：組員需要的是操作 VM，不是刪 BigQuery 資料集或改 IAM 設定的能力。授權完成後，成員清單會多出一列：
+
+![IAM 成員清單](images/ch14/50-IAM成員清單-組員兩角色.jpg)
+
+同一件事的指令版（開專案者在自己電腦執行）：
+
+```bash
+gcloud projects add-iam-policy-binding {你的專案ID} \
+  --member="user:組員的Gmail" --role="roles/compute.instanceAdmin.v1" --condition=None
+gcloud projects add-iam-policy-binding {你的專案ID} \
+  --member="user:組員的Gmail" --role="roles/iam.serviceAccountUser" --condition=None
+```
+
+**J-2 組員第一次連進 VM**
+
+組員在**自己的電腦**上裝 gcloud（Part E 同一套流程），登入自己的 Google 帳號、指向這個專案，然後 SSH：
+
+```bash
+gcloud auth login
+gcloud config set project {專案ID}
+gcloud compute ssh stock-crawler-vm --zone=asia-east1-b
+```
+
+進去之後先看三件事：
+
+```bash
+whoami            # 顯示的是組員自己電腦的使用者名稱，不是開專案者的
+ls -ld /home/*    # 每個連過線的人各有一個 home 目錄，權限 drwxr-x---（750）
+cd /home/{開專案者}   # bash: cd: Permission denied——進不去別人的家目錄
+docker ps             # permission denied——還不在 docker 群組裡
+```
+
+兩個現象都是預設行為：`gcloud compute ssh` 用「你自己電腦的使用者名稱」在 VM 上建帳號，所以每個組員有自己的家目錄，彼此隔離；docker 群組則要 VM 上既有的人開通。
+
+**J-3 開專案者開通 docker 權限**
+
+開專案者 SSH 進 VM，把組員的帳號加進 docker 群組（組員重新登入 SSH 後生效）：
+
+```bash
+sudo usermod -aG docker {組員的VM使用者名稱}
+```
+
+組員重連後 `docker ps` 就會列出全部容器——**容器、volume 裡的 MySQL 資料、跑起來的整套系統都是機器層級共用的**，家目錄的隔離只影響個人檔案。組員從這一刻起就能看 log、觸發 DAG、操作跟開專案者完全相同的系統。
+
+還有一件協作才會遇到的事：Part I 的防火牆規則來源只填了開專案者的 IP，**組員的瀏覽器要開 Web 介面，得把組員的 IP 也加進來**（IP 之間用逗號）：
+
+```bash
+gcloud compute firewall-rules update allow-stock-web \
+  --source-ranges={開專案者IP}/32,{組員IP}/32
+```
+
+**J-4 驗證組員真的進得來**
+
+| # | 組員應該做到 | 證明了什麼 |
+|---|-------------|-----------|
+| 1 | `gcloud compute ssh` 連進 VM | 兩個 IAM 角色都生效 |
+| 2 | `docker ps` 列出容器 | docker 群組開通、操作的是同一套系統 |
+| 3 | 瀏覽器開 `http://{VM外部IP}:5555` 看到 Flower | 防火牆來源加對了 |
+
+**補充：想讓全組共用同一份程式碼資料夾**
+
+家目錄互相進不去，所以組員拿程式碼的預設做法是各自 `git clone`（程式碼本來就該用 git 共享）。如果小組想直接共同編輯同一份，把 repo 放到共用位置並開群組權限：
+
+```bash
+# 開專案者執行：建群組、把成員加進去
+sudo groupadd stock
+sudo usermod -aG stock {開專案者}
+sudo usermod -aG stock {組員}
+
+# 把 repo 放到 /opt 並交給群組（2775 的 2 是 setgid：之後新增的檔案自動繼承 stock 群組）
+sudo git clone https://github.com/lu791019/stock-crawler-de-course-materials.git /opt/stock-crawler
+sudo chgrp -R stock /opt/stock-crawler
+sudo chmod -R 2775 /opt/stock-crawler
+```
+
+之後全組都在 `/opt/stock-crawler` 工作，任何人建的檔案其他人都能改。採用這個做法的小組，後續章節指令裡的 `~/stock-crawler` 一律讀作 `/opt/stock-crawler`；沒有要共同編輯的話，不做這一段也完全不影響。
+
+**協作的三件注意事項**
+
+- **費用全部算在開專案者的帳上**——Part B 的預算警告在多人使用時更重要，全組都該知道額度剩多少
+- 專題結束要收回權限：成員清單該列點「移除存取權」，或 `gcloud projects remove-iam-policy-binding` 同參數反向執行
+- 加組員不需要共用任何密碼或金鑰——每個人用自己的 Google 帳號登入，這正是 IAM 身分制的意義；密碼類的機密（例如資料庫密碼）不歸 IAM 管，第 16 章需求出現時交給 Secret Manager
 
 ## 收工：停機省額度
 
