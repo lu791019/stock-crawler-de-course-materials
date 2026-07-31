@@ -535,17 +535,19 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io \
 # 讓一般使用者能跑 docker，重登 SSH 後生效
 sudo usermod -aG docker $USER
 
-docker --version
-docker compose version
+# 啟動服務並設開機自動啟動
+sudo systemctl start docker
+sudo systemctl enable docker
+
+docker --version     # Docker version 29.x
+docker compose version    # v5.x
 ```
 
-跟本機 WSL 只有一處不同：**GCE 的 Ubuntu 有完整的 systemd**，服務用 `systemctl` 管理，不是 WSL 那套 `service` 指令。安裝完確認服務狀態：
+最後兩條 systemctl 是跟本機 WSL 唯一的不同：**GCE 的 Ubuntu 有完整的 systemd**，服務用 `systemctl` 管理，不是 WSL 那套 `service` 指令。Ubuntu 上 `docker-ce` 套件裝完會自動啟動並設好開機自啟，所以這兩條通常沒有額外效果——照打不會出錯，當作保險。確認狀態：
 
 ```bash
-sudo systemctl status docker    # active (running)，且 enabled（開機自動啟動）
+sudo systemctl status docker    # active (running)，且 enabled
 ```
-
-如果顯示的不是 running，用 `sudo systemctl start docker` 啟動、`sudo systemctl enable docker` 設開機自啟。
 
 ### Part G：整套系統搬上雲端
 
