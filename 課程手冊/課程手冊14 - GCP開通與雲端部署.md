@@ -1062,6 +1062,8 @@ $300 試用是 90 天，但 GCP 另有一個**不會過期的永久免費方案�
 2. 區域只限美國三區：**us-west1（奧勒岡）、us-central1（愛荷華）、us-east1（南卡羅來納）**——台灣區不適用
 3. 開機磁碟要用**標準永久磁碟（pd-standard）**、總量 30GB 內——**注意：不指定的話預設給的是平衡磁碟（pd-balanced），會被收費**
 
+完整的免費額度清單與限制以官方文件為準：[GCP 免費方案的用量限制](https://docs.cloud.google.com/free/docs/free-cloud-features?hl=zh_tw#free-tier-usage-limits)——條件會變動，開機器前先對一次。
+
 一條指令開出符合資格的機器（跟本章 F-2 的差異就是粗體三個參數）：
 
 ```bash
