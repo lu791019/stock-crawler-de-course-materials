@@ -823,6 +823,7 @@ Part F 到收工用的都是 gcloud 指令。同樣的事在 GCP Console 網頁�
 | `config set project` 出現 access 警告 | 還沒 `gcloud auth login` | 先登入，再 `gcloud projects list` 驗證 |
 | 服務帳戶清單點不進詳細頁 | 點到列首的勾選框 | 點 email 的藍色文字連結 |
 | 第一次 SSH 出現 Permission denied | SSH 金鑰還在生效中 | 等 30 秒重跑 |
+| 剛建好的 VM SSH 出現 `port 22: Connection refused` | VM 顯示 RUNNING 但裡面的 sshd 還沒啟動完 | 等半分鐘重跑同一條指令；跟上一條的差別是連線直接被拒、還輪不到驗金鑰 |
 | `up` 報 stock-airflow image 不存在 | 還沒在這台 VM build 過 | `sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .` |
 | 瀏覽器連 Web 介面轉圈圈到逾時 | 防火牆沒開該 port，或 IP 不在 source-ranges 裡 | 檢查規則的 port 清單與 `curl -4 ifconfig.me` 的目前 IP |
 | 停機再開機後原網址連不上 | 外部 IP 換了 | `gcloud compute instances list` 查新 IP |
