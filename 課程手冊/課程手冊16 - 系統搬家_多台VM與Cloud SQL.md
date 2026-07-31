@@ -32,16 +32,16 @@
 
 ### 這一章的搬家藍圖
 
-```
-第 14 章（一台裝全部）              本章（拆成三份）
-┌─────────────────────┐        ┌─────────────┐   ┌─────────────┐
-│ stock-crawler-vm     │        │ VM1（infra）│   │ VM2（worker）│
-│  rabbitmq  worker×2  │  →     │  rabbitmq   │←──│  worker×2    │
-│  mysql  airflow ...  │        │  flower     │   └──────┬──────┘
-└─────────────────────┘        └─────────────┘          │ 寫入
-                                                  ┌──────▼──────┐
-                                                  │  Cloud SQL   │（託管 MySQL）
-                                                  └─────────────┘
+```mermaid
+flowchart LR
+    subgraph BEFORE["第 14 章：一台裝全部"]
+        ALL["stock-crawler-vm<br/>rabbitmq、worker×2、mysql、airflow…"]
+    end
+    subgraph AFTER["本章：拆成三份"]
+        VM1["VM1（infra）<br/>rabbitmq、flower"] -->|任務| VM2["VM2（worker）<br/>worker×2"]
+        VM2 -->|寫入| SQL[("Cloud SQL<br/>託管 MySQL")]
+    end
+    BEFORE ==>|搬家| AFTER
 ```
 
 - **VM1（既有的 stock-crawler-vm）**：收斂成 infra 角色，只跑 RabbitMQ 與 Flower

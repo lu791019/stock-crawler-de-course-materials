@@ -155,74 +155,49 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 
 上面那張表是逐項對照，這裡換個角度看——**系統的形狀是怎麼一章一章長出來的**：
 
-```
-第 14 章：整套系統搬上一台 VM（本章）
-┌────────────────────────────────────────┐
-│ GCE VM（e2-standard-2）                 │
-│   爬蟲 worker → MySQL 容器               │
-│   RabbitMQ、Airflow、Flower…（13 個容器）│
-└────────────────────────────────────────┘
-     本機那一套原封不動搬過來，程式沒改
-
-第 15 章：新增分析層（不取代誰，是多一層）
-        MySQL 容器 ──手動執行同步程式──▶ BigQuery ──▶ Looker Studio
-                                       （分析倉儲）    （BI 儀表板）
-
-第 16 章：拆成多台，資料庫換託管，密碼交給保管服務
-┌──────────────┐   任務   ┌──────────────┐
-│ VM1（infra）  │────────▶│ VM2（worker） │
-│  RabbitMQ    │          │   爬蟲        │
-│  Flower      │          └───────┬──────┘
-└──────────────┘                  │ 寫入
-                          ┌───────▼────────┐
-                          │   Cloud SQL    │ 託管 MySQL
-                          └────────────────┘
-     密碼改由 Secret Manager 保管，不寫在檔案裡
-
-補充G（選讀）：對外開門
-                          ┌────────────────┐
-     使用者 ──HTTPS──────▶│   Cloud Run    │ 固定網址、自動擴縮
-                          │   stock-api    │
-                          └───────┬────────┘
-                                  │ 查詢 Cloud SQL
-
-第 17 章：讓它自己跑
-     VM1 的 Airflow ──每個交易日 20:00──▶ 執行「Cloud SQL → BigQuery」同步
-     GitHub Actions ──每次 push──▶ 自動執行測試
+```mermaid
+flowchart TB
+    subgraph S14["第 14 章：整套系統搬上一台 VM（本章）"]
+        VM["GCE VM（e2-standard-2）<br/>爬蟲 worker、MySQL、RabbitMQ、Airflow、Flower…13 個容器<br/>本機那一套原封不動搬過來，程式沒改"]
+    end
+    subgraph S15["第 15 章：新增分析層（不取代誰，是多一層）"]
+        M15["MySQL 容器"] -->|手動執行同步程式| BQ15[("BigQuery<br/>分析倉儲")] --> LS15["Looker Studio<br/>BI 儀表板"]
+    end
+    subgraph S16["第 16 章：拆成多台，資料庫換託管，密碼交給 Secret Manager 保管"]
+        VM1["VM1（infra）<br/>RabbitMQ、Flower"] -->|任務| VM2["VM2（worker）<br/>爬蟲"] -->|寫入| SQL16[("Cloud SQL<br/>託管 MySQL")]
+    end
+    subgraph SG["補充G（選讀）：對外開門"]
+        U(("使用者")) -->|HTTPS| CR["Cloud Run stock-api<br/>固定網址、自動擴縮"] -.->|查詢| SQLG[("Cloud SQL")]
+    end
+    subgraph S17["第 17 章：讓它自己跑"]
+        AF17["VM1 的 Airflow"] -->|每個交易日 20:00 觸發| SY17["Cloud SQL → BigQuery 同步"]
+        GH17["GitHub Actions"] -->|每次 push| T17["自動執行測試"]
+    end
+    S14 --> S15 --> S16 --> SG --> S17
 ```
 
 全部做完之後，系統的完整形態是這樣（括號標的是哪一章建的，補充G 是選讀）：
 
+```mermaid
+flowchart LR
+    U(("使用者")) -->|HTTPS| CR["Cloud Run stock-api<br/>（補充G 選讀）"]
+    CR -.->|查詢| SQL
+    subgraph VM1["VM1（14 章開）"]
+        AF["Airflow"]
+        MQ["RabbitMQ"]
+        FL["Flower"]
+    end
+    subgraph VM2["VM2（16 章）"]
+        W["爬蟲 worker"]
+    end
+    MQ -->|任務| W
+    W -->|寫入| SQL[("Cloud SQL<br/>託管 MySQL（16 章）")]
+    AF -.->|"每個交易日 20:00 觸發同步（17 章）"| SQL
+    SQL -->|同步| BQ[("BigQuery<br/>分析倉儲（15 章）")]
+    BQ --> LS["Looker Studio<br/>BI 儀表板（15 章）"]
 ```
-                                    ┌──────────────────┐
-        使用者 ──── HTTPS ─────────▶│    Cloud Run     │（17 章）
-                                    │    stock-api     │
-                                    └────────┬─────────┘
-                                             │ 查詢
-    ┌───────────────┐    任務   ┌─────────────┴────────┐
-    │ VM1（14 章開）  │─────────▶│ VM2 worker（16 章）    │
-    │   RabbitMQ    │           │   爬蟲                 │
-    │   Flower      │           └───────────┬───────────┘
-    │   Airflow     │                       │ 寫入
-    └───────┬───────┘                       ▼
-            │                     ┌──────────────────┐
-            │ 每個交易日 20:00      │    Cloud SQL     │（16 章）
-            │ 觸發同步（17 章）     │   託管 MySQL      │
-            └────────────────────▶ └────────┬─────────┘
-                                            │ 同步
-                                            ▼
-                                   ┌──────────────────┐
-                                   │     BigQuery     │（15 章）
-                                   │     分析倉儲      │
-                                   └────────┬─────────┘
-                                            ▼
-                                   ┌──────────────────┐
-                                   │  Looker Studio   │（15 章）
-                                   │    BI 儀表板      │
-                                   └──────────────────┘
 
-  資料庫密碼由 Secret Manager 保管（16 章），連到 Cloud SQL 的元件都跟它拿
-```
+資料庫密碼由 Secret Manager 保管（16 章），連到 Cloud SQL 的元件都跟它拿。圖上實線是資料流動的路徑，虛線是觸發與查詢。
 
 > 這張圖也有用 GCP 官方圖示畫的 draw.io 版本：`課程手冊/drawio/GCP雲端架構圖.drawio`。畫法見補充H。
 
@@ -549,9 +524,95 @@ docker compose version    # v5.x
 sudo systemctl status docker    # active (running)，且 enabled
 ```
 
-### Part G：整套系統搬上雲端
+### Part G：熱身——一個容器撞上防火牆
 
-**G-1 Clone 專案與準備 .env**
+下一段要把 13 個容器整套搬上來。搬之前先用**一個**最小的容器，把雲端跟本機最大的差異撞清楚：**服務起來了，不代表連得到**。
+
+**G-1 下載 nginx-demo 專案**
+
+```bash
+git clone https://github.com/DataEngCamp/nginx-demo.git
+cd nginx-demo
+cat docker-compose.yaml
+```
+
+這個專案只有一個服務：nginx 網頁伺服器，port 映射 `8080:80`，掛一頁靜態網頁。跟課程系統無關，就是一個最小的「有網頁介面的容器」。
+
+**G-2 啟動，並在 VM 裡面先驗一次**
+
+```bash
+sudo docker compose -f docker-compose.yaml up -d
+
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080   # 200
+```
+
+VM 裡面自己連自己，一次就通。**防火牆管的是從外面進來的流量，VM 內部的連線不經過它**——這句話記住，等一下會再用到。
+
+**G-3 從自己電腦連——連不上**
+
+換到你自己電腦的終端機（不是 VM 的 SSH），拿外部 IP 敲同一個 port：
+
+```bash
+nc -vz -w 5 {VM外部IP} 8080
+# nc: connectx to {VM外部IP} port 8080 (tcp) failed: Operation timed out
+```
+
+瀏覽器開 `http://{VM外部IP}:8080` 也是轉圈到逾時。服務明明是 Up 的，`curl localhost` 也通，但從外面就是進不去。
+
+原因在 VM 詳細頁看得到（Console → Compute Engine → 點 VM 名稱，往下捲到網路區塊）：
+
+![VM 詳細頁的防火牆與網路標記](images/ch14/35-VM詳細頁-防火牆與網路標記.jpg)
+
+三個資訊：「防火牆」區塊的 HTTP／HTTPS 流量**已停用**（那兩個勾選框只管 80 和 443，我們建 VM 時沒勾）；「網路標記」是**無**；預設規則只放行了 SSH 等少數流量。GCP 的進站流量**預設全部拒絕**——「沒開」不用做任何事，它本來就是關的。8080 沒有任何規則放行，所以逾時。
+
+**G-4 用 Console 建第一條防火牆規則**
+
+左上 ≡ 選單 → 「虛擬私有雲網路」→「防火牆」→ 上方「建立防火牆規則」，五個欄位：
+
+| 欄位 | 填什麼 | 意思 |
+|------|--------|------|
+| 名稱 | `allow-nginx-8080` | 規則名，自取 |
+| 流量方向／動作 | 輸入／允許 | 管「進來」的流量，符合就放行 |
+| 目標 | 指定的目標標記 → `nginx-demo` | 這條規則只套用在掛了這個標記的 VM 上 |
+| 來源 IPv4 範圍 | `你的IP/32`（`curl -4 ifconfig.me` 查） | 只有你家的 IP 進得來，不開放全世界 |
+| 通訊協定和通訊埠 | 勾 TCP、填 `8080` | 只開這一個 port |
+
+![建立防火牆規則：目標與來源](images/ch14/36-建立防火牆規則-目標與來源.jpg)
+
+![建立防火牆規則：通訊埠](images/ch14/37-建立防火牆規則-通訊埠.jpg)
+
+按「建立」。然後把標記掛到 VM 上（規則是透過標記找到 VM 的）：
+
+```bash
+gcloud compute instances add-tags stock-crawler-vm --tags=nginx-demo --zone=asia-east1-b
+```
+
+**G-5 再連一次——通了**
+
+```bash
+nc -vz -w 5 {VM外部IP} 8080
+# Connection to {VM外部IP} port 8080 [tcp/http-alt] succeeded!
+```
+
+瀏覽器重新整理：
+
+![nginx 歡迎頁](images/ch14/39-nginx-Itworks.jpg)
+
+一條規則的四個要素——**方向、目標（誰）、來源（給誰連）、埠（開哪個門）**——你都親自填過一次了。Part I 開整套系統的六個 port 時，用的是同一套概念，只是換成指令一次開完。
+
+**G-6 熱身收尾**
+
+```bash
+# VM 上：收掉 nginx——8080 這個 port 等一下 phpMyAdmin 要用
+sudo docker compose -f docker-compose.yaml down
+
+# 自己電腦上：刪掉熱身規則，正式規則 Part I 再建
+gcloud compute firewall-rules delete allow-nginx-8080 --quiet
+```
+
+### Part H：整套系統搬上雲端
+
+**H-1 Clone 專案與準備 .env**
 
 ```bash
 git clone https://github.com/lu791019/stock-crawler-de-course-materials.git stock-crawler
@@ -562,7 +623,7 @@ cp .env.example .env
 - repo 是公開的，clone 不需要帳號密碼
 - `.env` 裡的 `MYSQL_HOST=127.0.0.1` 等值不用改：容器內執行時，compose 檔的 environment 會覆蓋成容器名（第 12 章的 environment > env_file 優先序）
 
-**G-2 Build stock-airflow image**
+**H-2 Build stock-airflow image**
 
 ```bash
 sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .
@@ -570,7 +631,7 @@ sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .
 
 compose-all 裡三個 Airflow 容器用的 `stock-airflow:latest` 是課程自製 image，不在 Docker Hub 上，`up` 之前必須先在這台機器 build 出來。耗時約 3-4 分鐘，完成後 `sudo docker images | grep stock-airflow` 看得到（約 3GB）。
 
-**G-3 全套啟動（雲端不跑 Metabase）**
+**H-3 全套啟動（雲端不跑 Metabase）**
 
 ```bash
 sudo docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
@@ -581,7 +642,7 @@ sudo docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
   1. BI 的角色在雲端段由 **Looker Studio** 接手（第 15 章的 Bonus 會教，它有內建的 BigQuery 連接器）。第 8 章的本機 Metabase 保留不動，正好形成「自架 BI vs 託管 BI」的對照
   2. Metabase 是 Java 應用，一個容器就要 1GB 記憶體，而且啟動時常搶不到還沒就緒的 MySQL 而失敗——雲端 demo 用不到它，就不花這個資源
 
-**G-4 驗證（第 13 章的七步驟，雲端版）**
+**H-4 驗證（第 13 章的七步驟，雲端版）**
 
 Step 1 容器狀態：
 
@@ -643,19 +704,21 @@ sudo docker exec airflow-webserver airflow dags list 2>&1 | grep stock
 
 列出六個 stock DAG 就代表編排層就緒。
 
-### Part H：防火牆與瀏覽器連線
+### Part I：防火牆與瀏覽器連線
 
-GCP 預設的防火牆只允許 SSH 等少數流量進 VM——瀏覽器要連 Web 介面，port 要自己開。原則：
+Part G 的熱身開過一個 port，現在整套系統有五個 Web 介面要開。概念完全相同，換用 gcloud 一次開完——CLI 和 Console 操作的是**同一份規則**，滑鼠建的和指令建的會出現在同一張清單裡。
+
+原則先講清楚：
 
 - 只開需要的 port
 - 來源限制到自己的 IP，不開放全世界
-- **3306（MySQL）與 5672（RabbitMQ AMQP）絕不對公網開放**——資料庫和訊息佇列只給系統內部用
+- **3306（MySQL）與 5672（RabbitMQ AMQP）絕不對公網開放**——資料庫和訊息佇列只給系統內部用（等一下教你怎麼驗證「真的沒開」）
 
 ```bash
 # 查自己的公網 IP
 curl -4 ifconfig.me
 
-# 建立規則：六個 Web UI port、來源限自己的 IP、掛標籤
+# 建立規則：五個 Web UI port、來源限自己的 IP、掛標籤
 gcloud compute firewall-rules create allow-stock-web \
   --allow=tcp:15672,tcp:5555,tcp:8080,tcp:8081,tcp:8082 \
   --source-ranges=你的IP/32 \
@@ -664,6 +727,19 @@ gcloud compute firewall-rules create allow-stock-web \
 # 幫 VM 掛上標籤，規則透過標籤生效
 gcloud compute instances add-tags stock-crawler-vm --tags=stock-web --zone=asia-east1-b
 ```
+
+建好之後到 Console 的防火牆頁面看（≡ → 虛擬私有雲網路 → 防火牆），這條規則跟四條 `default-` 開頭的預設規則並列：
+
+![防火牆規則清單](images/ch14/38-防火牆規則清單.jpg)
+
+這張清單值得逐條看懂：
+
+| 規則 | 放行什麼 | 說明 |
+|------|---------|------|
+| `allow-stock-web` | tcp:15672, 5555, 8080, 8081, 8082，來源是你的 IP | 剛才建的，只套用在掛 `stock-web` 標記的 VM |
+| `default-allow-ssh` | tcp:22，來源 0.0.0.0/0 | 預設規則——`gcloud compute ssh` 連得上就是靠它 |
+| `default-allow-internal` | tcp/udp 全 port，來源限**內部網段**（10.140.0.0/20） | 同一個 VPC 裡的機器互連全放行——第 16 章 VM2 連 VM1 的 RabbitMQ 就是走這條，**不用另外開 5672** |
+| `default-allow-icmp` / `default-allow-rdp` | ping／遠端桌面 | 用不到，放著 |
 
 然後在自己電腦的瀏覽器輸入 `http://{VM外部IP}:{port}`：
 
@@ -684,6 +760,54 @@ gcloud compute instances add-tags stock-crawler-vm --tags=stock-web --zone=asia-
 Flower 上兩個 worker Online、各自 Succeeded——剛才發的任務在這裡留下紀錄:
 
 ![雲端 Flower](images/ch14/34-雲端Flower兩worker.jpg)
+
+### 確認 3306 與 5672 真的沒開
+
+「絕不對公網開放」不是做了什麼設定，而是**沒有任何規則放行它**——GCP 進站流量預設全擋，不開就是關的。但「應該是關的」和「驗證過是關的」是兩回事，驗證有兩層：
+
+**第一層：稽核規則清單。** 看所有規則的放行清單裡有沒有出現 3306 或 5672：
+
+```bash
+gcloud compute firewall-rules list \
+  --format="table(name,sourceRanges.list(),allowed[].map().firewall_rule().list(),targetTags.list())"
+```
+
+輸出裡逐條看 `ALLOWED` 欄：`allow-stock-web` 只有五個 Web port，四條 `default-` 規則裡放行全 port 的那條（`default-allow-internal`）來源限定內部網段 `10.140.0.0/20`，公網進不來。清單裡沒有任何一條把 3306/5672 開向公網來源——這就是「沒開」的證據。
+
+**第二層：從外面實際敲。** 規則會看錯，封包不會說謊。在自己電腦上：
+
+```bash
+nc -vz -w 5 {VM外部IP} 3306
+# nc: connectx to {VM外部IP} port 3306 (tcp) failed: Operation timed out   ← 防火牆擋下，連 TCP 都建不起來
+
+nc -vz -w 5 {VM外部IP} 8080
+# Connection to {VM外部IP} port 8080 [tcp/http-alt] succeeded!             ← 對照組：有開的 port 一敲就通
+
+nc -vz -w 5 {VM外部IP} 22
+# Connection to {VM外部IP} port 22 [tcp/ssh] succeeded!                    ← default-allow-ssh 放行的
+```
+
+3306 的逾時跟 8080 的 succeeded 對照，就是防火牆在工作的樣子。注意逾時不是「MySQL 沒在跑」——MySQL 容器好好地開著，是流量根本到不了它。
+
+### 那內部要怎麼連？
+
+port 不對公網開，系統自己人要用怎麼辦——分兩種情況，都不用碰防火牆：
+
+1. **同一台 VM 上的容器互連**：worker 連 MySQL 走的是 Docker 的 compose 網路（用容器名互找，第 7 章的老規矩），流量從頭到尾**沒有離開這台機器**，GCP 防火牆管的是進出 VM 的流量，根本管不到它。Part G 的 `curl localhost:8080` 能通就是同一個道理。
+2. **跨 VM 互連（第 16 章）**：VM2 的 worker 連 VM1 的 RabbitMQ，走**內部 IP**（10.140.0.x），被 `default-allow-internal` 這條預設規則放行——所以第 16 章拆機器時，5672 一樣不用開任何新規則。
+
+一句話收束：**對外的每個 port 都是明確決策，對內的互連走 Docker 網路或內部網段**。
+
+### 把本機系統開上雲端前的注意事項
+
+上面這套做法對應四個常見的檢查點，每一條在課程裡的處理方式：
+
+| 檢查點 | 為什麼要注意 | 本課程的做法 |
+|--------|-------------|-------------|
+| MySQL 的 root／user 密碼 | 弱密碼＋port 對外＝資料庫直接被掃走 | 課程沿用 `root/1234`，防線是 **3306 不對公網開**＋phpMyAdmin 只給自己的 IP；第 16 章換 Cloud SQL 後密碼進 Secret Manager。正式環境兩層都要做：改強密碼＋不開 port |
+| worker 連線的 host | 跨機器後 localhost 連不到服務 | 第 16 章 override 檔把 `RABBITMQ_HOST` 改成 VM1 的**內部 IP** |
+| 防火牆規則 | 預設全擋，Web 介面要自己開 | Part G 熱身＋本段 `allow-stock-web`，來源一律限自己的 IP |
+| GitHub 連線 | 私有 repo 在 VM 上 clone 要另外處理認證 | 課程 repo 是公開的，`git clone` 免帳密；反過來記住：**金鑰與 .env 絕不 push 上公開 repo**（Part D 講過，Google 會自動停用被掃到的金鑰） |
 
 ## 收工：停機省額度
 
@@ -776,10 +900,10 @@ Part F 到收工用的都是 gcloud 指令。同樣的事在 GCP Console 網頁�
 5. 其餘分類維持預設。**這裡示範到此為止就好，按「取消」離開**——機器已經用 CLI 建過，再按「建立」會多開一台、多花一份錢
 6. 表單最下方還有一個「**等效程式碼**」按鈕：Console 會把你在表單上點的所有設定翻譯成一條 gcloud 指令——這正是「介面和指令是同一件事的兩種寫法」的直接證明，也是從介面學指令的捷徑
 
-### 對照 Part H：用 Console 看防火牆規則
+### 對照 Part I：用 Console 看防火牆規則
 
 - 路徑：「≡」選單 →「**網路安全性**」→「**防火牆政策**」，頁面下方的「**虛擬私有雲防火牆規則**」清單就是 CLI 建立的規則所在——看得到 `allow-stock-web`（目標 stock-web、通訊埠 tcp:5555, 8080, 8081, 8082, 15672、動作允許）。點規則名稱進去可以改 port、來源 IP 範圍、目標標籤，每個欄位對應 `firewall-rules create` 的一個參數
-- 頁面開頭的官方說明值得念一次：「根據預設，所有傳入指定網路的流量都會遭到封鎖」——這就是 Part H 開頭講的「port 要自己開」
+- 頁面開頭的官方說明值得念一次：「根據預設，所有傳入指定網路的流量都會遭到封鎖」——這就是 Part G 熱身撞到、Part I 開頭講的「port 要自己開」
 
 ![防火牆規則清單，看得到 allow-stock-web](images/ch14/45-Console-防火牆規則清單.jpg)
 
@@ -826,6 +950,7 @@ Part F 到收工用的都是 gcloud 指令。同樣的事在 GCP Console 網頁�
 | 剛建好的 VM SSH 出現 `port 22: Connection refused` | VM 顯示 RUNNING 但裡面的 sshd 還沒啟動完 | 等半分鐘重跑同一條指令；跟上一條的差別是連線直接被拒、還輪不到驗金鑰 |
 | `up` 報 stock-airflow image 不存在 | 還沒在這台 VM build 過 | `sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .` |
 | 瀏覽器連 Web 介面轉圈圈到逾時 | 防火牆沒開該 port，或 IP 不在 source-ranges 裡 | 檢查規則的 port 清單與 `curl -4 ifconfig.me` 的目前 IP |
+| 原本連得上的 Web 介面，換個地方（或隔天）突然逾時 | 你的對外 IP 換了，規則裡還是舊 IP | `curl -4 ifconfig.me` 查新 IP，`gcloud compute firewall-rules update allow-stock-web --source-ranges={新IP}/32` |
 | 停機再開機後原網址連不上 | 外部 IP 換了 | `gcloud compute instances list` 查新 IP |
 
 ## 本章總結

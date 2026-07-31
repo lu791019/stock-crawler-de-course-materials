@@ -42,14 +42,12 @@
 
 ## 資料怎麼流（先看全貌）
 
-```
-爬蟲 → MySQL（OLTP，營運寫入）
-            │  stock_sync_mysql_to_bigquery.py  ← 把原始資料搬過去
-            ▼
-      BigQuery（OLAP，分析倉儲）：原始表 TaiwanStockPrice
-            │  stock_bigquery_data_transform.py  ← 在倉儲裡整理成分析表
-            ▼
-      分析用的 View / Table（去重、移動平均、每日彙總）→ 給報表 / BI 查
+```mermaid
+flowchart TD
+    C["爬蟲"] -->|營運寫入| M[("MySQL<br/>OLTP")]
+    M -->|"stock_sync_mysql_to_bigquery.py：把原始資料搬過去（Load）"| BQ[("BigQuery（OLAP 分析倉儲）<br/>原始表 TaiwanStockPrice")]
+    BQ -->|"stock_bigquery_data_transform.py：在倉儲裡整理成分析表（Transform）"| V["分析用的 View / Table<br/>去重、移動平均、每日彙總"]
+    V -->|查詢| BI["報表 / BI"]
 ```
 
 這就是資料工程常說的 **ELT**：先把資料 **L**oad（載入）進倉儲，再在倉儲裡 **T**ransform（轉換）。跟傳統「先轉換再載入」的 ETL 相反——雲端倉儲夠強，所以偏好先搬進去、再用它的算力轉換。
