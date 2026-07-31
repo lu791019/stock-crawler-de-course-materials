@@ -146,7 +146,7 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 | 手動 docker build／换版 | **CI/CD**（GitHub Actions：push → 自動跑測試） | 第 17 章 | 加 workflow yml | 補充C 寫的測試在這裡成為上線前的檢查關卡 |
 | 自架 Airflow 容器 | 主線**仍在 GCE 自架**；**Cloud Composer**（託管 Airflow）認識＋對照示範 | 第 17 章 | DAG 的編排邏輯兩邊通用 | Composer 省維運但每月數百美元起跳，課程用示範讓你看見差異 |
 | `.env` 檔 | **Secret Manager** | 第 16 章 | config.py 加 fallback | 機密集中管理、可查詢誰讀過、可換版本——密碼一上雲就改用它 |
-| 個人 Google 帳號操作一切 | **IAM 最小權限**（服務帳戶各司其職） | 本章建立、第 15 章授權 | — | 本章的服務帳戶刻意不給角色，第 15 章才補上剛好夠用的兩個 |
+| 個人 Google 帳號操作一切 | **IAM 最小權限**（服務帳戶各司其職） | 本章建立、第 15 章授權 | — | 本章的服務帳戶刻意不給角色，第 15 章才補上恰足夠用的兩個 |
 | docker logs／Flower 看狀態 | 照用＋**Cloud Monitoring／Logging** 補機器層 | 本章導覽 | — | 容器層工具照舊，機器層（CPU／記憶體／帳單）交給雲端監控 |
 
 **原樣保留、不搬的**：爬蟲程式本體、Celery 任務、佇列分流設計、compose 檔結構、Flower——這正是前十三章「config 中心、分層架構」紀律的回報：換環境時，動的是設定與部署，不是程式。
