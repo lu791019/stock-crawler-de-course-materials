@@ -574,7 +574,7 @@ docker compose version    # v5.x
 sudo systemctl status docker    # active (running)，且 enabled
 ```
 
-**補充：用 Console 建立 VM（滑鼠版）**
+**補充：用 Console 建立 VM**
 
 1. 左上角「≡」選單 →「**Compute Engine**」→「**VM 執行個體**」。這一頁就是 `gcloud compute instances list` 的介面版——VM 清單、狀態、內外部 IP 都在表格裡
 
@@ -858,7 +858,7 @@ Graph 上 `choose_market` 之後兩條分支同時走、全部綠色，沒有任
 
 ![雲端 Airflow 分支 DAG 全綠](images/ch14/49-雲端Airflow-分支DAG全綠.jpg)
 
-**補充：在 Console 檢視與修改防火牆規則（滑鼠版）**
+**補充：在 Console 檢視與修改防火牆規則**
 
 - 路徑：「≡」選單 →「**網路安全性**」→「**防火牆政策**」，頁面下方的「**虛擬私有雲防火牆規則**」清單就是 CLI 建立的規則所在——看得到 `allow-stock-web`（目標 stock-web、通訊埠 tcp:5555, 8080, 8081, 8082, 15672、動作允許）。點規則名稱進去可以改 port、來源 IP 範圍、目標標籤，每個欄位對應 `firewall-rules create` 的一個參數
 - 頁面開頭的官方說明值得念一次：「根據預設，所有傳入指定網路的流量都會遭到封鎖」——這就是 Part G 熱身遇過、Part I 開頭講的「port 要自己開」
@@ -1047,7 +1047,7 @@ gcloud compute instances list    # 記下新的 EXTERNAL_IP
 
 防火牆規則綁的是標籤不是 IP，開機後不用重設；要換的只有你瀏覽器裡的網址。
 
-**補充：用 Console 停機／開機（滑鼠版）**
+**補充：用 Console 停機／開機**
 
 - 回到「VM 執行個體」清單，勾選 VM 後上方浮出「**啟動／繼續**」「**停止**」「**暫停**」「**重設**」按鈕；或點每列最右邊的「⋮」選單操作。效果跟 `instances stop` / `start` 完全相同，停止前會跳出確認視窗
 - 按鈕會跟著 VM 狀態變化：VM 已停機時「停止」是灰色不能按的，滑鼠移上去會提示「這個 VM 執行個體並非處於執行中……因此無法停止」——看到這個提示就代表機器確實停了
