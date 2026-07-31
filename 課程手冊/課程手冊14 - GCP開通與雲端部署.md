@@ -505,16 +505,47 @@ free -h       # 7.8Gi 記憶體
 df -h /       # 19G 磁碟（自動擴展生效）
 ```
 
-**F-4 VM 上安裝 Docker（重演第 3 章）**
+**F-4 VM 上安裝 Docker（重演 EP03 的安裝手冊）**
+
+指令跟 EP03 的「Docker 安裝教學手冊」Step 2 到 Step 5 完全相同——環境變了，指令沒變。全新的 VM 上沒有舊版 Docker，該手冊的 Step 1（移除舊套件）可以省略。
 
 ```bash
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker $USER   # 讓一般使用者能跑 docker，重登 SSH 後生效
+# 必要工具
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+
+# Docker 官方 GPG key
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+# Docker 官方 apt repository
+echo "deb [arch=$(dpkg --print-architecture) \
+  signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Docker Engine + Compose + BuildKit——五個套件都要列出
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+
+# 讓一般使用者能跑 docker，重登 SSH 後生效
+sudo usermod -aG docker $USER
+
 docker --version
 docker compose version
 ```
 
-指令跟在本機 VM 裝 Docker 一樣——環境變了，程式沒變。
+跟本機 WSL 只有一處不同：**GCE 的 Ubuntu 有完整的 systemd**，服務用 `systemctl` 管理，不是 WSL 那套 `service` 指令。安裝完確認服務狀態：
+
+```bash
+sudo systemctl status docker    # active (running)，且 enabled（開機自動啟動）
+```
+
+如果顯示的不是 running，用 `sudo systemctl start docker` 啟動、`sudo systemctl enable docker` 設開機自啟。
 
 ### Part G：整套系統搬上雲端
 
