@@ -28,7 +28,7 @@ flowchart TD
     AF["VM1 自架 Airflow"] -.->|每個交易日 20:00 觸發| SYNC
 ```
 
-看這張圖要分清楚兩種線。**實線是資料實際流動的路徑**：爬蟲寫進 Cloud SQL，同步任務把資料搬進 BigQuery 並在上面建好分析表，Looker Studio 再讀那些分析表。**虛線是觸發**：Airflow 不在資料路徑上，資料不經過它，它只負責在時間到的時候叫同步任務去做事。
+看這張圖要分清楚兩種線。**實線是資料實際流動的路徑**：爬蟲寫進 Cloud SQL，同步任務把資料搬進 BigQuery 並在上面建好分析表，Looker Studio 再讀那些分析表。**虛線是觸發**：Airflow 不在資料路徑上，資料不經過它，它只負責在排定的時間觸發同步任務。
 
 OLTP 和 OLAP 分開的理由第 15 章講過（分析查詢不影響營運資料庫）。本章新增的是**排程**：同步這件事不再需要人記得執行，改由 Airflow 每個交易日自動跑。
 
@@ -104,7 +104,7 @@ docker build -f airflow/Dockerfile -t stock-airflow:latest .   # 約 10 分鐘
 
 **A-2 取消 `crawler/bigquery.py` 的註解**（第 15 章在本機做過同一件事，這次在 VM 上）：把 `from crawler.config import GCP_PROJECT_ID as PROJECT_ID` 打開、把寫死的 `PROJECT_ID = "your-project-id"` 註解掉。
 
-**A-3 寫 Airflow 的雲端 override 檔**（第 16 章 override 手法第三次上場）：
+**A-3 寫 Airflow 的雲端 override 檔**（第 16 章 override 手法第三次使用）：
 
 ```bash
 cat > gcp-airflow-override.yml <<'YML'
@@ -144,7 +144,7 @@ docker exec airflow-scheduler airflow dags trigger stock_bigquery_etl_dag
 
 ![Airflow DAG 六個 task 全綠](images/ch17/03-Airflow-BigQueryETL-DAG六task全綠.jpg)
 
-左側的格狀圖是歷次執行紀錄，每一直行是一次 run。上圖左邊幾行有紅色與橘色，那是實測過程中失敗的幾次（原因見排錯表的 `DAY partitioning` 那一條），修正後才變成全綠——這也是排錯時最直觀的檢查方式。
+左側的格狀圖是歷次執行紀錄，每一直行是一次 run。上圖左邊幾行有紅色與橘色，那是先前失敗的執行（原因見排錯表的 `DAY partitioning` 那一條），修正後的 run 才全綠——格狀圖是排錯時最直觀的檢查入口。
 
 注意這裡的 port 是 **8080**，跟第 10 到 13 章本機環境用的 8081 不同。本機當時改成 8081 是為了避開 phpMyAdmin，雲端的 VM1 上沒有 phpMyAdmin，所以用 compose 檔原本的 8080。
 
@@ -197,7 +197,7 @@ jobs:
 
 四個 step 就是你在本機做過無數次的動作：clone → 裝工具 → 裝依賴 → 跑測試。`-m "not integration"` 排除需要真實 MySQL 的整合測試（CI 的臨時機器上沒有 MySQL；補充C 設計的標記在這裡發揮作用）。
 
-驗證方式：到課程 repo 的 GitHub 頁面 → **Actions** 分頁，能看到每次 push 觸發的 CI 紀錄。每一列左邊的綠色勾號代表那次 push 的測試全部通過，右邊顯示執行時間（這個專案的測試約 20 秒跑完）：
+驗證方式：到課程 repo 的 GitHub 頁面 → **Actions** 分頁，能看到每次 push 觸發的 CI 紀錄。每一列左邊的綠色勾號代表那次 push 的測試全部通過，右邊顯示執行時間：
 
 ![GitHub Actions 執行紀錄](images/ch17/02-GitHubActions-CI執行紀錄全綠.jpg)
 
@@ -269,7 +269,7 @@ gcloud composer environments describe stock-composer --location=asia-east1 \
 
 自架環境能跑爬蟲 DAG，是因為 compose 檔用 volume 把 `../crawler` 掛進容器（第 10 章設定的）。Composer 沒有這個掛載，所以 `crawler` 要自己送上去。
 
-`stock_crawler_etl_bigquery_dag.py` 第 10 行需要的就是它：
+`stock_crawler_etl_bigquery_dag.py`（檔名與它定義的 DAG id `stock_bigquery_etl_dag` 不同，清單與觸發認的都是 DAG id）第 10 行需要的就是它：
 
 ```python
 from crawler.stock_sync_mysql_to_bigquery import sync_mysql_to_bigquery
@@ -462,7 +462,7 @@ gcloud composer environments list-packages stock-composer --location=asia-east1
 ## 練習
 
 1. 照第 16 章的做法建第二顆 secret `rabbitmq-password`，只授權給 VM 的服務帳戶，把 `config.py` 的 `WORKER_PASSWORD` 也接上同一套 fallback 設計
-2. 把 `ci.yml` 的 pytest 改成故意會失敗的指令、push 到自己的 fork，看 Actions 變紅——體會「守門員擋下紅燈」長什麼樣，再改回來
+2. 把 `ci.yml` 的 pytest 改成故意會失敗的指令、push 到自己的 fork，看 Actions 變紅——確認測試失敗時 CI 會把這次 push 標成不通過，再改回來
 3. 對 `stock_bigquery_etl_dag` 的 `schedule_interval` 解讀：`"0 20 * * 1-5"` 是什麼時間？改成「每小時」怎麼寫？（第 9 章 cron 語法的複習）
 
 ## 排錯
