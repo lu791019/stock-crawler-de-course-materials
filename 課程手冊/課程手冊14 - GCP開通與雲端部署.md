@@ -644,6 +644,8 @@ sudo docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
 
 **H-4 驗證（第 13 章的七步驟，雲端版）**
 
+> 這一段全部用指令驗（`docker ps`／`logs`／`exec`），因為防火牆還沒開、瀏覽器進不來。Part I 開完 port 之後，同樣的東西會再用 Flower、Airflow、phpMyAdmin 的介面看一次——先確認系統活著，再開門用眼睛看。
+
 Step 1 容器狀態：
 
 ```bash
@@ -760,6 +762,25 @@ gcloud compute instances add-tags stock-crawler-vm --tags=stock-web --zone=asia-
 Flower 上兩個 worker Online、各自 Succeeded——剛才發的任務在這裡留下紀錄:
 
 ![雲端 Flower](images/ch14/34-雲端Flower兩worker.jpg)
+
+再發一輪任務（H-4 的 producer 步驟）之後回來看，Processed 與 Succeeded 會跟著累加——執行層的帳都記在這裡：
+
+![雲端 Flower 任務 Succeeded](images/ch14/47-雲端Flower-任務Succeeded.jpg)
+
+phpMyAdmin 登入（root/1234）後選 `mydb` → `TaiwanStockPrice`，H-4 用 `docker exec` 查過的同一批資料，現在用滑鼠就看得到：
+
+![雲端 phpMyAdmin 資料列](images/ch14/48-雲端phpMyAdmin-TaiwanStockPrice.jpg)
+
+介面不只拿來看清單——在 Airflow 上實際觸發一支 DAG，整個執行過程都在 Graph 上。以第 12 章的分組爬蟲 DAG 為例（不帶參數觸發，兩組市場都跑）：
+
+```bash
+sudo docker exec airflow-webserver airflow dags unpause stock_crawler_twse_tpex_dag
+sudo docker exec airflow-webserver airflow dags trigger stock_crawler_twse_tpex_dag
+```
+
+Graph 上 `choose_market` 之後兩條分支同時走、全部綠色，沒有任何 skipped——分支 DAG 預設就是全跑，只有觸發時主動帶 `--conf '{"market": "twse"}'` 指定單邊，另一邊才會變成粉紅色的 skipped（第 12 章教過的行為，在雲端一模一樣）：
+
+![雲端 Airflow 分支 DAG 全綠](images/ch14/49-雲端Airflow-分支DAG全綠.jpg)
 
 ### 確認 3306 與 5672 真的沒開
 
