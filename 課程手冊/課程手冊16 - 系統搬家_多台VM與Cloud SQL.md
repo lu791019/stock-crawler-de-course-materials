@@ -393,29 +393,76 @@ gcloud sql users create studio --instance=stock-mysql --password=1234 --host=%
 
 現在你有兩台機器手動分工，自然的下一個問題：機器更多的時候，誰來管「哪個容器跑在哪台」？這類工具叫**容器編排（orchestration）**：
 
-- **Docker Swarm**：Docker 原生的編排，指令跟 compose 很像、上手最快。但業界大勢已定——**Kubernetes（K8s）成為標準，Swarm 沒落**，知道它存在即可
-- **Kubernetes**：解決大規模容器的調度、自癒（容器掛了自動重啟補位）、滾動更新、水平擴縮。發源於 Google 內部系統 Borg 的經驗，GCP 上的託管版就是第 14 章對照表裡的 GKE
-- **為什麼本課程不教 K8s**：它的內容量相當於一整門課；而且概念上你已經有基礎——compose 管一台機器上的容器，K8s 管一群機器上的容器。**先把 compose 練熟，是學 K8s 的合理順序**。課程規模（兩三台 VM、十來個容器）用 compose 加手動分工就足夠
+- **Docker Swarm**：Docker 內建的編排功能，指令與 compose 相近。目前業界採用率低，讀文件或面試時認得這個名字即可
+- **Kubernetes（K8s）**：目前的業界標準編排工具。負責一群機器上的容器調度、故障自動重啟、滾動更新與水平擴縮；源自 Google 內部系統 Borg，GCP 上的託管版本就是第 14 章服務對照表裡的 GKE
+- **本課程不教 K8s 的原因**：它的內容量相當於一整門課；學習順序上 compose 是它的前置——compose 管一台機器上的容器，K8s 管一群機器上的容器，把 compose 用熟之後再學 K8s，概念可以直接對應過去。課程的規模（兩三台 VM、十來個容器）用 compose 加人工分工就能完成
 
 ## 團體專案上雲：本章設定的團隊版
 
-> 前置：第 14 章 Part J 的規劃做完。本章的 Cloud SQL 與 Secret Manager 換成團體專案時，四個地方要用團隊的做法。
+> 前置：第 14 章〈團體專案上雲〉做完。本章的 Cloud SQL 與 Secret Manager 換成團體專案時，多出來的四個步驟。
 
-**一、建實例就用強密碼，不用 1234。** 課程用 1234 是為了跟 `.env.example` 對齊、示範「程式一行都不用改」；團體專案沒有這個包袱，照第 14 章 J-6 產生強密碼，建實例時直接帶入，`.env` 的 `MYSQL_PASSWORD` 也同步用它：
+**T-1 建實例就用強密碼，不用 1234**
+
+課程用 1234 是為了跟 `.env.example` 對齊、示範「程式一行都不用改」；團體專案沒有這個包袱，照第 14 章步驟 6 產生強密碼，建實例時直接帶入，`.env` 的 `MYSQL_PASSWORD` 也同步用它：
 
 ```bash
 gcloud sql instances create {你們的實例名} \
   --database-version=MYSQL_8_0 --tier=db-f1-micro --region=asia-east1 \
-  --root-password={J-6 產生的強密碼}
+  --root-password={步驟 6 產生的強密碼}
 ```
 
-Part B 把密碼移進 Secret Manager 之後，「想一想」那題在團隊環境更重要：指令歷史（`history`）裡留著的明碼，開專案者要記得清（`history -c` 或直接換一版密碼）。
+已經用 1234 建了也能改，一條指令、不用重建實例：
 
-**二、授權網路越短越好——組員的電腦不加進去。** 白名單只放 VM 的外部 IP。組員要查資料有兩條路，都不需要把個人 IP 加進 Cloud SQL：SSH 進 VM 用容器裡的 mysql client，或用 Cloud SQL Studio（走 Console，不經授權網路）。Studio 的 `studio` 使用者密碼也用強的，不用課程示範的 1234。
+```bash
+gcloud sql users set-password root --host=% --instance={實例名} --password='{強密碼}'
+```
 
-**三、Secret Manager 授權綁 VM 的服務帳戶，一次涵蓋全組。** B-2 的授權對象是 Compute Engine 預設服務帳戶——所有跑在兩台 VM 上的程式共用這個身分，不論哪位組員操作。組員個人帳號不需要 `secretAccessor`（人不直接讀 secret，程式才讀）。
+從 VM 上驗證（用 mysql image 當一次性 client，跑完即棄）：
 
-**四、換密碼＝加一個新版本。** 團隊環境密碼可能要輪替（例如有組員退出專題）：`printf "新密碼" | gcloud secrets versions add mysql-password --data-file=-`，容器重啟後拿到新版；Cloud SQL 端用 `gcloud sql users set-password` 同步。這正是 B-4 fallback 設計在團隊場景的價值——程式碼與 compose 檔一行都不用動。
+```bash
+# 強密碼登入成功
+sudo docker run --rm mysql:8.0 mysql -h{CloudSQL IP} -uroot -p'{強密碼}' -N -e "SELECT 1;"
+# 1
+# 舊密碼 1234 被拒
+sudo docker run --rm mysql:8.0 mysql -h{CloudSQL IP} -uroot -p1234 -N -e "SELECT 1;"
+# ERROR 1045 (28000): Access denied for user 'root'
+```
+
+另外，Part A 建實例時密碼寫在指令裡，指令歷史查得到——開專案者換完密碼記得 `history -c`，或者本來就用 `set-password` 換過一輪，歷史裡的舊密碼就失效了。
+
+**T-2 授權網路越短越好——組員的電腦不加進去**
+
+白名單只放 VM 的外部 IP。組員要查資料有兩條路，都不需要把個人 IP 加進 Cloud SQL：SSH 進共用 VM 用上面那招一次性 mysql client，或用 Cloud SQL Studio（走 Console，不經授權網路）。Studio 的 `studio` 使用者密碼也用強的：
+
+```bash
+gcloud sql users set-password studio --host=% --instance={實例名} --password='{另一組強密碼}'
+```
+
+**T-3 Secret Manager 的授權不用重做**
+
+B-2 的授權對象是 Compute Engine 預設服務帳戶——所有跑在兩台 VM 上的程式共用這個身分，不論哪位組員操作，一次授權全組涵蓋。組員個人帳號不需要 `secretAccessor`：人不直接讀 secret，程式才讀。
+
+**T-4 換密碼＝加一個新版本**
+
+團隊環境密碼會需要輪替（例如組員退出專題、密碼不小心外流）。Secret Manager 端加新版本、Cloud SQL 端同步改，兩條指令：
+
+```bash
+printf "{新密碼}" | gcloud secrets versions add mysql-password --data-file=-
+# Created version [8] of the secret [mysql-password].
+gcloud sql users set-password root --host=% --instance={實例名} --password='{新密碼}'
+
+# 驗證 latest 已指向新版本
+gcloud secrets versions access latest --secret=mysql-password
+# {新密碼}
+
+# 版本清單就是輪替的軌跡——舊版本還在，出問題可以回頭比對
+gcloud secrets versions list mysql-password
+# NAME  STATE     CREATED
+# 8     enabled   ...    ← 新密碼
+# 7     enabled   ...
+```
+
+容器重啟後透過 B-4 的 fallback 拿到新版——**程式碼與 compose 檔一行都不用動**，這正是密碼集中管理在團隊場景的價值：換密碼是一個人的兩條指令，不是全組每台機器各改一次。
 
 ## 收工：三個東西都要停
 

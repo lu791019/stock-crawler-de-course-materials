@@ -398,15 +398,45 @@ gcloud composer environments list-packages stock-composer --location=asia-east1
 
 ## 團體專案上雲：本章設定的團隊版
 
-> 前置：第 14 章 Part J 的規劃做完。本章的排程環境換成團體專案時，四件事要全組講好。
+> 前置：第 14 章〈團體專案上雲〉做完。本章的排程環境換成團體專案時，多出來的四個步驟。
 
-**一、scopes 由開專案者改，趁開工一起做。** `--scopes=cloud-platform` 只能停機改（開工 SOP 第 2 步），改一次全 VM 生效——這是機器層設定，跟哪位組員操作無關。排進開專案者的固定動作，避免「A 停機改 scopes 的同時 B 正在等機器開」。
+**T-1 scopes 由開專案者改，趁開工一起做**
 
-**二、Airflow 的 admin/admin 要換掉。** 課程沿用預設帳密，防線是 8080 只對白名單 IP 開；團體專案的白名單有全組的 IP，Web 介面被看到的面變大了。進 Airflow UI 右上角使用者選單改密碼，或全組共用一組自訂帳密（存放比照第 14 章 J-6：寫在 VM 上的共用位置，不走聊天室）。
+`--scopes=cloud-platform` 只能停機改（開工 SOP 第 2 步），改一次全 VM 生效——這是機器層設定，跟哪位組員操作無關。排進開專案者的固定動作，避免「A 停機改 scopes 的同時 B 正在等機器開」。指令與輸出：
 
-**三、「每天自動跑」是費用決策，要全組同意。** 排程真的每天執行的前提是 VM1 一直開著——這筆錢算在開專案者頭上（第 14 章 J-1）。兩種模式全組選一個：上課／驗收期間手動觸發、平時停機（課程做法，費用趨近零）；或 demo 前一週讓它真的每天跑（接受該週的 VM 費用，週末照停）。
+```bash
+gcloud compute instances set-service-account {VM名} --zone=asia-east1-b --scopes=cloud-platform
+# Updated [https://www.googleapis.com/compute/v1/projects/{專案ID}/zones/asia-east1-b/instances/{VM名}].
 
-**四、DAG 的修改走 git，不直接在 VM 上改。** 多人共用一台 VM 時，`dags/` 目錄裡的檔案誰都能動；改壞了一個 DAG，全組的排程一起停。規矩跟程式碼一樣：本機改 → push → VM 上 `git pull`——出問題時 `git log` 找得到是哪次改動（補充I 的 CI 就是這條規矩的自動檢查版）。
+# 驗證 scopes 已改
+gcloud compute instances describe {VM名} --zone=asia-east1-b --format="value(serviceAccounts[].scopes)"
+# ['https://www.googleapis.com/auth/cloud-platform']
+```
+
+**T-2 Airflow 的 admin/admin 要換掉**
+
+課程沿用預設帳密，防線是 8080 只對白名單 IP 開；團體專案的白名單有全組的 IP，Web 介面被看到的面變大了。用 Airflow CLI 改（在 VM1 上執行，一條指令）：
+
+```bash
+sudo docker exec airflow-webserver airflow users reset-password -u admin -p '{全組共用的強密碼}'
+# User "admin" password reset successfully
+```
+
+改完用瀏覽器驗證：舊的 admin/admin 會被拒、新密碼進得去——
+
+![Airflow 舊密碼登入被拒](images/ch17/04-Airflow舊密碼登入被拒.jpg)
+
+![Airflow 新密碼登入成功](images/ch17/05-Airflow新密碼登入成功.jpg)
+
+新帳密的存放比照第 14 章步驟 6：寫在 VM 上的共用位置（例如 .env 同目錄的說明檔），不走聊天室。
+
+**T-3 「每天自動跑」是費用決策，要全組同意**
+
+排程真的每天執行的前提是 VM1 一直開著——這筆錢算在開專案者頭上（第 14 章步驟 1）。兩種模式全組選一個：上課／驗收期間手動觸發、平時停機（課程做法，費用趨近零）；或 demo 前一週讓它真的每天跑（接受該週的 VM 費用，週末照停）。費用量級用第 14 章「從帳單看花費」補充的報表確認。
+
+**T-4 DAG 的修改走 git，不直接在 VM 上改**
+
+多人共用一台 VM 時，`dags/` 目錄裡的檔案誰都能動；改壞了一個 DAG，全組的排程一起停。規矩跟程式碼一樣：本機改 → push → VM 上 `git pull`——出問題時 `git log` 找得到是哪次改動（補充I 的 CI 就是這條規矩的自動檢查版）。
 
 ## 收工：兩種收法
 

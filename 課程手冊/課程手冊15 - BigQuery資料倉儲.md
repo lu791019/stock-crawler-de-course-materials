@@ -156,7 +156,7 @@ gcloud services enable bigquery.googleapis.com
 
 **2. 幫服務帳戶加上 BigQuery 權限**
 
-第 14 章 Part J 用 Console 給組員授過權；這裡改用指令做同一件事。打指令之前，先認識 **IAM** 的三個詞——它們就是下面那條指令的三個部分：
+第 14 章〈團體專案上雲〉用 Console 給組員授過權；這裡改用指令做同一件事。打指令之前，先認識 **IAM** 的三個詞——它們就是下面那條指令的三個部分：
 
 | 詞 | 白話 | 這次的值 |
 |----|------|---------|
@@ -307,20 +307,51 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 ## 團體專案上雲：本章設定的團隊版
 
-> 前置：第 14 章 Part J 的規劃做完（組員已加進專案、密碼與 .env 規矩已建立）。這一節講的是：本章的 BigQuery 設定換成團體專案時，哪些地方要用團隊的做法。
+> 前置：第 14 章〈團體專案上雲〉做完（組員已加進專案、密碼與 .env 規矩已建立）。這一節做的是：本章的 BigQuery 設定換成團體專案時，多出來的三個步驟。
 
-**授權對象是服務帳戶，不是人——一次授權全組受益。** 本章給 `bigquery.dataEditor`＋`jobUser` 兩個角色時，`--member` 填的是服務帳戶。程式用這個身分跑同步，不管是哪位組員觸發的，身分都是同一個——所以這條授權指令開專案者跑一次就好，組員不需要各自再授權。
+**T-1 服務帳戶的授權不用重做——先搞懂為什麼**
 
-**金鑰檔比照第 14 章 J-6 的規矩。** 全組共用同一顆服務帳戶、同一把 JSON 金鑰；金鑰放在執行同步程式的那台機器（團體專案就是共用 VM）上，`GOOGLE_APPLICATION_CREDENTIALS` 指向它。不進 repo、不走聊天室——組員 SSH 進 VM 就用得到，不需要每人一把。
+本章給 `bigquery.dataEditor`＋`jobUser` 兩個角色時，`--member` 填的是**服務帳戶**。程式用這個身分跑同步，不管是哪位組員觸發的，身分都是同一個——所以這條授權指令開專案者跑一次就好，組員不需要各自再授權。金鑰檔也比照第 14 章步驟 6 的規矩：全組共用同一把、放在共用 VM 上、不進 repo 不走聊天室。
 
-**組員要在 Console 上自己查 BigQuery，需要另外給個人角色。** 服務帳戶的權限是程式的，組員的 Google 帳號沒有跟著取得任何 BigQuery 權限。兩個做法：
+**T-2 組員要自己查 BigQuery，先看清楚「沒授權會發生什麼」**
 
-| 做法 | 指令／位置 | 適合 |
-|------|-----------|------|
-| 給組員個人 `roles/bigquery.user` | `add-iam-policy-binding --member="user:組員Gmail"`（第 14 章 J-2 同一招，換角色） | 組員要自己在 Console 跑 SQL 驗證資料 |
-| 不另外授權，都在 VM 上用 `bq` 查 | SSH 進 VM 執行本章的 `bq query` | 白名單極簡、查詢需求少 |
+服務帳戶的權限是程式的，組員的 Google 帳號沒有跟著取得任何 BigQuery 權限。組員直接跑查詢會被拒：
 
-**Looker Studio 報表用分享機制。** 報表是個人 Google 帳號建的，組員看不到別人的報表；用 Looker Studio 右上角的「共用」把報表開給組員（檢視或編輯），跟 Google 文件同一套邏輯——這層不經過 GCP IAM。
+```bash
+# 組員在自己電腦上執行（已 gcloud auth login 自己的帳號）
+bq query --project_id={專案ID} --nouse_legacy_sql "SELECT COUNT(*) AS n FROM stock.TaiwanStockPrice"
+# BigQuery error in query operation: Access Denied: Project {專案ID}:
+# User does not have bigquery.jobs.create permission in project {專案ID}.
+```
+
+開專案者給組員兩個個人角色（第 14 章步驟 2 同一條指令，換角色）：
+
+```bash
+gcloud projects add-iam-policy-binding {專案ID} \
+  --member="user:組員的Gmail" --role="roles/bigquery.user" --condition=None       # 能執行查詢
+gcloud projects add-iam-policy-binding {專案ID} \
+  --member="user:組員的Gmail" --role="roles/bigquery.dataViewer" --condition=None  # 能讀資料表
+```
+
+組員重跑同一條查詢，這次通了：
+
+```
++------+
+|  n   |
++------+
+| 1396 |
++------+
+```
+
+授權完成後，IAM 成員清單會看到組員掛著四個角色（第 14 章的兩個＋這裡的兩個），服務帳戶則是它自己的兩個 BigQuery 角色——**人跟程式的權限是分開的兩條線**：
+
+![IAM 成員清單：組員四角色與服務帳戶](images/ch14/53-IAM成員清單-組員四角色與服務帳戶.jpg)
+
+查詢需求少的小組可以省掉 T-2：組員 SSH 進共用 VM，用 VM 上的 `bq` 查（走的是操作者自己的 gcloud 登入身分或 VM 服務帳戶，視 VM 上的設定）。
+
+**T-3 Looker Studio 報表用共用機制，不經過 IAM**
+
+報表是個人 Google 帳號建的，組員看不到別人的報表。用 Looker Studio 右上角的「共用」把報表開給組員的 Gmail（檢視或編輯），跟 Google 文件同一套邏輯。注意分工：**資料層的權限歸 GCP IAM（T-2），報表層的權限歸 Looker Studio 共用**——組員能看報表不代表能查底層資料，反過來也一樣。
 
 ## 檢查：這一章做完的狀態
 
