@@ -1,4 +1,4 @@
-# 補充 B：把資料開成 API — MySQL to FastAPI
+# 補充 E：把資料開成 API — MySQL to FastAPI
 
 > 到第 9、10 章為止，資料有兩個出口：Metabase（給**人**看圖表）、BigQuery（給**分析**用）。這一篇補上第三個、也是工程上最常見的出口：**REST API，給程式用**。別的系統（網頁前端、App、其他服務）不會登入你的 MySQL，它們透過 API 拿資料。
 

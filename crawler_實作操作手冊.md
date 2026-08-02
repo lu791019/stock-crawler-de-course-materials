@@ -1,7 +1,7 @@
 # Crawler 實作操作手冊（台股爬蟲系統）
 
 > 📖 這是一份**指令速查手冊**：不講觀念、只給步驟，適合已經學過、要快速重建環境的人。
-> 第一次學習請走 `課程手冊/`（14 章 + 補充 A/B/C），每章有完整的觀念講解、逐行程式解讀與練習。
+> 第一次學習請走 `課程手冊/`（14 章 + 補充 B/B/C），每章有完整的觀念講解、逐行程式解讀與練習。
 
 > 對象：已照《Docker 安裝教學手冊》裝好 Docker 的學員
 > 涵蓋：專案介紹 → 整合版（一鍵啟動）→ 分開版（逐步啟動）→ 驗證閉環
@@ -381,7 +381,7 @@ docker network connect my_network mysql    # 若 mysql 來自 docker-compose-loc
 # UI: http://localhost:3000（JVM 慢，等 30-60 秒）；資料來源 Host 填 mysql
 ```
 
-### FastAPI（補充 B）
+### FastAPI（補充 E）
 
 ```bash
 uv run uvicorn api.main:app --reload --port 8000
@@ -389,7 +389,7 @@ uv run uvicorn api.main:app --reload --port 8000
 curl http://localhost:8000/stocks/2330/latest
 ```
 
-### 測試（補充 C）
+### 測試（補充 F）
 
 ```bash
 uv run pytest -m "not integration" -v      # 單元測試（免服務）

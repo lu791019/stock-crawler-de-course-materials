@@ -45,8 +45,8 @@ Airflow / Scheduler（排程編排）
 | [Airflow](https://airflow.apache.org/) | 工作流編排 | 排程 + 依賴 + 補跑 + UI，生產級的 APScheduler 升級版 |
 | MySQL | 關聯式資料庫 | 儲存爬回來的股價資料 |
 | [Metabase](https://www.metabase.com/) | 開源 BI 工具 | 把 MySQL 資料變成互動式圖表 |
-| [FastAPI](https://fastapi.tiangolo.com/) | API 框架 | 把 MySQL 資料開成 REST API（補充B）|
-| [pytest](https://docs.pytest.org/) | 測試框架 | 單元測試 + 整合測試（補充C）|
+| [FastAPI](https://fastapi.tiangolo.com/) | API 框架 | 把 MySQL 資料開成 REST API（補充E）|
+| [pytest](https://docs.pytest.org/) | 測試框架 | 單元測試 + 整合測試（補充F）|
 | Google BigQuery | 雲端資料倉儲 | 儲存大量歷史資料供分析（OLAP）|
 | SQLAlchemy | ORM | 用 Python 物件操作資料庫，不用寫純 SQL |
 | Docker + Docker Compose | 容器化部署 | 讓服務能一鍵啟動、跨平台執行 |
@@ -79,12 +79,12 @@ stock-crawler/
 ├── docker-compose-local.yml              # 整合版：一鍵啟動基礎服務（推薦日常使用）
 ├── docker-compose-all.yml                # 全服務整合版：11 容器一次啟動（含 Airflow + Metabase）
 ├── compose-advanced/                     # 進階：拆開的 compose（network 版、--scale 用）
-├── api/                                  # FastAPI：MySQL 資料的 REST 出口（補充B）
-├── tests/                                # pytest 測試：單元 + 整合（補充C）
+├── api/                                  # FastAPI：MySQL 資料的 REST 出口（補充E）
+├── tests/                                # pytest 測試：單元 + 整合（補充F）
 ├── airflow/                              # Airflow：Dockerfile、compose、DAGs、README
 ├── metabase/                             # Metabase：compose、README
 ├── example/                              # SQL 範例、mock 資料、pandas 練習、獨立爬蟲範例
-├── 課程手冊/                              # 完整課程手冊（14 章 + 補充）
+├── 課程手冊/                              # 完整課程手冊（17 章 + 補充A~I）
 ├── Dockerfile                            # Worker 容器化（Ubuntu + uv）
 ├── pyproject.toml / uv.lock              # Python 依賴管理
 └── README.md
@@ -122,27 +122,30 @@ stock-crawler/
 | 12 | Airflow 接上爬蟲 pipeline | `dags/stock_crawler_*.py`、`crawler/mysql.py` |
 | 13 | 完整系統整合（一鍵啟動 + 七步驟驗證）| `docker-compose-all.yml` |
 
-### 延伸：雲端資料倉儲（第 14 章）
+### Phase D：雲端部署（第 14~17 章）
 
 | 章 | 主題 | 用到的關鍵檔案 |
 |----|------|---------------|
-| 14 | BigQuery 資料倉儲（OLTP → OLAP）| `crawler/bigquery.py`、`stock_sync_mysql_to_bigquery.py` |
+| 14 | GCP 開通與雲端部署（VM、防火牆、IAM 與小組協作）| `gcloud`、Console |
+| 15 | BigQuery 資料倉儲（OLTP → OLAP）| `crawler/bigquery.py`、`stock_sync_mysql_to_bigquery.py` |
+| 16 | 系統搬家：多台 VM 與 Cloud SQL（Secret Manager）| `docker-compose-local.yml` + override |
+| 17 | 每日資料線：Airflow 排程與 Composer | `airflow/dags/stock_crawler_etl_bigquery_dag.py` |
 
 ### 補充教材
 
-補充章的字母是編寫順序，不是閱讀順序——建議閱讀時點如下表：
+補充章的字母順序即建議閱讀順序（A 是工具篇，隨時可讀）：
 
 | 篇 | 主題 | 建議閱讀時點 | 用到的關鍵檔案 |
 |----|------|------------|---------------|
-| 補充A | 同步/非同步、多執行緒、多行程、分散式（含術語速查表）| 手冊01-02 之後 | — |
-| 補充B | MySQL to FastAPI（資料的 API 出口）| 手冊05 之後 | `api/main.py` |
-| 補充C | Unit Test 與整合測試（pytest + mock + 冪等驗證）| 手冊06 之後 | `tests/` |
-| 補充D | MySQL 深入：約束/索引/外鍵/交易/權限/分區 + phpMyAdmin 實戰 | 手冊05 之後 | `example/ecommerce.sql`、`example/mock_stock_price_data.sql` |
-| 補充E | .env 與環境變數：${} 替換 vs env_file 注入、三層哲學、三個坑 | 手冊10-13（Docker Compose 段）| `docker-compose-dotenv-demo.yml`、`.env.dotenv-demo.example` |
-| 補充F | ACID 與 CAP：交易保證、三選二、MongoDB+pymongo 對照實戰（mongo-express 8082）| 手冊05-06 之後 | `crawler/tasks_crawler_finmind_mongo.py`、`producer_crawler_finmind_mongo.py` |
-| 補充G | 對外服務：API 上雲與 Cloud Run（image 倉庫、發佈流程、revision 換版）| 手冊16-17 之後 | `api/main.py`、`api/Dockerfile` |
-| 補充H | 系統架構圖：用 draw.io 畫本地端與雲端（含 GCP 圖示庫與 Mermaid 對照）| 任何時點 | `課程手冊/drawio/` |
-| 補充I | CI 與 CD：GitHub Actions 從自動測試到自動部署 | 手冊17 與補充G 之後 | `.github/workflows/ci.yml`、`api/Dockerfile` |
+| 補充A | 系統架構圖：用 draw.io 畫本地端與雲端（含 GCP 圖示庫與 Mermaid 對照）| 隨時可讀；手冊13 後回來畫本地端、14 後畫雲端 | `課程手冊/drawio/` |
+| 補充B | 同步/非同步、多執行緒、多行程、分散式（含術語速查表）| 手冊01-02 之後 | — |
+| 補充C | MySQL 深入：約束/索引/外鍵/交易/權限/分區 + phpMyAdmin 實戰 | 手冊05 之後 | `example/ecommerce.sql`、`example/mock_stock_price_data.sql` |
+| 補充D | ACID 與 CAP：交易保證、三選二、MongoDB+pymongo 對照實戰（mongo-express 8082）| 手冊05-06 之後 | `crawler/tasks_crawler_finmind_mongo.py`、`producer_crawler_finmind_mongo.py` |
+| 補充E | MySQL to FastAPI（資料的 API 出口）| 手冊05 之後 | `api/main.py` |
+| 補充F | Unit Test 與整合測試（pytest + mock + 冪等驗證）| 手冊06 與補充E 之後 | `tests/` |
+| 補充G | .env 與環境變數：${} 替換 vs env_file 注入、三層哲學、三個坑 | 手冊10-13（Docker Compose 段）| `docker-compose-dotenv-demo.yml`、`.env.dotenv-demo.example` |
+| 補充H | 對外服務：API 上雲與 Cloud Run（image 倉庫、發佈流程、revision 換版）| 手冊16-17 之後 | `api/main.py`、`api/Dockerfile` |
+| 補充I | CI 與 CD：GitHub Actions 從自動測試到自動部署 | 手冊17 與補充H 之後 | `.github/workflows/ci.yml`、`api/Dockerfile` |
 
 ---
 

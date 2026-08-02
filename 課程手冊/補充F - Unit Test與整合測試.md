@@ -1,4 +1,4 @@
-# 補充 C：讓程式自己證明自己是對的 — Unit Test 與整合測試
+# 補充 F：讓程式自己證明自己是對的 — Unit Test 與整合測試
 
 > 前面每一章的「驗證」都是你用眼睛看：看 log、看 phpMyAdmin、看 Flower。這一篇把驗證變成**程式**——寫一次、隨時重跑、幾秒出結果。改了程式碼不確定有沒有弄壞東西？跑一下測試就知道。
 
@@ -156,7 +156,7 @@ def test_upsert_is_idempotent(engine):
   - 用專屬假代碼 `TEST999`，不污染真實資料
   - fixture 開頭探測連線、連不到就 skip
   - 測完 `DELETE` 清理，不留垃圾
-  - 用參數化查詢（`:s`）——跟補充 B 同一條鐵律
+  - 用參數化查詢（`:s`）——跟補充 E 同一條鐵律
 
 ---
 
@@ -220,7 +220,7 @@ def test_upsert_is_idempotent(engine):
 
 模仿 `test_api_error_prints_msg`，寫一條「data 是空 list」的測試：mock 回 200 但 `data=[]`，驗證程式不會爆炸（印出空的 DataFrame）。這是真實會發生的情境——股票代碼存在但該期間沒交易資料。
 
-**練習 3：測補充 B 的 API**
+**練習 3：測補充 E 的 API**
 
 FastAPI 有現成的測試工具：
 

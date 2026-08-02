@@ -1,4 +1,4 @@
-# 補充 E：.env 與環境變數 — 同一份程式與設定，跑遍所有環境
+# 補充 G：.env 與環境變數 — 同一份程式與設定，跑遍所有環境
 
 > 你在課程裡其實已經三次遇到同一個哲學：`config.py` 的 `os.environ.get()`、compose 裡的 `${MYSQL_ROOT_PASSWORD:-1234}`、還有 worker 服務的 `environment:` 區塊。這份補充把它們串成一張地圖，並用 repo 現成的範例檔（`docker-compose-dotenv-demo.yml` + `.env.dotenv-demo.example`）完整跑一次。
 
@@ -133,7 +133,7 @@ docker compose --env-file .env.dotenv-demo -f docker-compose-dotenv-demo.yml dow
 
 ## 之後會怎麼用（伏筆）
 
-- **受限帳號 + .env**：補充D 教的 `GRANT`（app 帳號只給份內權限）搭配 .env 帶帳密，就是正式環境的標準組合——密碼不進 git、權限不過大。
+- **受限帳號 + .env**：補充C 教的 `GRANT`（app 帳號只給份內權限）搭配 .env 帶帳密，就是正式環境的標準組合——密碼不進 git、權限不過大。
 - **雲端的下一步**：`.env` 檔還是躺在機器上，正式雲端環境會再升一級——用 **Secret Manager** 這類服務集中管密碼（GCP 段會遇到，repo 的 `crawler/print_secret_manager.py` 就是預告）。
 
 ---

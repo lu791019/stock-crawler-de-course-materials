@@ -1,8 +1,8 @@
-# 補充G - 對外服務：API 上雲與 Cloud Run
+# 補充H - 對外服務：API 上雲與 Cloud Run
 
 > 這是選讀的補充章，不在主線流程裡。前置：第 16 章做完（兩台 VM、Cloud SQL、Secret Manager 都在）。做完第 17 章之後再回來看也可以。
 >
-> 到第 16 章為止，系統只對「自己人」服務：發任務、看 Flower、查資料庫，全都要嘛 SSH 進機器、要嘛靠防火牆放行你一個人的 IP。本章把補充B 寫好的 FastAPI 部署上雲——給全世界一個固定的網址，並學會雲端時代的發佈流程：**build → tag → push → deploy**。部署的目的地不是 VM，而是 **Cloud Run**：把容器交給託管服務跑，這是資料工程師實務上把服務開出去的標準做法。
+> 到第 16 章為止，系統只對「自己人」服務：發任務、看 Flower、查資料庫，全都要嘛 SSH 進機器、要嘛靠防火牆放行你一個人的 IP。本章把補充E 寫好的 FastAPI 部署上雲——給全世界一個固定的網址，並學會雲端時代的發佈流程：**build → tag → push → deploy**。部署的目的地不是 VM，而是 **Cloud Run**：把容器交給託管服務跑，這是資料工程師實務上把服務開出去的標準做法。
 
 ## 做完這一章你會
 
@@ -207,7 +207,7 @@ curl http://localhost:8000/stocks
 # [{"stock_id":"00679B","records":...,...},{"stock_id":"2330",...}]
 ```
 
-`/` 是健康檢查端點（補充B 寫的）：連資料庫丟一句 `SELECT 1`，通了回 `ok`。回 `degraded` 的話是資料庫連不上——十之八九是 Step 0 第 5 步的授權網路沒做。
+`/` 是健康檢查端點（補充E 寫的）：連資料庫丟一句 `SELECT 1`，通了回 `ok`。回 `degraded` 的話是資料庫連不上——十之八九是 Step 0 第 5 步的授權網路沒做。
 
 確認 image 是好的之後，把測試容器收掉：
 
@@ -278,11 +278,11 @@ curl https://stock-api-{一串數字}.asia-east1.run.app/stocks/2330/latest
 
 Console 上看得到這些 revision（≡ → Cloud Run → 點 stock-api → 修訂版本分頁）。流量欄位顯示目前是哪一版在服務：
 
-![Cloud Run 修訂版本清單](images/chG/01-CloudRun修訂版本清單.jpg)
+![Cloud Run 修訂版本清單](images/chH/01-CloudRun修訂版本清單.jpg)
 
 **驗證密碼真的沒有明碼存在設定裡**：在同一頁往下捲，找到「環境變數」區塊。你會看到 `MYSQL_UNIX_SOCKET` 和 `MYSQL_ACCOUNT` 顯示的是實際的值，但 `MYSQL_PASSWORD` 顯示的是「密鑰：mysql-password:latest」——也就是一個參照，看不到 `1234`：
 
-![Cloud Run 環境變數](images/chG/02-CloudRun環境變數密碼為密鑰參照.jpg)
+![Cloud Run 環境變數](images/chH/02-CloudRun環境變數密碼為密鑰參照.jpg)
 
 如果剛才用的是 `--set-env-vars="MYSQL_PASSWORD=1234"`，這裡就會直接顯示 `1234`，任何有這個專案讀取權限的人都看得到。
 

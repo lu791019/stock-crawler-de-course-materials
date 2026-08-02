@@ -2,7 +2,7 @@
 
 > 本章對應 EP18。前置：第 14、15 章做完（有 GCP 專案、gcloud 可用、stock-crawler-vm 存在且會開關機、服務帳戶已有 BigQuery 權限）。
 >
-> 第 14 章把整套系統塞進一台 VM——能動，但所有服務擠在一起：資料庫跟 worker 搶記憶體、一台掛全部掛。本章把它拆開：**資料庫換成託管的 Cloud SQL、worker 搬到第二台 VM**——補充A 講的「分散式」，這次真的跨機器。
+> 第 14 章把整套系統塞進一台 VM——能動，但所有服務擠在一起：資料庫跟 worker 搶記憶體、一台掛全部掛。本章把它拆開：**資料庫換成託管的 Cloud SQL、worker 搬到第二台 VM**——補充B 講的「分散式」，這次真的跨機器。
 
 ## 本章用到的工具與服務
 
@@ -149,7 +149,7 @@ patch 的結果在 Console 看得到：≡ → SQL → stock-mysql → 左側「
 
 **Secret Manager 是 GCP 的密碼保管服務**：你把密碼存進去，程式執行時再跟它要。這是 `.env` 做法的雲端版本——`.env` 解決的是「密碼不進 git」，Secret Manager 再往前一步解決「密碼不留在機器上」。
 
-補充E 教 `.env` 時就預告過這個服務，現在資料庫上雲了，正好是換過來的時機。
+補充G 教 `.env` 時就預告過這個服務，現在資料庫上雲了，正好是換過來的時機。
 
 **B-1 啟用 API 並建立 secret**：
 
@@ -466,4 +466,4 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 
 下一章（第 17 章）是最後一章：用 Airflow 排程把「Cloud SQL → BigQuery」的同步變成每個交易日自動執行，並對照託管版的 Cloud Composer。
 
-如果你也想把 API 開到網路上讓別人查詢，可以看選讀的補充G——用 Artifact Registry 與 Cloud Run 把 FastAPI 部署成一個固定的 HTTPS 網址。
+如果你也想把 API 開到網路上讓別人查詢，可以看選讀的補充H——用 Artifact Registry 與 Cloud Run 把 FastAPI 部署成一個固定的 HTTPS 網址。

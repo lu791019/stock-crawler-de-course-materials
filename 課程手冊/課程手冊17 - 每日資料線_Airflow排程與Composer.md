@@ -4,7 +4,7 @@
 >
 > 資料庫搬上雲了、密碼也交給 Secret Manager 保管了，剩最後一件事：每日同步還要手動觸發。本章**用自架 Airflow 排程把資料線全線串起**，再對照託管版的 Cloud Composer，最後完成雲端環境的驗證與資源清理。
 >
-> 做完本章有兩條選讀路線：想把 API 開到網路上，看補充G（用 Cloud Run 部署 API）；想讓每次 push 自動跑測試、自動部署，看補充I（CI 與 CD：GitHub Actions）。
+> 做完本章有兩條選讀路線：想把 API 開到網路上，看補充H（用 Cloud Run 部署 API）；想讓每次 push 自動跑測試、自動部署，看補充I（CI 與 CD：GitHub Actions）。
 
 ## 本章用到的工具與服務
 
@@ -405,10 +405,10 @@ gcloud composer environments list-packages stock-composer --location=asia-east1
 | 順序 | 資源 | 指令／位置 | 為什麼是這個順序 |
 |------|------|-----------|----------------|
 | 1 | Composer 環境（如果有建立） | `gcloud composer environments delete stock-composer --location=asia-east1` | 費用最高，而且沒有停機選項，只能刪除 |
-| 2 | Cloud Run 服務（若做過補充G） | `gcloud run services delete stock-api --region=asia-east1` | 閒置本來就縮零不計費，結束時一併刪除 |
+| 2 | Cloud Run 服務（若做過補充H） | `gcloud run services delete stock-api --region=asia-east1` | 閒置本來就縮零不計費，結束時一併刪除 |
 | 3 | 兩台 VM | `gcloud compute instances delete ...` | 磁碟跟著 VM 一起消失 |
 | 4 | Cloud SQL | `gcloud sql instances delete stock-mysql` | 儲存費 |
-| 5 | Artifact Registry（若做過補充G） | `gcloud artifacts repositories delete stock-repo` | image 儲存費 |
+| 5 | Artifact Registry（若做過補充H） | `gcloud artifacts repositories delete stock-repo` | image 儲存費 |
 | 6 | BigQuery dataset | `bq rm -r -d stock` | 儲存費（免費層內，可留最後） |
 | 7 | Secret | `gcloud secrets delete mysql-password` | 費用趨近零 |
 | 8 | 整個專案（終極選項） | Console → IAM與管理 → 設定 → 關閉 | 上面全部一次帶走；**30 天寬限期**內可反悔還原 |
@@ -460,4 +460,4 @@ gcloud composer environments list-packages stock-composer --location=asia-east1
 
 ---
 
-主線十七章的內容到此結束。起點是一支印出「發送任務」的 Celery 腳本，終點是一條具備佇列分流、失敗重試、去重冪等、容器化、多機分工、託管資料庫、機密管理與每日排程的雲端資料管線。兩章選讀把它再往外推一步：補充G 讓 API 對外服務、補充I 讓每次 push 自動測試與部署。這門課要傳達的不是這條管線本身，而是拆解它的方法——之後你會需要自己設計別的管線。
+主線十七章的內容到此結束。起點是一支印出「發送任務」的 Celery 腳本，終點是一條具備佇列分流、失敗重試、去重冪等、容器化、多機分工、託管資料庫、機密管理與每日排程的雲端資料管線。兩章選讀把它再往外推一步：補充H 讓 API 對外服務、補充I 讓每次 push 自動測試與部署。這門課要傳達的不是這條管線本身，而是拆解它的方法——之後你會需要自己設計別的管線。

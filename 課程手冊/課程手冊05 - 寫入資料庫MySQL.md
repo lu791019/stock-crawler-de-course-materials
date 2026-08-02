@@ -116,15 +116,15 @@ SQL 指令看起來很多，其實按「管什麼」分成四家，之後看到�
 
 | 家族 | 全名 | 管什麼 | 常見指令 | 本課在哪遇到 |
 |------|------|--------|---------|-------------|
-| **DDL** | Data Definition Language（資料定義）| **定義資料結構**：建、改、刪表 | `CREATE`、`ALTER`、`DROP`、`TRUNCATE` | `to_sql` 幫你自動 CREATE TABLE；補充D 建索引、分區 |
+| **DDL** | Data Definition Language（資料定義）| **定義資料結構**：建、改、刪表 | `CREATE`、`ALTER`、`DROP`、`TRUNCATE` | `to_sql` 幫你自動 CREATE TABLE；補充C 建索引、分區 |
 | **DML** | Data Manipulation Language（資料操作）| **操作資料內容**：增、改、刪 | `INSERT`、`UPDATE`、`DELETE` | `to_sql` append 就是一串 INSERT；第 6 章 upsert |
 | **DQL** | Data Query Language（資料查詢）| **查詢資料內容** | `SELECT`（配 `WHERE`、`JOIN`、`GROUP BY`）| 三種驗證入庫、`read_sql`、之後 Metabase 的每張圖 |
-| **DCL** | Data Control Language（資料控制）| **控制使用者權限** | `GRANT`、`REVOKE` | 補充D 的受限帳號（app 只給 SELECT/INSERT）|
+| **DCL** | Data Control Language（資料控制）| **控制使用者權限** | `GRANT`、`REVOKE` | 補充C 的受限帳號（app 只給 SELECT/INSERT）|
 
 兩個備註：
 
 - 跟 **CRUD** 的關係：CRUD 是「動作」視角（Create/Read/Update/Delete），四大家族是「指令分類」視角——CRUD 的 C、U、D 都屬於 DML，R 屬於 DQL。兩套講的是同一件事的不同切面。
-- 有人會把 `COMMIT` / `ROLLBACK` 獨立成第五家 **TCL**（交易控制）——補充D 的交易一節玩的就是它們。
+- 有人會把 `COMMIT` / `ROLLBACK` 獨立成第五家 **TCL**（交易控制）——補充C 的交易一節玩的就是它們。
 
 **四家各來一個範例**（都可以在 phpMyAdmin 的 SQL 頁籤直接跑）：
 
@@ -159,7 +159,7 @@ LIMIT 3;
 -- 查詢結果：2454→1205.13、2330→998.52、2382→400.30
 ```
 
-**DCL — 控制使用者權限**（完整示範見補充D 第 6 節）：
+**DCL — 控制使用者權限**（完整示範見補充C 第 6 節）：
 
 ```sql
 GRANT SELECT, INSERT ON mydb.* TO 'app'@'%';    -- 給 app 帳號：查＋寫
@@ -178,7 +178,7 @@ SHOW GRANTS FOR 'app'@'%';                      -- 驗證：清單裡只剩 SELE
 | `crawler/config.py` | 設定 | 提供 MySQL 連線資訊 |
 | `example/mock_stock_price_data.sql` | 練習素材 | 模擬台股歷史股價，可在 phpMyAdmin 執行、填充資料練查詢（練習 4 用）|
 | `example/vw_stock_price_daily.sql` | 預告 | 日線 View，第 8 章 Metabase 做圖表時會用到 |
-| `example/ecommerce.sql` | 補充D 教材 | 三張表含外鍵的電商範例（users/products/orders）|
+| `example/ecommerce.sql` | 補充C 教材 | 三張表含外鍵的電商範例（users/products/orders）|
 
 > `example/backup/` 裡是原課程（hahow）留下的通用練習檔（employees、students、ecommerce 等），本課程不使用，留作參考。
 
@@ -454,7 +454,7 @@ docker compose -f docker-compose-local.yml logs worker_twse | grep -E "saved|suc
 
 ## 補充：SQLAlchemy 完整指南（原理、參數、看見它背後做的事）
 
-本章的程式碼只用到 SQLAlchemy 的一小角。這一節把它攤開講清楚——之後不管接 FastAPI（補充B）、寫測試（補充C）還是搬 BigQuery（第 15 章），你都會一直遇到它。
+本章的程式碼只用到 SQLAlchemy 的一小角。這一節把它攤開講清楚——之後不管接 FastAPI（補充E）、寫測試（補充F）還是搬 BigQuery（第 15 章），你都會一直遇到它。
 
 ### SQLAlchemy 在整條路的哪一層
 
@@ -526,7 +526,7 @@ engine = create_engine(
 )
 ```
 
-- **`engine` 是連線池管理者，不是連線**：`create_engine` 當下並不會連資料庫，第一次真的用到才連。理想用法是**建一次、全程式共用**——`api/main.py`（補充B）就是這樣，engine 放模組層級、app 存活期間重複使用。誠實說：本章的 `tasks_crawler_finmind.py` 是在函式內每次呼叫都建一次——簡單、不會錯，但沒吃到連線池的好處；等你懂了這節，就知道怎麼優化它。
+- **`engine` 是連線池管理者，不是連線**：`create_engine` 當下並不會連資料庫，第一次真的用到才連。理想用法是**建一次、全程式共用**——`api/main.py`（補充E）就是這樣，engine 放模組層級、app 存活期間重複使用。誠實說：本章的 `tasks_crawler_finmind.py` 是在函式內每次呼叫都建一次——簡單、不會錯，但沒吃到連線池的好處；等你懂了這節，就知道怎麼優化它。
 - **`pool_recycle` 對付 MySQL 的 8 小時坑**：MySQL 預設 `wait_timeout=28800`（8 小時），閒置超過就單方面斷線；連線池不知情、把死連線借給你，就出現經典的 `MySQL server has gone away`。設 `pool_recycle=3600` 或開 `pool_pre_ping=True` 都能防——長時間跑的排程任務（第 9 章）尤其需要。
 - **爬蟲場景的參數怎麼配**：worker 是多行程（prefork）時，**每個子行程有自己的池**，pool_size 不用開大；gevent 高併發時單行程共用一個池，`pool_size` 才需要跟著併發數調。
 
@@ -542,7 +542,7 @@ with engine.connect() as conn:                  # ② 借一條連線（用完�
     print(r.scalar())
 
 with engine.begin() as conn:                    # ③ 借連線 + 包交易：離開 with 自動 COMMIT，
-    conn.execute(text("UPDATE ..."))            #    中途出錯自動 ROLLBACK（補充D 交易一節的程式版）
+    conn.execute(text("UPDATE ..."))            #    中途出錯自動 ROLLBACK（補充C 交易一節的程式版）
 ```
 
 - `text()`：把字串標記成「一句 SQL」。**參數一律用 `:名字` 佔位**，不要用 f-string 拼——這是 SQL injection 的正解：`conn.execute(text("SELECT * FROM t WHERE stock_id = :sid"), {"sid": "2330"})`
@@ -569,7 +569,7 @@ df.to_sql("TaiwanStockPrice", con=engine, if_exists="append", index=False)
 把 `create_engine(..., echo=True)` 打開再跑一次寫入，terminal 會印出它背後發的每一句 SQL：
 
 ```
-INFO sqlalchemy.engine.Engine BEGIN (implicit)          ← 自動開交易（呼應補充D 第 5 節）
+INFO sqlalchemy.engine.Engine BEGIN (implicit)          ← 自動開交易（呼應補充C 第 5 節）
 INFO sqlalchemy.engine.Engine DESCRIBE `mydb`.`echo_demo`   ← 先看表存不存在
 CREATE TABLE echo_demo ( ... )                          ← 不存在 → 用 DataFrame 推斷建表
 INFO sqlalchemy.engine.Engine INSERT INTO echo_demo (stock_id, close) VALUES (%(stock_id)s, %(close)s)
@@ -578,7 +578,7 @@ INFO sqlalchemy.engine.Engine COMMIT                    ← 全部成功才提�
 
 一行 `to_sql` 背後 = **開交易 → 檢查表 →（必要時）建表 → 參數化 INSERT → COMMIT**。看過一次這個 log，「to_sql 是魔法」就變成「to_sql 是流程」了。確認完記得把 `echo` 關回去——正式跑爬蟲時它會把 log 洗到看不見重點。
 
-> 想更深入 MySQL 本身（索引、外鍵、交易、分區）→ 看 **補充D**。
+> 想更深入 MySQL 本身（索引、外鍵、交易、分區）→ 看 **補充C**。
 
 ---
 

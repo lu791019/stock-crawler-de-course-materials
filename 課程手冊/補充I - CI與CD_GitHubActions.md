@@ -1,6 +1,6 @@
 # 補充I - CI 與 CD：GitHub Actions 從自動測試到自動部署
 
-> 本章是選讀章節。前置：補充C（tests/ 目錄與 pytest 標記已存在）；Part B 的 CD 段另外需要做過補充G（Artifact Registry 與 Cloud Run）。
+> 本章是選讀章節。前置：補充F（tests/ 目錄與 pytest 標記已存在）；Part B 的 CD 段另外需要做過補充H（Artifact Registry 與 Cloud Run）。
 >
 > 主線第 17 章結束時，資料線已經每天自動跑，但「程式改了之後」的事還是手動的：手動跑測試、手動 build、手動部署。本章把這條發佈流程交給 GitHub Actions：**Part A 實作 CI（每次 push 自動跑測試），Part B 走 CD 的路徑（測試通過後自動部署到 Cloud Run）**。
 
@@ -10,16 +10,16 @@
 |-----------|------|-------------|
 | GitHub Actions | 外部服務 | 每次 push 自動執行 workflow：跑測試（CI）、部署（CD） |
 | GitHub Secrets | 外部服務 | 保管 workflow 要用的 GCP 憑證，不寫進 repo |
-| pytest | 既有工具 | 補充C 寫好的測試，在 CI 成為上線前的檢查關卡 |
+| pytest | 既有工具 | 補充F 寫好的測試，在 CI 成為上線前的檢查關卡 |
 | uv | 既有工具 | CI 的臨時機器上照 uv.lock 還原依賴 |
-| Artifact Registry | GCP 服務 | CD 段的 image 倉庫（補充G 建立的 stock-repo） |
-| Cloud Run | GCP 服務 | CD 段的部署目的地（補充G 部署的 stock-api） |
+| Artifact Registry | GCP 服務 | CD 段的 image 倉庫（補充H 建立的 stock-repo） |
+| Cloud Run | GCP 服務 | CD 段的部署目的地（補充H 部署的 stock-api） |
 
 ## 做完這一章你會
 
 1. 說得出 CI 與 CD 各自自動化了什麼、分界線在哪
 2. 逐行看懂 `.github/workflows/ci.yml`，並在自己的 fork 上觸發一次 CI
-3. 說得出 CD 段的三個 step 對應補充G 手動做過的哪三個動作
+3. 說得出 CD 段的三個 step 對應補充H 手動做過的哪三個動作
 4. 看懂 CD workflow 的完整範例，知道 GCP 憑證在 GitHub 上怎麼保管
 
 ## 先搞懂：CI/CD 把哪段手動流程自動化
@@ -27,7 +27,7 @@
 CI/CD（持續整合／持續部署）的每個環節，前面章節都手動做過：
 
 ```
-git push ──▶ 自動跑測試（補充C 寫好的 pytest）──▶ 自動 build 並上傳 image ──▶ 自動部署到執行環境
+git push ──▶ 自動跑測試（補充F 寫好的 pytest）──▶ 自動 build 並上傳 image ──▶ 自動部署到執行環境
          └──────────── CI（Part A）────────────┘└──────────────── CD（Part B）────────────────┘
 ```
 
@@ -62,7 +62,7 @@ jobs:
       - run: uv run pytest tests/ -m "not integration" -v
 ```
 
-四個 step 就是你在本機做過無數次的動作：clone → 裝工具 → 裝依賴 → 跑測試。`-m "not integration"` 排除需要真實 MySQL 的整合測試（CI 的臨時機器上沒有 MySQL；補充C 設計的標記在這裡發揮作用）。
+四個 step 就是你在本機做過無數次的動作：clone → 裝工具 → 裝依賴 → 跑測試。`-m "not integration"` 排除需要真實 MySQL 的整合測試（CI 的臨時機器上沒有 MySQL；補充F 設計的標記在這裡發揮作用）。
 
 `push` 與 `pull_request` 兩個事件都觸發：合併進 main 之前就先跑過一次測試，紅了就擋 merge。
 
@@ -72,11 +72,11 @@ jobs:
 
 想自己觸發一次：fork 課程 repo 到自己帳號、改一個檔案後 push，你自己 repo 的 Actions 頁就會執行。
 
-### Part B：CD——自動部署到 Cloud Run（需做過補充G）
+### Part B：CD——自動部署到 Cloud Run（需做過補充H）
 
-CD 段的三個動作你在補充G 全部手動做過：
+CD 段的三個動作你在補充H 全部手動做過：
 
-| CD 的 step | 補充G 手動做過的指令 |
+| CD 的 step | 補充H 手動做過的指令 |
 |-----------|---------------------|
 | build image | `docker build -f api/Dockerfile -t stock-api:vN .` |
 | push 上倉庫 | `docker tag` ＋ `docker push`（Artifact Registry） |
@@ -116,9 +116,9 @@ workflow 完整範例（`deploy` job 接在 `test` job 之後）：
 
 - `needs: test`——部署 job 依賴測試 job，測試紅了整條停在原地。這一行就是「CI 擋住 CD」的實作
 - image tag 用 `${{ github.sha }}`（這次 commit 的雜湊值）而不是 v1/v2——每次部署都有唯一版本號，回滾時 revision 清單直接對得回是哪次 commit
-- deploy 只給 `--image` 和 `--region`——其他設定（port、Cloud SQL 專線、secrets、記憶體）沿用上一次部署，跟補充G 的 v2 換版同一個行為
+- deploy 只給 `--image` 和 `--region`——其他設定（port、Cloud SQL 專線、secrets、記憶體）沿用上一次部署，跟補充H 的 v2 換版同一個行為
 
-本章把 CD 段列為路徑示範：課程 repo 不掛這個 deploy job（每次 push 都部署會持續動用 GCP 資源）。想實際走一遍的話，在自己的 fork 上做完補充G 之後照上面三步設定即可，部署完成的驗證方式與補充G Part D 相同。
+本章把 CD 段列為路徑示範：課程 repo 不掛這個 deploy job（每次 push 都部署會持續動用 GCP 資源）。想實際走一遍的話，在自己的 fork 上做完補充H 之後照上面三步設定即可，部署完成的驗證方式與補充H Part D 相同。
 
 ### 那 Secret Manager 跟 GitHub Secrets 是什麼關係？
 
@@ -136,7 +136,7 @@ workflow 完整範例（`deploy` job 接在 `test` job 之後）：
 
 - [ ] 自己 fork 的 Actions 頁看得到 CI 綠勾
 - [ ] 說得出 ci.yml 四個 step 各自對應本機的哪個動作
-- [ ] 說得出 CD 三個 step 對應補充G 的哪三個指令，以及 `needs: test` 擋住了什麼
+- [ ] 說得出 CD 三個 step 對應補充H 的哪三個指令，以及 `needs: test` 擋住了什麼
 - [ ] 說得出 GCP 金鑰為什麼放 GitHub Secrets 而不是 repo
 
 ## 想一想
@@ -169,4 +169,4 @@ workflow 完整範例（`deploy` job 接在 `test` job 之後）：
 
 ---
 
-回到主線：資料線每天自動跑（第 17 章）、對外服務在 Cloud Run 上（補充G）、每次 push 自動測試與部署（本章）——整條「改程式到上線」的流程到此沒有一步需要人工記得執行。
+回到主線：資料線每天自動跑（第 17 章）、對外服務在 Cloud Run 上（補充H）、每次 push 自動測試與部署（本章）——整條「改程式到上線」的流程到此沒有一步需要人工記得執行。

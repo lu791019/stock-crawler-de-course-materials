@@ -1,4 +1,4 @@
-# 補充 F：ACID 與 CAP — 從 MySQL 到 MongoDB
+# 補充 D：ACID 與 CAP — 從 MySQL 到 MongoDB
 
 > 手冊05 的大局觀比過 RDBMS vs NoSQL，那張表裡有兩個沒展開的縮寫：**ACID** 和 **CAP**。這份補充說明這兩個概念，然後動手跑一個真的 NoSQL——用跟 MySQL 版完全同款的 Celery 爬蟲，把股價寫進 **MongoDB**，比較兩個世界的差異。
 
@@ -6,12 +6,12 @@
 
 ## 1. ACID — 交易的四條保證
 
-交易（補充D 第 5 節操作過的 `START TRANSACTION` / `ROLLBACK`）背後就是這四個字母：
+交易（補充C 第 5 節操作過的 `START TRANSACTION` / `ROLLBACK`）背後就是這四個字母：
 
 | 字母 | 名稱 | 白話 | 課程對應 |
 |------|------|------|---------|
-| **A** | Atomicity 原子性 | 一組操作要嘛全做完、要嘛全沒發生 | 補充D 第 5 節交易實驗：改成 0 → ROLLBACK → 變回 1000.65 |
-| **C** | Consistency 一致性 | 交易前後，資料都符合所有規則（主鍵、外鍵、約束）| 補充D 第 2、3 節：NOT NULL 缺值（1048）、主鍵重複（1062）、外鍵指向不存在的資料（1452），都會被拒收 |
+| **A** | Atomicity 原子性 | 一組操作要嘛全做完、要嘛全沒發生 | 補充C 第 5 節交易實驗：改成 0 → ROLLBACK → 變回 1000.65 |
+| **C** | Consistency 一致性 | 交易前後，資料都符合所有規則（主鍵、外鍵、約束）| 補充C 第 2、3 節：NOT NULL 缺值（1048）、主鍵重複（1062）、外鍵指向不存在的資料（1452），都會被拒收 |
 | **I** | Isolation 隔離性 | 多人同時操作，彼此不互相干擾（像各自在隔間工作）| 多 worker 同時寫入時由 MySQL 處理衝突 |
 | **D** | Durability 持久性 | COMMIT 成功的資料，斷電也不會消失（已落盤）| volume 掛載 + MySQL 的交易日誌 |
 
@@ -258,7 +258,7 @@ db.TaiwanStockPrice.deleteOne({stock_id: "TEST"})   // 清掉實驗文件
 
 同一張表這樣寫，MySQL 會報 1054（欄位不存在）直接拒絕；MongoDB 照單全收——同一個集合裡可以放結構完全不同的文件。方便，但髒資料的檢查責任全部落到程式碼層（想一想 Q3 的取捨）。
 
-順帶認識 `_id`：每份文件都有一個自動產生的 `ObjectId`，這是 MongoDB 內建的代理鍵（補充D「自然鍵 vs 代理鍵」的 Mongo 版）。
+順帶認識 `_id`：每份文件都有一個自動產生的 `ObjectId`，這是 MongoDB 內建的代理鍵（補充C「自然鍵 vs 代理鍵」的 Mongo 版）。
 
 ### MongoDB 怎麼防重複：unique index
 
@@ -276,7 +276,7 @@ db.TaiwanStockPrice.insertOne({stock_id: "2330", date: "2024-01-02", close: 1})
 // E11000 duplicate key error ... dup key: { stock_id: "2330", date: "2024-01-02" }
 ```
 
-E11000 就是 MongoDB 版的 1062。我們的任務用 `update_one(upsert=True)`，本來就不會製造重複；unique index 的價值是**保底**——即使有程式用 insert 亂寫，資料庫層也擋得住。對應補充D 的原則：規則放在資料庫層，任何程式來寫都會被管到。
+E11000 就是 MongoDB 版的 1062。我們的任務用 `update_one(upsert=True)`，本來就不會製造重複；unique index 的價值是**保底**——即使有程式用 insert 亂寫，資料庫層也擋得住。對應補充C 的原則：規則放在資料庫層，任何程式來寫都會被管到。
 
 ### 同樣的操作①：pymongo（不用 docker exec）
 
@@ -382,7 +382,7 @@ docker compose -f docker-compose-local.yml down    # mongodb volume 保留資料
 
 **Q3：MongoDB 免建表很方便，代價是什麼？**
 
-沒有 DB 層的入場檢查——欄位打錯字、型別不對它照收（補充D 的 1048/1062 都不會發生），檢查責任全部落到程式碼層。方便和保護是一組取捨。
+沒有 DB 層的入場檢查——欄位打錯字、型別不對它照收（補充C 的 1048/1062 都不會發生），檢查責任全部落到程式碼層。方便和保護是一組取捨。
 
 **Q4：ACID、CAP、BASE 三個縮寫，哪一個是「定理」？另外兩個是什麼？**
 

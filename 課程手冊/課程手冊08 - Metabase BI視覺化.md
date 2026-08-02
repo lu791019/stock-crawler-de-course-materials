@@ -200,7 +200,7 @@ docker compose -f metabase/docker-compose-metabase.yml up -d
 
 ### Step 3.5：幫 Metabase 建一個「唯讀」資料庫帳號
 
-Metabase 對 MySQL 只需要「讀」——正式做法是給它一個只有 SELECT 的專用帳號（最小權限原則，補充D 第 6 節的實戰應用）：
+Metabase 對 MySQL 只需要「讀」——正式做法是給它一個只有 SELECT 的專用帳號（最小權限原則，補充C 第 6 節的實戰應用）：
 
 ```sql
 CREATE USER 'metabase_ro'@'%' IDENTIFIED BY 'metabase';   -- _ro = read-only 的慣用命名
