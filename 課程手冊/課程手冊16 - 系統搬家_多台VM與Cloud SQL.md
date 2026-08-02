@@ -464,6 +464,6 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 - Swarm 已少人使用、K8s 是目前的標準但屬於另一門課的範圍——compose 練熟就是學 K8s 的基礎
 - 收工三停：VM ×2＋Cloud SQL；重開要記得「新 IP → 重 patch 授權」
 
-下一章（第 17 章）是最後一章：用 Airflow 排程把「Cloud SQL → BigQuery」的同步變成每個交易日自動執行，並用 GitHub Actions 讓每次 push 自動跑測試。
+下一章（第 17 章）是最後一章：用 Airflow 排程把「Cloud SQL → BigQuery」的同步變成每個交易日自動執行，並對照託管版的 Cloud Composer。
 
 如果你也想把 API 開到網路上讓別人查詢，可以看選讀的補充G——用 Artifact Registry 與 Cloud Run 把 FastAPI 部署成一個固定的 HTTPS 網址。

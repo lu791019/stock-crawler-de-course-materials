@@ -409,4 +409,4 @@ gcloud compute instances stop stock-crawler-vm --zone=asia-east1-b
 - LB 沒有消失，只是 Google 幫你管了——需要自己拼七件套的場景屬於 infra／SRE，你知道找誰就夠
 - 部署完成後，API 層是課程系統裡第一個、也是唯一一個微服務化的零件——獨立部署、無狀態、自動擴縮、版本化回滾；系統整體仍不是微服務架構
 
-回到主線：第 17 章把爬蟲到 BigQuery 的每日管線用 Airflow 排程串起來，並用 GitHub Actions 讓每次 push 自動跑測試。
+回到主線：第 17 章把爬蟲到 BigQuery 的每日管線用 Airflow 排程串起來。本章手動做的 build → push → deploy 三步，補充I 會接進 GitHub Actions 的 workflow——測試通過自動部署，CI/CD 就完整了。

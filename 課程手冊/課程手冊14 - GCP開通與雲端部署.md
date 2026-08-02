@@ -158,7 +158,7 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 | Metabase 容器 | **Looker Studio**（免費 SaaS BI） | 第 15 章 | 不用程式，滑鼠操作 | 免安裝免維運、內建 BigQuery 連接器——SaaS 的教科書案例 |
 | ——（本機沒有這層） | **BigQuery**（分析倉儲，新增） | 第 15 章 | 跑課程現成的 sync 程式 | OLTP／OLAP 分工：分析不再拖累營運資料庫 |
 | FastAPI（補充B） | **Cloud Run**（容器託管執行環境） | 補充G（選讀） | 不改，加發佈流程 | 固定 HTTPS 網址、自動擴縮、閒置縮零不計費，不用管機器 |
-| 手動 docker build／换版 | **CI/CD**（GitHub Actions：push → 自動跑測試） | 第 17 章 | 加 workflow yml | 補充C 寫的測試在這裡成為上線前的檢查關卡 |
+| 手動 docker build／换版 | **CI/CD**（GitHub Actions：push → 自動測試、自動部署） | 補充I（選讀） | 加 workflow yml | 補充C 寫的測試在這裡成為上線前的檢查關卡 |
 | 自架 Airflow 容器 | 主線**仍在 GCE 自架**；**Cloud Composer**（託管 Airflow）認識＋對照示範 | 第 17 章 | DAG 的編排邏輯兩邊通用 | Composer 省維運但每月數百美元起跳，課程用示範讓你看見差異 |
 | `.env` 檔 | **Secret Manager** | 第 16 章 | config.py 加 fallback | 機密集中管理、可查詢誰讀過、可換版本——密碼一上雲就改用它 |
 | 個人 Google 帳號操作一切 | **IAM 最小權限**（服務帳戶各司其職） | 本章建立、第 15 章授權 | — | 本章的服務帳戶刻意不給角色，第 15 章才補上恰足夠用的兩個 |
@@ -186,9 +186,11 @@ flowchart TB
     end
     subgraph S17["第 17 章：讓它自己跑"]
         AF17["VM1 的 Airflow"] -->|每個交易日 20:00 觸發| SY17["Cloud SQL → BigQuery 同步"]
-        GH17["GitHub Actions"] -->|每次 push| T17["自動執行測試"]
     end
-    S14 --> S15 --> S16 --> SG --> S17
+    subgraph SI["補充I（選讀）：發佈流程自動化"]
+        GH17["GitHub Actions"] -->|每次 push| T17["自動測試 → 自動部署"]
+    end
+    S14 --> S15 --> S16 --> SG --> S17 --> SI
 ```
 
 全部做完之後，系統的完整形態是這樣（括號標的是哪一章建的，補充G 是選讀）：
