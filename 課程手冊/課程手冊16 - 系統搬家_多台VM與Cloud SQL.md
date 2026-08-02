@@ -397,6 +397,26 @@ gcloud sql users create studio --instance=stock-mysql --password=1234 --host=%
 - **Kubernetes**：解決大規模容器的調度、自癒（容器掛了自動重啟補位）、滾動更新、水平擴縮。發源於 Google 內部系統 Borg 的經驗，GCP 上的託管版就是第 14 章對照表裡的 GKE
 - **為什麼本課程不教 K8s**：它的內容量相當於一整門課；而且概念上你已經有基礎——compose 管一台機器上的容器，K8s 管一群機器上的容器。**先把 compose 練熟，是學 K8s 的合理順序**。課程規模（兩三台 VM、十來個容器）用 compose 加手動分工就足夠
 
+## 團體專案上雲：本章設定的團隊版
+
+> 前置：第 14 章 Part J 的規劃做完。本章的 Cloud SQL 與 Secret Manager 換成團體專案時，四個地方要用團隊的做法。
+
+**一、建實例就用強密碼，不用 1234。** 課程用 1234 是為了跟 `.env.example` 對齊、示範「程式一行都不用改」；團體專案沒有這個包袱，照第 14 章 J-6 產生強密碼，建實例時直接帶入，`.env` 的 `MYSQL_PASSWORD` 也同步用它：
+
+```bash
+gcloud sql instances create {你們的實例名} \
+  --database-version=MYSQL_8_0 --tier=db-f1-micro --region=asia-east1 \
+  --root-password={J-6 產生的強密碼}
+```
+
+Part B 把密碼移進 Secret Manager 之後，「想一想」那題在團隊環境更重要：指令歷史（`history`）裡留著的明碼，開專案者要記得清（`history -c` 或直接換一版密碼）。
+
+**二、授權網路越短越好——組員的電腦不加進去。** 白名單只放 VM 的外部 IP。組員要查資料有兩條路，都不需要把個人 IP 加進 Cloud SQL：SSH 進 VM 用容器裡的 mysql client，或用 Cloud SQL Studio（走 Console，不經授權網路）。Studio 的 `studio` 使用者密碼也用強的，不用課程示範的 1234。
+
+**三、Secret Manager 授權綁 VM 的服務帳戶，一次涵蓋全組。** B-2 的授權對象是 Compute Engine 預設服務帳戶——所有跑在兩台 VM 上的程式共用這個身分，不論哪位組員操作。組員個人帳號不需要 `secretAccessor`（人不直接讀 secret，程式才讀）。
+
+**四、換密碼＝加一個新版本。** 團隊環境密碼可能要輪替（例如有組員退出專題）：`printf "新密碼" | gcloud secrets versions add mysql-password --data-file=-`，容器重啟後拿到新版；Cloud SQL 端用 `gcloud sql users set-password` 同步。這正是 B-4 fallback 設計在團隊場景的價值——程式碼與 compose 檔一行都不用動。
+
 ## 收工：三個東西都要停
 
 ```bash
