@@ -130,16 +130,19 @@ stock-crawler/
 
 ### 補充教材
 
-| 篇 | 主題 | 用到的關鍵檔案 |
-|----|------|---------------|
-| 補充A | 同步/非同步、多執行緒、多行程、分散式（含術語速查表）| — |
-| 補充B | MySQL to FastAPI（資料的 API 出口）| `api/main.py` |
-| 補充C | Unit Test 與整合測試（pytest + mock + 冪等驗證）| `tests/` |
-| 補充D | MySQL 深入：約束/索引/外鍵/交易/權限/分區 + phpMyAdmin 實戰 | `example/ecommerce.sql`、`example/mock_stock_price_data.sql` |
-| 補充E | .env 與環境變數：${} 替換 vs env_file 注入、三層哲學、三個坑 | `docker-compose-dotenv-demo.yml`、`.env.dotenv-demo.example` |
-| 補充F | ACID 與 CAP：交易保證、三選二、MongoDB+pymongo 對照實戰（mongo-express 8082）| `crawler/tasks_crawler_finmind_mongo.py`、`producer_crawler_finmind_mongo.py` |
-| 補充G | 對外服務：API 上雲與 Cloud Run（image 倉庫、發佈流程、revision 換版）| `api/main.py`、`api/Dockerfile` |
-| 補充H | 系統架構圖：用 draw.io 畫本地端與雲端（含 GCP 圖示庫與 Mermaid 對照）| `課程手冊/drawio/` |
+補充章的字母是編寫順序，不是閱讀順序——建議閱讀時點如下表：
+
+| 篇 | 主題 | 建議閱讀時點 | 用到的關鍵檔案 |
+|----|------|------------|---------------|
+| 補充A | 同步/非同步、多執行緒、多行程、分散式（含術語速查表）| 手冊01-02 之後 | — |
+| 補充B | MySQL to FastAPI（資料的 API 出口）| 手冊05 之後 | `api/main.py` |
+| 補充C | Unit Test 與整合測試（pytest + mock + 冪等驗證）| 手冊06 之後 | `tests/` |
+| 補充D | MySQL 深入：約束/索引/外鍵/交易/權限/分區 + phpMyAdmin 實戰 | 手冊05 之後 | `example/ecommerce.sql`、`example/mock_stock_price_data.sql` |
+| 補充E | .env 與環境變數：${} 替換 vs env_file 注入、三層哲學、三個坑 | 手冊10-13（Docker Compose 段）| `docker-compose-dotenv-demo.yml`、`.env.dotenv-demo.example` |
+| 補充F | ACID 與 CAP：交易保證、三選二、MongoDB+pymongo 對照實戰（mongo-express 8082）| 手冊05-06 之後 | `crawler/tasks_crawler_finmind_mongo.py`、`producer_crawler_finmind_mongo.py` |
+| 補充G | 對外服務：API 上雲與 Cloud Run（image 倉庫、發佈流程、revision 換版）| 手冊16-17 之後 | `api/main.py`、`api/Dockerfile` |
+| 補充H | 系統架構圖：用 draw.io 畫本地端與雲端（含 GCP 圖示庫與 Mermaid 對照）| 任何時點 | `課程手冊/drawio/` |
+| 補充I | CI 與 CD：GitHub Actions 從自動測試到自動部署 | 手冊17 與補充G 之後 | `.github/workflows/ci.yml`、`api/Dockerfile` |
 
 ---
 
