@@ -518,7 +518,7 @@ stock-crawler-vm  asia-east1-b  e2-standard-2  10.140.0.2   35.229.xxx.xxx  RUNN
 gcloud compute ssh stock-crawler-vm --zone=asia-east1-b
 ```
 
-第一次執行會自動：產生 SSH 金鑰對（存 `~/.ssh/google_compute_engine`）→ 上傳公鑰到專案 → 等待金鑰生效（約 30 秒）。
+第一次執行會自動：產生 SSH 金鑰對（存 `~/.ssh/google_compute_engine`）→ 上傳公鑰到專案 → 等待金鑰生效（約 30 秒）。產生金鑰時會被問兩次 passphrase——**直接按 Enter 兩次留空**。這裡設了密語的話，之後每次 SSH 都要再輸入一次（見排錯表）。
 
 > 第一次連線可能出現一次 `Permission denied (publickey)` 然後自動重試成功——金鑰還在生效中，不是壞掉。整個指令失敗的話，等 30 秒重跑。
 
@@ -1116,6 +1116,7 @@ Console 建立時的三個對應點選：區域選 us-west1、機器類型在 E2
 | `config set project` 出現 access 警告 | 還沒 `gcloud auth login` | 先登入，再 `gcloud projects list` 驗證 |
 | 服務帳戶清單點不進詳細頁 | 點到列首的勾選框 | 點 email 的藍色文字連結 |
 | 第一次 SSH 出現 Permission denied | SSH 金鑰還在生效中 | 等 30 秒重跑 |
+| SSH 時被問 `Enter passphrase for .../.ssh/google_compute_engine` | 第一次跑 `gcloud compute ssh` 產生金鑰時設了 passphrase——問的是那串自訂密語，跟服務帳戶的 JSON 金鑰無關 | 輸入當時設的 passphrase；不記得就刪掉 `~/.ssh/google_compute_engine`（連同 `.pub`）重跑 SSH，這次直接按 Enter 兩次留空 |
 | 剛建好的 VM SSH 出現 `port 22: Connection refused` | VM 顯示 RUNNING 但裡面的 sshd 還沒啟動完 | 等半分鐘重跑同一條指令；跟上一條的差別是連線直接被拒、還輪不到驗金鑰 |
 | `up` 報 stock-airflow image 不存在 | 還沒在這台 VM build 過 | `sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .` |
 | 瀏覽器連 Web 介面轉圈圈到逾時 | 防火牆沒開該 port，或 IP 不在 source-ranges 裡 | 檢查規則的 port 清單與 `curl -4 ifconfig.me` 的目前 IP |
