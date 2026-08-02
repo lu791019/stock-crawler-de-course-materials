@@ -439,6 +439,21 @@ sudo docker exec airflow-webserver airflow users reset-password -u admin -p '{�
 
 新帳密的存放比照第 14 章步驟 6：寫在 VM 上的共用位置（例如 .env 同目錄的說明檔），不走聊天室。
 
+**再進一步：每人一個帳號，取代全組共用。** Airflow 支援多使用者，一條指令開一個帳號：
+
+```bash
+sudo docker exec airflow-webserver airflow users create \
+  -u alice -p '{她自己的密碼}' -f Alice -l Chen -r Admin -e alice@example.com
+# User "alice" created with role "Admin"
+
+sudo docker exec airflow-webserver airflow users list
+# id | username | email             | first_name | last_name | roles
+# 1  | admin    | admin@example.com | Apache     | Airflow   | Admin
+# 2  | alice    | alice@example.com | Alice      | Chen      | Admin
+```
+
+好處是**留下紀錄**：誰觸發了哪次 run、誰改了哪個設定，UI 的稽核資訊對得到人——DAG 改壞的時候（T-4 的情境）不用猜是誰動的。組員退出專題時 `airflow users delete -u alice` 收回。小組規模的取捨：兩三個人共用一組密碼還管得動，四五個人以上建議直接每人一個帳號。
+
 **T-3 「每天自動跑」是費用決策，要全組同意**
 
 排程真的每天執行的前提是 VM1 一直開著——這筆錢算在開專案者頭上（第 14 章步驟 1）。兩種模式全組選一個：上課／驗收期間手動觸發、平時停機（課程做法，費用趨近零）；或 demo 前一週讓它真的每天跑（接受該週的 VM 費用，週末照停）。費用量級用第 14 章「從帳單看花費」補充的報表確認。
