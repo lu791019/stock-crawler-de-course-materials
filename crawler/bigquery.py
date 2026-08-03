@@ -3,6 +3,8 @@ BigQuery 工具模組
 提供 BigQuery 的資料上傳、View 建立等操作功能
 使用前須取消 crawler/config.py 中 GCP_PROJECT_ID 的註解
 """
+import os
+
 import pandas as pd
 from google.cloud import bigquery
 from google.cloud.bigquery import SchemaField, LoadJobConfig, WriteDisposition
@@ -11,7 +13,9 @@ from google.cloud.bigquery import SchemaField, LoadJobConfig, WriteDisposition
 # from crawler.config import GCP_PROJECT_ID as PROJECT_ID
 PROJECT_ID = "your-project-id"
 
-DATASET_ID = "stock"
+# 同步落地的 dataset：手冊15 主線設 BQ_DATASET=raw（三層的入口）；
+# 不設就用 stock（手冊17 排程 DAG 沿用）
+DATASET_ID = os.environ.get("BQ_DATASET", "stock")
 
 
 def get_bigquery_client():

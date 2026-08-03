@@ -20,10 +20,10 @@
 ## 做完這一章你會
 
 1. 說得出 OLTP（交易型）和 OLAP（分析型）資料庫的差別。
-2. 看懂怎麼把 MySQL 的資料同步進 BigQuery。
-3. 看懂怎麼在 BigQuery 上用 SQL 做分析（去重、移動平均、每日彙總）。
+2. 把 VM 上 MySQL 的資料同步進 BigQuery 的 raw 層。
+3. 用 SQL 從 raw 整理出 stage（去重）、再算出 app 的成品表（移動平均、每日彙總）。
 4. 理解 ELT 這個流程。
-5. 用 raw／stage／app 三層把倉儲組織起來，說得出每一層的職責與排錯路徑。
+5. 說得出 raw／stage／app 每一層的職責與排錯路徑。
 6. （Step 5，Bonus）用 Looker Studio 接 app 層，拼出計分卡＋均線疊圖＋走勢＋成交量的四區塊儀表板。
 
 ---
@@ -46,9 +46,9 @@
 
 | 檔案 | 角色 | 說明 |
 |------|------|------|
-| `crawler/bigquery.py` | 工具模組 | 封裝 BigQuery 連線、建表、上傳、建 View |
-| `crawler/stock_sync_mysql_to_bigquery.py` | 同步 | 把 MySQL 資料搬到 BigQuery |
-| `crawler/stock_bigquery_data_transform.py` | 轉換 | 在 BigQuery 上建分析用的 View / Table |
+| `crawler/bigquery.py` | 工具模組 | 封裝 BigQuery 連線、建表、上傳、建 View；`BQ_DATASET` 決定落地層 |
+| `crawler/stock_sync_mysql_to_bigquery.py` | 同步 | 把 MySQL 資料搬進 BigQuery 的 raw 層（Step 2） |
+| `crawler/stock_bigquery_data_transform.py` | 轉換（程式版） | 讀碼教材＋第 17 章排程用；主線的 stage/app 用 Step 3/4 的 SQL 手動建 |
 
 ---
 
@@ -56,10 +56,11 @@
 
 ```mermaid
 flowchart TD
-    C["爬蟲"] -->|營運寫入| M[("MySQL<br/>OLTP")]
-    M -->|"stock_sync_mysql_to_bigquery.py：把原始資料搬過去（Load）"| BQ[("BigQuery（OLAP 分析倉儲）<br/>原始表 TaiwanStockPrice")]
-    BQ -->|"stock_bigquery_data_transform.py：在倉儲裡整理成分析表（Transform）"| V["分析用的 View / Table<br/>去重、移動平均、每日彙總"]
-    V -->|查詢| BI["報表 / BI"]
+    C["爬蟲（VM 上）"] -->|營運寫入| M[("VM 的 MySQL<br/>OLTP")]
+    M -->|"stock_sync_mysql_to_bigquery.py：搬過去（Load）"| R[("BigQuery raw 層<br/>原始表 TaiwanStockPrice")]
+    R -->|"SQL：去重、統一欄名（Transform）"| S["stage 層<br/>stock_price_daily"]
+    S -->|"SQL：視窗函數算成品表"| A["app 層<br/>趨勢表、大盤摘要"]
+    A -->|查詢| BI["Looker Studio 報表"]
 ```
 
 這就是資料工程常說的 **ELT**：先把資料 **L**oad（載入）進倉儲，再在倉儲裡 **T**ransform（轉換）。跟傳統「先轉換再載入」的 ETL 相反——雲端倉儲夠強，所以偏好先搬進去、再用它的算力轉換。
@@ -74,7 +75,7 @@ flowchart TD
 | **stage** | 清理與整理：去重、改欄位名、轉型別 | 從 raw 算出來，隨時可以重建 | 去重後的每日股價 |
 | **app** | 給人與報表用的成品表 | 從 stage 算出來，BI 工具只讀這一層 | MA5/MA20 趨勢表、大盤摘要 |
 
-分層的價值在**出問題時知道去哪找**：報表數字怪 → 查 app 的計算；app 沒錯 → 查 stage 的清理；stage 也沒錯 → 回 raw 對原始資料。每一層只對上一層負責，這跟第 6 章把設定集中在 config、第 16 章 override 分層是同一種思路——**關注點分離**。Step 4 會把本章的資料實際組織成這三層。
+分層的價值在**出問題時知道去哪找**：報表數字怪 → 查 app 的計算；app 沒錯 → 查 stage 的清理；stage 也沒錯 → 回 raw 對原始資料。每一層只對上一層負責，這跟第 6 章把設定集中在 config、第 16 章 override 分層是同一種思路——**關注點分離**。本章的主線就照這三層蓋：Step 2 同步進 raw、Step 3 整理出 stage、Step 4 建 app。
 
 ---
 
@@ -113,7 +114,7 @@ table.time_partitioning = bigquery.TimePartitioning(
 
 ### ③ 在 BigQuery 上做分析（`stock_bigquery_data_transform.py`）
 
-這正是 OLAP 的核心用途——用 SQL 的**視窗函數（window function）**算技術指標。看這段建「趨勢分析 View」的 SQL：
+這正是 OLAP 的核心用途——用 SQL 的**視窗函數（window function）**算技術指標。這支程式是轉換的「程式版」（第 17 章的排程 DAG 會用它）；**主線 Step 3/4 會把同一套 SQL 邏輯親自跑一遍**，這裡先讀懂它。看這段建「趨勢分析 View」的 SQL：
 
 ```sql
 SELECT
@@ -236,58 +237,38 @@ export GCP_PROJECT_ID="stock-crawler-course"   # 換成你的專案 ID
 
 > 如果你沒有跟課、自己有現成的 GCP 帳號：建一個專案、開 BigQuery API、建一個服務帳戶並下載金鑰，再照第 3、4 步設定即可。
 
-### Step 2：把 MySQL 同步進 BigQuery
+### Step 2：把 MySQL 同步進 BigQuery 的 raw 層
 
-在 VM 的 `~/stock-crawler` 目錄下（uv 第 14 章裝過；環境變數就是 Step 1 剛 export 的那兩個）：
+在 VM 的 `~/stock-crawler` 目錄下（uv 第 14 章裝過；前兩個環境變數是 Step 1 剛 export 的）。`BQ_DATASET=raw` 告訴同步程式落地在哪個 dataset——**原始資料直接進 raw 層**，這就是三層的入口：
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
+export BQ_DATASET=raw
 uv run crawler/stock_sync_mysql_to_bigquery.py
 ```
 
-這支會：建立 BigQuery dataset（如果沒有）→ 從 MySQL `SELECT * FROM TaiwanStockPrice` 讀成 DataFrame → 建好帶分區的 BQ 表 → 覆蓋上傳。成功的輸出長這樣：
+這支會：建立 raw dataset（如果沒有）→ 從 MySQL `SELECT * FROM TaiwanStockPrice` 讀成 DataFrame → 建好帶分區的 BQ 表 → 覆蓋上傳。成功的輸出長這樣：
 
 ```
 開始執行 MySQL 到 BigQuery 的同步...
-Created dataset stock
-表格 {專案ID}.stock.TaiwanStockPrice 建立成功
+Created dataset raw
+表格 {專案ID}.raw.TaiwanStockPrice 建立成功
 查詢執行成功，返回 DataFrame，共 XXX 筆記錄
 資料已上傳到 BigQuery 表 'TaiwanStockPrice'，共 XXX 筆記錄
 MySQL 到 BigQuery 的同步完成
 ```
 
-### Step 3：在 BigQuery 上建分析 View / Table
+raw 層到此完成——**原封不動的原始資料，之後不改它**。接下來兩步都在 BigQuery 的查詢編輯器（或 `bq query`）用 SQL 完成，一層一步往上蓋。
 
-同樣在 VM 上接著跑：
+### Step 3：整理出 stage 層——去重與統一欄名
 
-```bash
-uv run crawler/stock_bigquery_data_transform.py
-```
-
-這支會建立三組「View＋實體 Table」：去重的每日股價（`vw_stock_price_daily`／`stock_price_daily`）、含 MA5/MA20 的趨勢分析（`vw_stock_trend_analysis`／`stock_trend_analysis`）、每日市場彙總（`vw_market_daily_summary`／`market_daily_summary`）。每建一組會各印一行「成功」訊息。
-
----
-
-### Step 4：把倉儲組織成三層——raw／stage／app
-
-Step 2 落地的 `TaiwanStockPrice` 就是 raw 層的資料、Step 3 建的分析物件就是 app 層的內容——只是它們都擠在同一個 `stock` dataset 裡，層次是隱形的。這一步用「先搞懂」的三層習慣把它組織出來：**一層一個 dataset，名字就是層名**，看 dataset 就知道資料處在哪個加工階段。全部用 SQL 完成，主線程式一行都不用改。
-
-**4-1 建三個 dataset**（location 要跟 `stock` 同區）：
+先建 stage 的 dataset（在你自己的電腦或 VM 跑都可以，location 要跟 raw 同區）：
 
 ```bash
-bq mk --dataset --location=US {你的專案ID}:raw
 bq mk --dataset --location=US {你的專案ID}:stage
-bq mk --dataset --location=US {你的專案ID}:app
 ```
 
-**4-2 raw 層——原始資料的入口**。實務上同步程式會直接寫進 raw；課程讓 raw 用 view 指向既有的落地表，效果相同、不動主線：
-
-```sql
-CREATE OR REPLACE VIEW raw.taiwan_stock_price AS
-SELECT * FROM stock.TaiwanStockPrice;
-```
-
-**4-3 stage 層——去重與整理**。同一支股票同一天若有重複列（append 模式跑過兩次就會有），留成交量最大的那筆；順手把欄位名整理成一致的小寫：
+同一支股票同一天若有重複列（爬蟲 append 模式跑過幾次就疊幾層），留成交量最大的那筆；順手把欄位名整理成一致的小寫：
 
 ```sql
 CREATE OR REPLACE VIEW stage.stock_price_daily AS
@@ -295,11 +276,19 @@ SELECT stock_id, date AS trade_date, open, max, min, close, spread,
        Trading_Volume AS volume, Trading_money AS amount
 FROM (
   SELECT s.*, ROW_NUMBER() OVER (PARTITION BY stock_id, date ORDER BY Trading_Volume DESC) AS rn
-  FROM raw.taiwan_stock_price s
+  FROM raw.TaiwanStockPrice s
 ) WHERE rn = 1;
 ```
 
-**4-4 app 層——給報表用的成品表**。從 stage 算出趨勢分析（Step 3 的視窗函數，這次落在 app）與大盤摘要：
+用 view 而不是實體表：stage 的邏輯（去重、改名）隨時可能調整，view 改了定義就即時生效，不用重新灌資料。
+
+### Step 4：建 app 層——給報表用的成品表
+
+```bash
+bq mk --dataset --location=US {你的專案ID}:app
+```
+
+從 stage 算出兩張成品表——趨勢分析（LAG 抓前一天收盤、視窗函數算 MA5/MA20）與大盤每日摘要：
 
 ```sql
 CREATE OR REPLACE TABLE app.stock_trend_analysis AS
@@ -320,23 +309,27 @@ FROM stage.stock_price_daily
 GROUP BY trade_date;
 ```
 
-**4-5 驗證——各層筆數自己會說話**：
+app 用實體表（CTAS）而不是 view：報表每次開啟都會查它，實體表不用重算、快而且省掃描量——這就是「先搞懂」講的 View vs Table 取捨在三層裡的落點。
+
+**4-1 驗證——各層筆數自己會說話**：
 
 ```sql
-SELECT "raw" AS layer, COUNT(*) AS n FROM raw.taiwan_stock_price
+SELECT "raw" AS layer, COUNT(*) AS n FROM raw.TaiwanStockPrice
 UNION ALL SELECT "stage", COUNT(*) FROM stage.stock_price_daily
 UNION ALL SELECT "app.trend", COUNT(*) FROM app.stock_trend_analysis
 UNION ALL SELECT "app.summary", COUNT(*) FROM app.market_daily_summary
 ORDER BY layer;
 ```
 
-左側資源樹會多出三個 dataset，查詢結果就是分層的證據——raw 的筆數比 stage 多，多出來的就是重複列（append 模式跑過幾次就疊幾層），**stage 的去重把它清掉了，而 raw 原封不動留著這個事實**：
+左側資源樹會有 raw／stage／app 三個 dataset，查詢結果就是分層的證據——raw 的筆數比 stage 多，多出來的就是重複列（append 的痕跡），**stage 的去重把它清掉了，而 raw 原封不動留著這個事實**：
 
 ![BigQuery 分層 dataset 樹](images/ch15/13-BQ-分層dataset樹.jpg)
 
 ![三層驗證查詢：raw 與 stage 的筆數差就是去重的證據](images/ch15/14-BQ-三層驗證查詢.jpg)
 
-之後排錯的路徑照著層走：報表怪 → 查 app、app 沒錯 → 查 stage、stage 沒錯 → 回 raw。第 17 章的排程 DAG 維持寫 `stock` dataset（主線不動）；想讓排程直接維護三層，把這幾段 SQL 接在 DAG 的 transform task 之後就行——這是「練習」的題目之一。
+之後排錯的路徑照著層走：報表怪 → 查 app、app 沒錯 → 查 stage、stage 沒錯 → 回 raw。
+
+> **那 `stock_bigquery_data_transform.py` 是什麼？** repo 裡有一支程式版的轉換（在 `stock` dataset 建一套 View＋Table），「一行一行讀懂」段拆解的就是它——它的 SQL 跟 Step 3/4 是同一套邏輯。第 17 章的排程 DAG 用的是這支程式（自動化時程式比手動 SQL 好排）；想讓排程直接維護三層，把 Step 3/4 的 SQL 接在 DAG 的 transform task 之後——這是「練習」的題目之一。
 
 ## Step 5（Bonus）：用 Looker Studio 把倉儲拼成四區塊儀表板
 
@@ -381,7 +374,7 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
    ![連接器清單](images/ch15/B04-連接器選擇-BigQuery.jpg)
 2. 點 **BigQuery** → 第一次會再要求一次授權（「數據分析必須先取得授權，才能與您的 BigQuery 專案連結」）→ 按「授權」
    ![BigQuery 授權](images/ch15/B05-BigQuery連接器授權.jpg)
-3. 依序點選：Project 選你的專案 → 資料集清單會列出 Step 4 建好的四個：**app、raw、stage、stock**
+3. 依序點選：Project 選你的專案 → 資料集清單會列出 Step 2–4 蓋好的三層：**app、raw、stage**
 4. 資料集點 **app** → Table 欄出現 `market_daily_summary` 和 `stock_trend_analysis` → 選 **stock_trend_analysis**
    ![資料來源選 app 層](images/ch15/15-資料來源選app層.jpg)
 5. 右下角「**新增**」→ 確認視窗按「**加入報表**」
@@ -479,7 +472,7 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 ```bash
 # 組員在自己電腦上執行（已 gcloud auth login 自己的帳號）
-bq query --project_id={專案ID} --nouse_legacy_sql "SELECT COUNT(*) AS n FROM stock.TaiwanStockPrice"
+bq query --project_id={專案ID} --nouse_legacy_sql "SELECT COUNT(*) AS n FROM raw.TaiwanStockPrice"
 # BigQuery error in query operation: Access Denied: Project {專案ID}:
 # User does not have bigquery.jobs.create permission in project {專案ID}.
 ```
@@ -525,13 +518,13 @@ gcloud projects add-iam-policy-binding {專案ID} \
 
 | # | 你應該看到 | 它證明了什麼 |
 |---|-----------|-------------|
-| 1 | GCP Console 的 BigQuery 出現 `stock` 資料集與 `TaiwanStockPrice` 表 | 同步成功 |
-| 2 | 出現 `vw_stock_trend_analysis` 等 View | 轉換成功 |
+| 1 | BigQuery 出現 `raw` 資料集與 `TaiwanStockPrice` 表 | 同步成功，raw 層落地 |
+| 2 | `stage.stock_price_daily`（view）與 `app` 的兩張實體表都在 | Step 3/4 的 SQL 建層成功 |
 | 3 | 查詢時只掃到相關分區 | 分區生效、省錢 |
-| 4 | 左側資源樹看得到 raw／stage／app 三個 dataset，驗證查詢的各層筆數對得上 | 倉儲有了分層結構 |
+| 4 | 驗證查詢的各層筆數對得上（raw ≥ stage ＝ app.trend） | 去重生效、層與層對得上 |
 | 5 | （Step 5）Looker Studio 四區塊儀表板成形，資料全來自 app 層 | BI 接上倉儲，資料線最後一格點亮 |
 
-在 GCP Console 看（≡ 選單 → BigQuery）：左側樹狀展開專案 → `stock` 資料集，四張表、三個 View 都在：
+在 GCP Console 看（≡ 選單 → BigQuery）：左側樹狀展開專案，raw／stage／app 三個 dataset 與各自的物件都在（下圖是資料集樹的樣子，dataset 名稱以你自己建的為準）：
 
 ![BigQuery 資料集樹](images/ch15/01-BQ-Console資料集樹.jpg)
 
@@ -544,7 +537,7 @@ gcloud projects add-iam-policy-binding {專案ID} \
 ```sql
 SELECT stock_id, trade_date, ROUND(close, 2) AS close,
        ROUND(ma5, 2) AS ma5, ROUND(ma20, 2) AS ma20
-FROM `你的專案ID.stock.stock_trend_analysis`
+FROM `你的專案ID.app.stock_trend_analysis`
 WHERE ma20 IS NOT NULL
 ORDER BY trade_date DESC, stock_id
 LIMIT 10
@@ -559,14 +552,14 @@ LIMIT 10
 不開網頁也能驗，用 gcloud 附帶安裝的 `bq` 指令：
 
 ```bash
-# 列出 stock 資料集的所有表和 View——TaiwanStockPrice 的分區欄會顯示 DAY (field: date)
-bq ls stock
+# 列出 raw 資料集——TaiwanStockPrice 的分區欄會顯示 DAY (field: date)
+bq ls raw
 
-# 直接查趨勢分析 View：每支股票最近三天的收盤價與均線
+# 直接查 app 層的趨勢表：每支股票最近三天的收盤價與均線
 bq query --nouse_legacy_sql \
   'SELECT stock_id, trade_date, close, ROUND(ma5,2) AS ma5, ROUND(ma20,2) AS ma20
-   FROM `你的專案ID.stock.vw_stock_trend_analysis`
-   WHERE stock_id="2330" ORDER BY trade_date DESC LIMIT 3'
+   FROM `你的專案ID.app.stock_trend_analysis`
+   WHERE stock_id="2330" AND ma20 IS NOT NULL ORDER BY trade_date DESC LIMIT 3'
 ```
 
 ---
@@ -602,7 +595,7 @@ OLTP 擅長「即時、頻繁的小筆讀寫」（例如爬蟲每天寫入股價
 
 **練習 0：讓排程維護三層**
 
-Step 4 的分層是手動建的。把 4-3 與 4-4 的 SQL 包成函式，接在第 17 章 `stock_bigquery_etl_dag` 的 transform task 之後，讓每天的排程順手把 stage 與 app 層更新掉——動手前先想：raw 層需要排程維護嗎？（提示：它是 view，永遠反映落地表的現狀）
+Step 3/4 的 stage 與 app 是手動建的。把這兩步的 SQL 包成函式，接在第 17 章 `stock_bigquery_etl_dag` 的 transform task 之後，讓每天的排程順手把 stage 與 app 層更新掉——動手前先想：raw 層需要排程維護嗎？（提示：同步程式每天覆蓋上傳 raw，stage 是 view 會自動跟上，真正要重算的只有 app 的實體表）
 
 **練習 1：讀懂 MA5 的 SQL**
 
@@ -646,16 +639,16 @@ Step 4 的分層是手動建的。把 4-3 與 4-4 的 SQL 包成函式，接在�
 docker compose -f docker-compose-local.yml up -d mysql
 docker exec mysql mysql -uroot -p1234 -N -e "SELECT COUNT(*) FROM mydb.TaiwanStockPrice;"
 
-# ② 環境變數指向本機的金鑰
+# ② 環境變數指向本機的金鑰，落地層一樣選 raw
 export GOOGLE_APPLICATION_CREDENTIALS="$HOME/gcp-keys/你的金鑰檔名.json"
 export GCP_PROJECT_ID="{你的專案ID}"
+export BQ_DATASET=raw
 
-# ③ 同步＋轉換（跟 Step 2/3 同兩支程式）
+# ③ 同步（跟 Step 2 同一支程式）
 uv run crawler/stock_sync_mysql_to_bigquery.py
-uv run crawler/stock_bigquery_data_transform.py
 ```
 
-之後的 Step 4（三層）與 Step 5（儀表板）全在 BigQuery／Looker Studio 上操作，跟資料從哪裡同步來無關，照主線做即可。
+之後的 Step 3/4（stage、app）與 Step 5（儀表板）全在 BigQuery／Looker Studio 上操作，跟資料從哪裡同步來無關，照主線做即可。
 
 > 這個版本也順便說明了金鑰的本質：`GOOGLE_APPLICATION_CREDENTIALS` 帶著金鑰，程式在 GCP 外面（你的電腦）跟在 GCP 裡面（VM）拿到的身分完全相同——這正是「服務帳戶是程式的身分、跟機器無關」的意思。
 
