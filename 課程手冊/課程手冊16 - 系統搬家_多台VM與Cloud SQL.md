@@ -446,6 +446,10 @@ sudo docker run --rm mysql:8.0 mysql -h{CloudSQL IP} -uroot -p1234 -N -e "SELECT
 
 另外，Part A 建實例時密碼寫在指令裡，指令歷史查得到——開專案者換完密碼記得 `history -c`，或者本來就用 `set-password` 換過一輪，歷史裡的舊密碼就失效了。
 
+Console 也能核對使用者清單：SQL → 實例 → 左側「**使用者**」，會列出 root 和 studio 兩個帳戶（改密碼也可以從每列右側的三點選單「變更密碼」做，跟 `set-password` 等效）：
+
+![Console 使用者頁](images/ch16/07-Console使用者頁root與studio.jpg)
+
 **T-2 授權網路越短越好——組員的電腦不加進去**
 
 白名單只放 VM 的外部 IP。組員要查資料有兩條路，都不需要把個人 IP 加進 Cloud SQL：SSH 進共用 VM 用上面那招一次性 mysql client，或用 Cloud SQL Studio（走 Console，不經授權網路）。Studio 的 `studio` 使用者密碼也用強的：
@@ -454,9 +458,17 @@ sudo docker run --rm mysql:8.0 mysql -h{CloudSQL IP} -uroot -p1234 -N -e "SELECT
 gcloud sql users set-password studio --host=% --instance={實例名} --password='{另一組強密碼}'
 ```
 
+白名單狀態可以在 Console 核對：SQL → 實例 → 「**連線設定**」→ 摘要分頁的「安全性」段，「已授權網路」應該只有 VM 的 IP、一筆都不多：
+
+![Console 授權網路](images/ch16/08-Console授權網路一筆IP.jpg)
+
 **T-3 Secret Manager 的授權不用重做**
 
 B-2 的授權對象是 Compute Engine 預設服務帳戶——所有跑在兩台 VM 上的程式共用這個身分，不論哪位組員操作，一次授權全組涵蓋。組員個人帳號不需要 `secretAccessor`：人不直接讀 secret，程式才讀。
+
+授權狀態可以在 Console 核對：安全性 → Secret Manager → `mysql-password` → 「**權限**」分頁——服務帳戶掛「Secret Manager 密鑰存取者」，成員清單裡沒有任何組員的個人帳號，這就是「授權綁程式不綁人」的樣子：
+
+![Secret Manager 權限頁](images/ch16/09-SecretManager權限頁SA存取者.jpg)
 
 **T-4 換密碼＝加一個新版本**
 
@@ -479,6 +491,10 @@ gcloud secrets versions list mysql-password
 ```
 
 容器重啟後透過 B-4 的 fallback 拿到新版——**程式碼與 compose 檔一行都不用動**，這正是密碼集中管理在團隊場景的價值：換密碼是一個人的兩條指令，不是全組每台機器各改一次。
+
+輪替軌跡在 Console 的「**版本**」分頁：每一列一個版本、帶建立日期，最新版在最上面——誰在什麼時候換過密碼，翻這頁就有紀錄：
+
+![Secret Manager 版本頁](images/ch16/10-SecretManager版本頁輪替軌跡.jpg)
 
 ## 收工：三個東西都要停
 

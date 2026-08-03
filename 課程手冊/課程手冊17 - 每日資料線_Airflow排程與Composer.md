@@ -429,6 +429,10 @@ gcloud compute instances describe {VM名} --zone=asia-east1-b --format="value(se
 # ['https://www.googleapis.com/auth/cloud-platform']
 ```
 
+Console 的核對位置：Compute Engine → VM 執行個體 → 點 VM 名稱 → 詳細資訊頁往下捲到「**API 與身分識別管理**」段——「Cloud API 存取權範圍」顯示「允許所有 Cloud API 的完整存取權」就是 `cloud-platform` 生效的樣子（VM 停機中也看得到）：
+
+![VM 詳細頁 API 存取權範圍](images/ch17/06-VM詳細頁API存取權範圍.jpg)
+
 **T-2 Airflow 的 admin/admin 要換掉**
 
 課程沿用預設帳密，防線是 8080 只對白名單 IP 開；團體專案的白名單有全組的 IP，Web 介面被看到的面變大了。用 Airflow CLI 改（在 VM1 上執行，一條指令）：
@@ -443,6 +447,14 @@ sudo docker exec airflow-webserver airflow users reset-password -u admin -p '{�
 ![Airflow 舊密碼登入被拒](images/ch17/04-Airflow舊密碼登入被拒.jpg)
 
 ![Airflow 新密碼登入成功](images/ch17/05-Airflow新密碼登入成功.jpg)
+
+不想下指令的話，UI 介面也能改：登入後點右上角**使用者頭像 → Your Profile**（或直接開 `http://{VM1外部IP}:8080/users/userinfo/`），個人資料頁左下角有「**Reset my password**」按鈕：
+
+![Airflow 個人資料頁](images/ch17/07-Airflow個人資料頁ResetPassword按鈕.jpg)
+
+按下去進到重設表單，輸入兩次新密碼按 Save 即完成。表單上方寫著「this application does not check this for you」——Airflow 不幫你檢查密碼強度，弱密碼它照收，強度要自己把關：
+
+![Airflow 重設密碼表單](images/ch17/08-Airflow重設密碼表單.jpg)
 
 新帳密的存放比照第 14 章步驟 6：寫在 VM 上的共用位置（例如 .env 同目錄的說明檔），不走聊天室。
 

@@ -12,7 +12,7 @@
 |-----------|------|-------------|
 | BigQuery | GCP 服務 | 資料倉儲：接收 MySQL 同步來的股價，用視窗函數算分析表 |
 | IAM | GCP 服務 | 給服務帳戶補上兩個 BigQuery 角色——課程的第一條授權指令 |
-| Looker Studio | Google 免費 SaaS | Step 5 接 app 層畫收盤走勢圖 |
+| Looker Studio | Google 免費 SaaS | Step 5 接 app 層拼四區塊儀表板 |
 | JSON 金鑰 | 憑證 | 本機程式對 GCP 的身分，`GOOGLE_APPLICATION_CREDENTIALS` 指向它 |
 | gcloud／bq CLI | 指令工具 | 開 API、授權、用查詢驗證資料落地 |
 | uv | 既有工具 | 在本機執行同步與轉換兩支程式 |
@@ -24,7 +24,7 @@
 3. 看懂怎麼在 BigQuery 上用 SQL 做分析（去重、移動平均、每日彙總）。
 4. 理解 ELT 這個流程。
 5. 用 raw／stage／app 三層把倉儲組織起來，說得出每一層的職責與排錯路徑。
-6. （Step 5，Bonus）用 Looker Studio 接 BigQuery，畫出兩支股票的收盤走勢圖。
+6. （Step 5，Bonus）用 Looker Studio 接 app 層，拼出計分卡＋均線疊圖＋走勢＋成交量的四區塊儀表板。
 
 ---
 
@@ -312,9 +312,18 @@ ORDER BY layer;
 
 之後排錯的路徑照著層走：報表怪 → 查 app、app 沒錯 → 查 stage、stage 沒錯 → 回 raw。第 17 章的排程 DAG 維持寫 `stock` dataset（主線不動）；想讓排程直接維護三層，把這幾段 SQL 接在 DAG 的 transform task 之後就行——這是「練習」的題目之一。
 
-## Step 5（Bonus）：用 Looker Studio 把 BigQuery 畫成走勢圖
+## Step 5（Bonus）：用 Looker Studio 把倉儲拼成四區塊儀表板
 
 第 8 章用 Metabase 接本機 MySQL 畫圖；雲端這一段的 BI 角色由 **Looker Studio** 接手——Google 的免費 SaaS BI 工具，不用安裝任何東西，內建 BigQuery 連接器。
+
+這一步會做出一張四區塊儀表板，資料**全部來自 Step 4 的 app 層**——這正是三層規矩的落實：BI 只讀 app，不直接碰 raw/stage：
+
+| 區塊 | 圖表類型 | 資料來源 | 欄位 |
+|------|---------|---------|------|
+| 大盤總成交量 | 計分卡 | `app.market_daily_summary` | total_volume（加總） |
+| 大盤平均收盤價 | 計分卡 | `app.market_daily_summary` | avg_close（平均） |
+| 收盤＋MA5＋MA20 疊線 | 時間序列 | `app.stock_trend_analysis` | close、ma5、ma20（篩單一股票） |
+| 雙股收盤走勢＋成交量長條 | 時間序列 | `app.stock_trend_analysis` | close（按 stock_id 分線）、volume |
 
 先分清楚兩個工具誰做什麼——這是本機「MySQL → Metabase」關係的雲端翻版：
 
@@ -340,35 +349,60 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
    - 步驟 2：三個電子報訂閱問題，都選「否」即可
      ![電子報偏好](images/ch15/B03-帳戶設定-電子報偏好.jpg)
 
-**5-2 連接 BigQuery 資料**
+**5-2 連接第一個資料來源：app 層的 stock_trend_analysis**
 
 1. 回到首頁點「**建立報表**」→ 出現「將資料新增至報表」的連接器清單
    ![連接器清單](images/ch15/B04-連接器選擇-BigQuery.jpg)
 2. 點 **BigQuery** → 第一次會再要求一次授權（「數據分析必須先取得授權，才能與您的 BigQuery 專案連結」）→ 按「授權」
    ![BigQuery 授權](images/ch15/B05-BigQuery連接器授權.jpg)
-3. 依序點選：Project 搜「stock」→ 你的專案
-   ![選專案](images/ch15/B06-選專案.jpg)
-4. 資料集選「stock」→ 右欄列出這個資料集底下的表與 View
-   ![選資料集與表清單](images/ch15/B07-選資料集與表清單.jpg)
-5. Table 搜「trend」→ 選 **stock_trend_analysis**（選實體 Table 而非 View，載入較快）
-   ![選定資料表](images/ch15/B08-選定stock_trend_analysis.jpg)
-6. 右下角「**新增**」→ 確認視窗按「**加入報表**」
+3. 依序點選：Project 選你的專案 → 資料集清單會列出 Step 4 建好的四個：**app、raw、stage、stock**
+4. 資料集點 **app** → Table 欄出現 `market_daily_summary` 和 `stock_trend_analysis` → 選 **stock_trend_analysis**
+   ![資料來源選 app 層](images/ch15/15-資料來源選app層.jpg)
+5. 右下角「**新增**」→ 確認視窗按「**加入報表**」
    ![加入報表確認](images/ch15/B09-加入報表確認.jpg)
-7. 進入編輯器後，右側「資料」面板列出所有欄位（close、ma5、ma20、stock_id、trade_date……）——這就是你在 Step 3 建的分析表
-   ![資料欄位面板](images/ch15/B10-編輯器與資料欄位面板.jpg)
+6. 進入編輯器後，右側「資料」面板列出欄位（close、ma5、ma20、prev_close、stock_id、trade_date、volume）——這就是 Step 4 建的 app 層趨勢表
+7. 左上角點「未命名的報表」，改名（例：`股價儀表板-app層`）後按 Enter
 
-**5-3 畫兩支股票的收盤走勢**
+**5-3 加入第二個資料來源：market_daily_summary**
 
-1. 上方工具列「**新增圖表**」→「時間序列」的第一個樣式 → 在畫布上點一下放置
-2. 圖表預設用 Record Count 當指標，畫出來是一條沒有意義的水平線：
-   ![初始的 Record Count](images/ch15/B11-時間序列圖初始RecordCount.jpg)
-3. 改右側設定面板三個欄位：
-   - **維度-X 軸**：`trade_date`（通常自動選好）
-   - **細目維度**：點「新增維度」→ 選 `stock_id`（讓每支股票各畫一條線）
-   - **指標-Y 軸**：點預設的 Record Count → 換成 `close`
-   ![設定完成](images/ch15/B12-設定完成兩條走勢線.jpg)
-4. 左上角把「未命名的報表」改名，按右上角「**查看**」切到檢視模式——兩支股票的收盤價走勢線完成
-   ![成品](images/ch15/B13-查看模式成品.jpg)
+一份報表可以掛多個資料來源，之後每張圖表各自選要用哪一個。
+
+1. 右側「資料」面板最下方點「**新增資料**」→ 再走一次連接器流程：BigQuery → 你的專案 → **app** → **market_daily_summary** → 「新增」→「加入報表」
+2. 完成後「資料」面板同時列出兩個來源：`stock_trend_analysis` 和 `market_daily_summary`
+
+**5-4 兩張大盤計分卡**
+
+1. 上方選單「**插入**」→「**評量表**」→ 在畫布左上角拖出一個方框放置
+2. 右側「設定」分頁確認**資料來源**是 `market_daily_summary`（不是的話點資料來源欄位切換）；**指標**點預設的 Record Count → 換成 `total_volume`——卡片顯示全市場成交量總和
+3. 選取這張卡片按 Cmd/Ctrl+C、Cmd/Ctrl+V 複製一張，拖到下方；把複製卡的**指標**換成 `avg_close`
+4. `avg_close` 預設匯總是 SUM（把每天的平均價全部加起來，數字沒有意義）——點指標欄位左側的 **SUM 標記** → 「匯總」下拉改成「**平均**」，卡片變成合理的平均收盤價（指標左側標記變 AVG）
+
+**5-5 收盤＋MA5＋MA20 疊線圖（單一股票）**
+
+1. 「插入」→「**時序圖**」→ 拖放在右上區。圖表會沿用上一張圖的資料來源，**設定分頁把資料來源切回 `stock_trend_analysis`**
+2. **指標-Y 軸**：預設指標換成 `close`，再點「新增指標」兩次，加入 `ma5`、`ma20`——三條線疊在同一張圖
+3. 兩支股票混在一起時 MA 線沒有意義，要篩出單一股票：設定分頁最下方「這張圖表的篩選器」→「**新增篩選器**」→「**建立篩選條件**」：
+   - 名稱填 `只看2330`
+   - 條件列：「包含」＋欄位選 `stock_id`＋運算子選「等於 (=)」＋值輸入 `2330`（會跳建議值可直接點）
+   - 按「**儲存**」
+4. 走勢線在非交易日（週末）會掉到 0 呈鋸齒狀：切「樣式」分頁 → 「**缺少資料**」下拉從「空值歸零」改成「**線性插值**」——線就連起來了
+
+**5-6 雙股收盤走勢圖**
+
+1. 再插入一張時序圖放左下區，資料來源同樣用 `stock_trend_analysis`，指標 `close`
+2. 設定分頁「**細目維度**」→「新增維度」→ 選 `stock_id`——每支股票各畫一條線，圖例出現 2330 與 00679B
+3. 同 5-5 把樣式的「缺少資料」改「線性插值」
+
+**5-7 成交量長條圖**
+
+1. 再插入一張時序圖放右下區，指標換成 `volume`
+2. 切「樣式」分頁 → 「系列 #1」的**系列類型**從「線條」改「**長條**」——成交量改以柱狀呈現，量能高峰比線圖容易辨識
+3. 完成後按右上角「**查看**」切到檢視模式，四區塊儀表板完成：
+
+![四區塊儀表板上半](images/ch15/16-四區塊儀表板上半.jpg)
+![四區塊儀表板下半](images/ch15/17-四區塊儀表板下半.jpg)
+
+> 首次連接與基礎單圖流程的完整截圖（選專案、Record Count 預設值、細目維度設定）在舊版流程圖 B06～B13，操作路徑相同，差別只在資料集從 stock 換成 app。
 
 **跟第 8 章 Metabase 的對照**（這就是雲端段的 BI 交接）：
 
@@ -383,8 +417,11 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 | 狀況 | 原因 | 怎麼解 |
 |------|------|--------|
-| 走勢線鋸齒狀、頻繁掉到 0 | 非交易日（週末）沒有資料，時間序列預設把缺值畫成 0 | 選取圖表 → 右側「樣式」分頁 → 「缺漏資料」改成「線條中斷」 |
+| 走勢線鋸齒狀、頻繁掉到 0 | 非交易日（週末）沒有資料，時間序列預設把缺值畫成 0 | 選取圖表 → 右側「樣式」分頁 → 「缺少資料」改「線性插值」（要斷開不補值就選「線條中斷」） |
+| avg_close 計分卡數字大到不合理 | 指標預設匯總是 SUM，把每天的平均價加總 | 點指標左側 SUM 標記 → 匯總改「平均」 |
+| 新圖表撈不到要的欄位 | 圖表綁到另一個資料來源（報表掛了兩個） | 設定分頁最上方「資料來源」切換 |
 | 連接器清單找不到專案 | Looker Studio 登入的 Google 帳號跟 GCP 不同 | 右上角頭像確認帳號，必要時切換 |
+| 網址列變成 datastudio.google.com | `lookerstudio.google.com` 會自動轉址到舊網域 | 是同一個服務，不影響操作 |
 
 ---
 
@@ -448,7 +485,15 @@ gcloud projects add-iam-policy-binding {專案ID} \
 
 **T-3 Looker Studio 報表用共用機制，不經過 IAM**
 
-報表是個人 Google 帳號建的，組員看不到別人的報表。用 Looker Studio 右上角的「共用」把報表開給組員的 Gmail（檢視或編輯），跟 Google 文件同一套邏輯。注意分工：**資料層的權限歸 GCP IAM（T-2），報表層的權限歸 Looker Studio 共用**——組員能看報表不代表能查底層資料，反過來也一樣。
+報表是個人 Google 帳號建的，組員看不到別人的報表。共用步驟：
+
+1. 開啟報表（編輯或查看模式都可以）→ 右上角「**共用**」
+2. 對話框輸入組員的 Gmail，右側權限選「**檢視者**」（只看）或「編輯者」（可改圖表）
+3. 按「**傳送**」——組員信箱會收到報表連結
+
+![共用對話框](images/ch15/18-共用對話框.jpg)
+
+跟 Google 文件同一套邏輯。注意分工：**資料層的權限歸 GCP IAM（T-2），報表層的權限歸 Looker Studio 共用**——組員能看報表不代表能查底層資料，反過來也一樣。組員開報表時看到的資料，走的是**建報表者**連進 BigQuery 的憑證（畫面上「資料憑證」欄顯示擁有者名字），所以檢視者不需要任何 GCP 權限。
 
 ## 檢查：這一章做完的狀態
 
@@ -458,7 +503,7 @@ gcloud projects add-iam-policy-binding {專案ID} \
 | 2 | 出現 `vw_stock_trend_analysis` 等 View | 轉換成功 |
 | 3 | 查詢時只掃到相關分區 | 分區生效、省錢 |
 | 4 | 左側資源樹看得到 raw／stage／app 三個 dataset，驗證查詢的各層筆數對得上 | 倉儲有了分層結構 |
-| 5 | （Step 5）Looker Studio 報表出現兩條走勢線 | BI 接上倉儲，資料線最後一格點亮 |
+| 5 | （Step 5）Looker Studio 四區塊儀表板成形，資料全來自 app 層 | BI 接上倉儲，資料線最後一格點亮 |
 
 在 GCP Console 看（≡ 選單 → BigQuery）：左側樹狀展開專案 → `stock` 資料集，四張表、三個 View 都在：
 
