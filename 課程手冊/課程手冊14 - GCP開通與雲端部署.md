@@ -717,7 +717,7 @@ sudo docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
 
 - `--build` 順便建好兩個 crawler worker 的 image；其餘 image 自動從 Docker Hub 拉。第一次啟動約 3-5 分鐘
 - `--scale metabase=0` 的意思是「metabase 這個服務這次開 0 份」＝完全不啟動它。**雲端段不跑 Metabase**，原因有二：
-  1. BI 的角色在雲端段由 **Looker Studio** 接手（第 15 章的 Bonus 會教，它有內建的 BigQuery 連接器）。第 8 章的本機 Metabase 保留不動，正好形成「自架 BI vs 託管 BI」的對照
+  1. BI 的角色在雲端段由 **Looker Studio** 接手（第 15 章 Step 5 會教，它有內建的 BigQuery 連接器）。第 8 章的本機 Metabase 保留不動，正好形成「自架 BI vs 託管 BI」的對照
   2. Metabase 是 Java 應用，一個容器就要 1GB 記憶體，而且啟動時常搶不到還沒就緒的 MySQL 而失敗——雲端 demo 用不到它，就不花這個資源
 
 **H-4 驗證（第 13 章的七步驟，雲端版）**

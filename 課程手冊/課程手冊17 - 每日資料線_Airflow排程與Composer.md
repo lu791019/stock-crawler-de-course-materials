@@ -35,7 +35,7 @@ flowchart TD
     W["VM2 worker 爬蟲"] -->|逐筆寫入| SQL[("Cloud SQL<br/>OLTP：即時、逐筆")]
     SQL --> SYNC["sync_mysql_to_bigquery<br/>＋三個 transform task"]
     SYNC --> BQ[("BigQuery<br/>OLAP：分析、聚合<br/>主表＋每日行情／MA5·MA20 趨勢／大盤摘要")]
-    BQ -->|讀取分析表| LS["Looker Studio<br/>BI 儀表板（第 15 章 Bonus 已接）"]
+    BQ -->|讀取分析表| LS["Looker Studio<br/>BI 儀表板（第 15 章 Step 5 已接）"]
     AF["VM1 自架 Airflow"] -.->|每個交易日 20:00 觸發| SYNC
 ```
 
@@ -408,6 +408,13 @@ gcloud composer environments list-packages stock-composer --location=asia-east1
 4. **DAG 誰都能改，怎麼避免改壞？**——立規矩：修改走 git，不直接在 VM 上動檔案 →（T-4）
 
 前兩個是設定（做一次就好），後兩個是約定（要全組遵守）——排程系統的團隊化，一半靠設定、一半靠紀律。
+
+| 層 | 解決的問題 | 要做什麼 | 誰做 | 段落 |
+|----|-----------|---------|------|------|
+| 機器 scopes | 停機才能改、多人會撞 | 指定開專案者趁開工改一次 | 開專案者 | T-1 |
+| 介面帳密 | admin/admin 暴露面變大 | CLI 或 UI 改密碼；進階：每人一個帳號 | 開專案者 | T-2 |
+| 費用 | 每天真的跑＝持續計費 | 全組選定執行模式 | 全組約定 | T-3 |
+| 變更管理 | DAG 改壞全組停擺 | 修改一律走 git | 全組約定 | T-4 |
 
 **T-1 scopes 由開專案者改，趁開工一起做**
 

@@ -12,7 +12,7 @@
 |-----------|------|-------------|
 | BigQuery | GCP 服務 | 資料倉儲：接收 MySQL 同步來的股價，用視窗函數算分析表 |
 | IAM | GCP 服務 | 給服務帳戶補上兩個 BigQuery 角色——課程的第一條授權指令 |
-| Looker Studio | Google 免費 SaaS | Bonus 段接 BigQuery 畫收盤走勢圖 |
+| Looker Studio | Google 免費 SaaS | Step 5 接 app 層畫收盤走勢圖 |
 | JSON 金鑰 | 憑證 | 本機程式對 GCP 的身分，`GOOGLE_APPLICATION_CREDENTIALS` 指向它 |
 | gcloud／bq CLI | 指令工具 | 開 API、授權、用查詢驗證資料落地 |
 | uv | 既有工具 | 在本機執行同步與轉換兩支程式 |
@@ -23,7 +23,8 @@
 2. 看懂怎麼把 MySQL 的資料同步進 BigQuery。
 3. 看懂怎麼在 BigQuery 上用 SQL 做分析（去重、移動平均、每日彙總）。
 4. 理解 ELT 這個流程。
-5. （Bonus）用 Looker Studio 接 BigQuery，畫出兩支股票的收盤走勢圖。
+5. 用 raw／stage／app 三層把倉儲組織起來，說得出每一層的職責與排錯路徑。
+6. （Step 5，Bonus）用 Looker Studio 接 BigQuery，畫出兩支股票的收盤走勢圖。
 
 ---
 
@@ -62,6 +63,18 @@ flowchart TD
 ```
 
 這就是資料工程常說的 **ELT**：先把資料 **L**oad（載入）進倉儲，再在倉儲裡 **T**ransform（轉換）。跟傳統「先轉換再載入」的 ETL 相反——雲端倉儲夠強，所以偏好先搬進去、再用它的算力轉換。
+
+### 倉儲的三層習慣：raw／stage／app
+
+上面那條 ELT 線，業界通常會用**分層**把它組織起來，最常見的三層命名：
+
+| 層 | 職責 | 規矩 | 對應本章 |
+|----|------|------|---------|
+| **raw** | 原始資料照搬落地，一個欄位都不改 | 只寫入、不修改——它是「發生過什麼」的證據 | Load 進來的 `TaiwanStockPrice` |
+| **stage** | 清理與整理：去重、改欄位名、轉型別 | 從 raw 算出來，隨時可以重建 | 去重後的每日股價 |
+| **app** | 給人與報表用的成品表 | 從 stage 算出來，BI 工具只讀這一層 | MA5/MA20 趨勢表、大盤摘要 |
+
+分層的價值在**出問題時知道去哪找**：報表數字怪 → 查 app 的計算；app 沒錯 → 查 stage 的清理；stage 也沒錯 → 回 raw 對原始資料。每一層只對上一層負責，這跟第 6 章把設定集中在 config、第 16 章 override 分層是同一種思路——**關注點分離**。Step 4 會把本章的資料實際組織成這三層。
 
 ---
 
@@ -229,7 +242,77 @@ uv run crawler/stock_bigquery_data_transform.py
 
 ---
 
-## Bonus：用 Looker Studio 把 BigQuery 畫成走勢圖
+### Step 4：把倉儲組織成三層——raw／stage／app
+
+Step 2 落地的 `TaiwanStockPrice` 就是 raw 層的資料、Step 3 建的分析物件就是 app 層的內容——只是它們都擠在同一個 `stock` dataset 裡，層次是隱形的。這一步用「先搞懂」的三層習慣把它組織出來：**一層一個 dataset，名字就是層名**，看 dataset 就知道資料處在哪個加工階段。全部用 SQL 完成，主線程式一行都不用改。
+
+**4-1 建三個 dataset**（location 要跟 `stock` 同區）：
+
+```bash
+bq mk --dataset --location=US {你的專案ID}:raw
+bq mk --dataset --location=US {你的專案ID}:stage
+bq mk --dataset --location=US {你的專案ID}:app
+```
+
+**4-2 raw 層——原始資料的入口**。實務上同步程式會直接寫進 raw；課程讓 raw 用 view 指向既有的落地表，效果相同、不動主線：
+
+```sql
+CREATE OR REPLACE VIEW raw.taiwan_stock_price AS
+SELECT * FROM stock.TaiwanStockPrice;
+```
+
+**4-3 stage 層——去重與整理**。同一支股票同一天若有重複列（append 模式跑過兩次就會有），留成交量最大的那筆；順手把欄位名整理成一致的小寫：
+
+```sql
+CREATE OR REPLACE VIEW stage.stock_price_daily AS
+SELECT stock_id, date AS trade_date, open, max, min, close, spread,
+       Trading_Volume AS volume, Trading_money AS amount
+FROM (
+  SELECT s.*, ROW_NUMBER() OVER (PARTITION BY stock_id, date ORDER BY Trading_Volume DESC) AS rn
+  FROM raw.taiwan_stock_price s
+) WHERE rn = 1;
+```
+
+**4-4 app 層——給報表用的成品表**。從 stage 算出趨勢分析（Step 3 的視窗函數，這次落在 app）與大盤摘要：
+
+```sql
+CREATE OR REPLACE TABLE app.stock_trend_analysis AS
+SELECT stock_id, trade_date, close, volume,
+  LAG(close) OVER (PARTITION BY stock_id ORDER BY trade_date) AS prev_close,
+  AVG(close) OVER (PARTITION BY stock_id ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) AS ma5,
+  AVG(close) OVER (PARTITION BY stock_id ORDER BY trade_date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS ma20
+FROM stage.stock_price_daily;
+
+CREATE OR REPLACE TABLE app.market_daily_summary AS
+SELECT trade_date,
+  COUNT(DISTINCT stock_id) AS active_stocks,
+  SUM(volume) AS total_volume,
+  ROUND(AVG(close), 2) AS avg_close,
+  COUNTIF(spread > 0) AS up_count,
+  COUNTIF(spread < 0) AS down_count
+FROM stage.stock_price_daily
+GROUP BY trade_date;
+```
+
+**4-5 驗證——各層筆數自己會說話**：
+
+```sql
+SELECT "raw" AS layer, COUNT(*) AS n FROM raw.taiwan_stock_price
+UNION ALL SELECT "stage", COUNT(*) FROM stage.stock_price_daily
+UNION ALL SELECT "app.trend", COUNT(*) FROM app.stock_trend_analysis
+UNION ALL SELECT "app.summary", COUNT(*) FROM app.market_daily_summary
+ORDER BY layer;
+```
+
+左側資源樹會多出三個 dataset，查詢結果就是分層的證據——raw 的筆數是 stage 的兩倍，代表原始資料有整批重複（append 模式的痕跡），**stage 的去重把它清掉了，而 raw 原封不動留著這個事實**：
+
+![BigQuery 分層 dataset 樹](images/ch15/13-BQ-分層dataset樹.jpg)
+
+![三層驗證查詢：raw 與 stage 的筆數差就是去重的證據](images/ch15/14-BQ-三層驗證查詢.jpg)
+
+之後排錯的路徑照著層走：報表怪 → 查 app、app 沒錯 → 查 stage、stage 沒錯 → 回 raw。第 17 章的排程 DAG 維持寫 `stock` dataset（主線不動）；想讓排程直接維護三層，把這幾段 SQL 接在 DAG 的 transform task 之後就行——這是「練習」的題目之一。
+
+## Step 5（Bonus）：用 Looker Studio 把 BigQuery 畫成走勢圖
 
 第 8 章用 Metabase 接本機 MySQL 畫圖；雲端這一段的 BI 角色由 **Looker Studio** 接手——Google 的免費 SaaS BI 工具，不用安裝任何東西，內建 BigQuery 連接器。
 
@@ -246,7 +329,7 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 > 注意：Looker Studio 已更名為「數據分析」，介面上兩個名字都會看到，是同一個東西。
 
-**Bonus-1 首次使用的帳戶設定**（只有第一次要做）
+**5-1 首次使用的帳戶設定**（只有第一次要做）
 
 1. 開 `lookerstudio.google.com`，確認右上角是你開通 GCP 的 Google 帳號
 2. 跳出「授權 數據分析 API」→ 按「繼續」
@@ -257,7 +340,7 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
    - 步驟 2：三個電子報訂閱問題，都選「否」即可
      ![電子報偏好](images/ch15/B03-帳戶設定-電子報偏好.jpg)
 
-**Bonus-2 連接 BigQuery 資料**
+**5-2 連接 BigQuery 資料**
 
 1. 回到首頁點「**建立報表**」→ 出現「將資料新增至報表」的連接器清單
    ![連接器清單](images/ch15/B04-連接器選擇-BigQuery.jpg)
@@ -274,7 +357,7 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 7. 進入編輯器後，右側「資料」面板列出所有欄位（close、ma5、ma20、stock_id、trade_date……）——這就是你在 Step 3 建的分析表
    ![資料欄位面板](images/ch15/B10-編輯器與資料欄位面板.jpg)
 
-**Bonus-3 畫兩支股票的收盤走勢**
+**5-3 畫兩支股票的收盤走勢**
 
 1. 上方工具列「**新增圖表**」→「時間序列」的第一個樣式 → 在畫布上點一下放置
 2. 圖表預設用 Record Count 當指標，畫出來是一條沒有意義的水平線：
@@ -296,7 +379,7 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 | 費用 | 軟體免費、機器自己出 | 工具免費；查詢照 BigQuery 計費（課程資料量在免費額度內） |
 | 適合 | 資料在自家、想全部自管 | 資料已在 GCP、想省維運 |
 
-**Bonus 排錯**：
+**Step 5 排錯**：
 
 | 狀況 | 原因 | 怎麼解 |
 |------|------|--------|
@@ -316,6 +399,12 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 3. **組員看得到你建的 Looker Studio 報表嗎？**——看不到。報表是個人帳號的資產，要用共用機制開放 →（T-3）
 
 一句話總結本節：**程式的權限（服務帳戶）全組共用一份、不用重做；人的權限（個人帳號）各自要給**。分清楚這兩條線，三個問題就都有答案。
+
+| 層 | 解決的問題 | 要做什麼 | 誰做 | 段落 |
+|----|-----------|---------|------|------|
+| 程式的權限 | 同步授權要不要每人做 | 不用重做——理解授權綁的是服務帳戶 | 開專案者（本章 Step 1 已做） | T-1 |
+| 人的權限 | 組員查不了 BigQuery | 給組員兩個 BigQuery 個人角色 | 開專案者 | T-2 |
+| 報表層 | 組員看不到報表 | Looker Studio 共用給組員 | 建報表的人 | T-3 |
 
 **T-1 服務帳戶的授權不用重做——先搞懂為什麼**
 
@@ -368,7 +457,8 @@ gcloud projects add-iam-policy-binding {專案ID} \
 | 1 | GCP Console 的 BigQuery 出現 `stock` 資料集與 `TaiwanStockPrice` 表 | 同步成功 |
 | 2 | 出現 `vw_stock_trend_analysis` 等 View | 轉換成功 |
 | 3 | 查詢時只掃到相關分區 | 分區生效、省錢 |
-| 4 | （Bonus）Looker Studio 報表出現兩條走勢線 | BI 接上倉儲，資料線最後一格點亮 |
+| 4 | 左側資源樹看得到 raw／stage／app 三個 dataset，驗證查詢的各層筆數對得上 | 倉儲有了分層結構 |
+| 5 | （Step 5）Looker Studio 報表出現兩條走勢線 | BI 接上倉儲，資料線最後一格點亮 |
 
 在 GCP Console 看（≡ 選單 → BigQuery）：左側樹狀展開專案 → `stock` 資料集，四張表、三個 View 都在：
 
@@ -438,6 +528,10 @@ OLTP 擅長「即時、頻繁的小筆讀寫」（例如爬蟲每天寫入股價
 ## 練習
 
 > 以下需要 GCP 環境；沒有的話，改成「讀懂 SQL 並用自己的話解釋它在算什麼」。
+
+**練習 0：讓排程維護三層**
+
+Step 4 的分層是手動建的。把 4-3 與 4-4 的 SQL 包成函式，接在第 17 章 `stock_bigquery_etl_dag` 的 transform task 之後，讓每天的排程順手把 stage 與 app 層更新掉——動手前先想：raw 層需要排程維護嗎？（提示：它是 view，永遠反映落地表的現狀）
 
 **練習 1：讀懂 MA5 的 SQL**
 
