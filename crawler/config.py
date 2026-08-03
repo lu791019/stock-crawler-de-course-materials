@@ -32,9 +32,10 @@ MONGO_PASSWORD = os.environ.get("MONGO_PASSWORD", "1234")
 # GCP 設定（使用 BigQuery 時取消註解）
 # GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "your-project-id")
 
-# Secret Manager 密碼覆蓋（第 18 章使用時取消註解, 需要上面的 GCP_PROJECT_ID）
-# 邏輯: 先問 Secret Manager（雲端正式）, 拿不到就維持上面環境變數的值（本機教學）
-# 同一份程式碼: 有授權的 VM 自動用雲端機密, 本機照舊用 .env, 呼叫端一行都不用改
+# Secret Manager 執行時讀取（參考用, 課程不啟用）
+# 課程做法是「部署時注入」: up 指令用 $(gcloud secrets versions access ...) 把密碼塞進環境變數,
+# 程式只讀環境變數（上面第 23 行）, 不裝 SDK。下面是另一種做法——程式執行時自己讀 secret,
+# 代價是要裝 google-cloud-secret-manager, 且失敗時靜默退回預設值不報錯（見手冊16 B-4 補充）
 # def _password_from_secret_manager():
 #     """讀 Secret Manager 的 mysql-password; 任何原因失敗回 None, 讓呼叫端退回原值"""
 #     try:

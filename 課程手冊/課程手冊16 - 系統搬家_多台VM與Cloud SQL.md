@@ -208,61 +208,47 @@ gcloud secrets versions access latest --secret=mysql-password
 # 1234
 ```
 
-**B-4 讓程式去讀 secret**：
+**B-4 部署時注入——密碼在啟動指令裡從 Secret Manager 取出**：
 
-打開 `crawler/config.py`，把 Secret Manager 區塊的註解取消（連同上面的 `GCP_PROJECT_ID` 那行，第 15 章取消過的話它已經是開的）。取消後的邏輯是：
-
-```python
-def _password_from_secret_manager():
-    """讀 Secret Manager 的 mysql-password；任何原因失敗就回 None，讓呼叫端用原本的值"""
-    try:
-        from google.cloud import secretmanager
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{GCP_PROJECT_ID}/secrets/mysql-password/versions/latest"
-        return client.access_secret_version(name=name).payload.data.decode()
-    except Exception:
-        return None
-
-MYSQL_PASSWORD = _password_from_secret_manager() or MYSQL_PASSWORD
-```
-
-這種寫法叫 **fallback（後備）設計**：先跟 Secret Manager 要密碼，要不到就用環境變數的值。這樣同一份程式碼，在有授權的 VM 上會用雲端的密碼、在你自己的電腦上會用 `.env` 的預設值——換部署環境時程式碼不用改。這跟第 6 章把設定集中在 config 的做法是同一個原則。
-
-在 VM1 上驗證。這裡會遇到一個問題：secret 的值和 `.env` 的預設值都是 1234，印出來看不出密碼是從哪邊來的。解法是利用 Secret Manager 的**版本**功能，先加一個容易辨識的值，測完再換回來。**注意下面三段在不同機器上執行**：
-
-**（在你自己的電腦）** 新增一個版本，內容改成好辨識的字串——`versions add` 是新增版本，`latest` 會指向最新的這一版：
+程式讀密碼的方式**維持原樣**：`config.py` 的 `MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "1234")`，只認環境變數。要換的是**部署那一刻怎麼把值塞進環境變數**——啟動指令先跟 Secret Manager 要密碼、再交給 compose：
 
 ```bash
-printf "sm-test-42" | gcloud secrets versions add mysql-password --data-file=-
+# 先看懂結構：$(...) 會先執行括號裡的指令、把輸出當值放進 MYSQL_PASSWORD
+# sudo -E 的 -E 是保留環境變數（sudo 預設會清空環境，不加 -E 值就傳不進去）
+MYSQL_PASSWORD=$(gcloud secrets versions access latest --secret=mysql-password) \
+  sudo -E docker compose -f docker-compose-local.yml up -d
 ```
 
-**（SSH 進 VM1，`~/stock-crawler` 目錄下）** 兩個測試——先確認讀得到 Secret Manager 的值，再故意弄壞確認 fallback：
+這個做法的分工：**密碼管理是部署的事，不是程式的事**。程式一行不改、不裝任何 SDK；讀 secret 的動作發生在 up 的那一瞬間，用的是「執行指令的機器」的身分——在 VM 上就是 B-2 授權的服務帳戶。密碼不落地成檔案（磁碟上找不到）、也不進指令歷史（`history` 只看得到 `$(...)` 這串文字，不是密碼的值）。
+
+**換密碼＝新增版本＋重跑 up。** 團隊環境密碼會需要輪替（組員退出專題、密碼外流）。流程兩步，**注意在不同機器執行**：
+
+**（在你自己的電腦）** 新增一個版本——`versions add` 是新增版本，`latest` 會自動指向最新這一版：
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
-GCP_PROJECT_ID={你的專案ID} uv run python -c \
-  "from crawler.config import MYSQL_PASSWORD; print('password =', MYSQL_PASSWORD)"
-# password = sm-test-42      ← 值來自 Secret Manager，不是 .env
-
-# 故意給一個不存在的專案 ID，讀取會失敗
-GCP_PROJECT_ID=no-such-project uv run python -c \
-  "from crawler.config import MYSQL_PASSWORD; print('password =', MYSQL_PASSWORD)"
-# password = 1234            ← 退回 .env 的預設值
+printf "{新密碼}" | gcloud secrets versions add mysql-password --data-file=-
+# Created version [10] of the secret [mysql-password].
 ```
 
-**（回你自己的電腦）** 再新增一個版本把密碼換回 1234：
+**（SSH 進跑服務的 VM）** 重跑一次注入啟動，容器就會拿到新值。驗證直接看容器的環境變數：
 
 ```bash
-printf "1234" | gcloud secrets versions add mysql-password --data-file=-
+sudo docker exec {容器名} env | grep MYSQL_PASSWORD
+# MYSQL_PASSWORD={新密碼}     ← 值來自 Secret Manager 的 latest
 ```
 
-> fallback 的靜默是雙面刃：換環境不用改程式碼是它的優點，但授權壞掉時程式不會報錯、會直接改用預設密碼繼續跑——所以上面「故意弄壞」的測試不能省，部署後也要用這招確認密碼真的來自 Secret Manager。
+一個要記住的行為（VM 上驗證過的結果）：**`docker restart` 拿不到新密碼**——環境變數是容器「建立」時由 compose 插值寫入的，restart 只是重開同一個容器；要拿新版本就重跑上面的注入 up（compose 偵測到環境變數變了會自動重建容器）：
 
-上面這三個動作就是**密碼輪替**的完整流程：新增一個版本，所有讀 `latest` 的程式下次啟動就會拿到新值，不需要逐台修改檔案。
+```bash
+sudo docker restart {容器名}   # ← 容器內 MYSQL_PASSWORD 還是舊值
+# 重跑注入 up                  # ← 這才會換新值
+```
 
-Console 上可以看到剛才產生的所有版本（≡ → 安全性 → Secret Manager → 點 mysql-password → 版本分頁）。每個版本都保留著，可以停用、也可以切回舊版：
+Console 上可以看到累積的所有版本（≡ → 安全性 → Secret Manager → 點 mysql-password → 版本分頁）。每個版本都保留著，可以停用、也可以切回舊版——這頁就是密碼輪替的軌跡：
 
 ![Secret Manager 版本清單](images/ch16/06-SecretManager版本清單.jpg)
+
+> 補充：`crawler/config.py` 裡有一段註解掉的 Secret Manager 讀取程式碼（程式執行時自己去讀 secret、失敗就 fallback 回預設值）。那是另一種做法，代價是程式要裝 SDK、且失敗時靜默改用預設密碼不報錯——課程採用部署時注入，把密碼問題留在部署層、程式保持乾淨。
 
 ### Part C：VM1 收斂成 infra 角色
 
@@ -311,27 +297,28 @@ worker 在 compose 檔裡寫的是 `RABBITMQ_HOST=rabbitmq`、`MYSQL_HOST=mysql`
 
 ```bash
 cat > gcp-worker-override.yml <<'YML'
-# worker 上雲的 override：覆蓋兩個 HOST 加上專案 ID，其餘沿用 docker-compose-local.yml
+# worker 上雲的 override：覆蓋兩個 HOST，密碼由部署指令從 Secret Manager 注入
 services:
   worker_twse:
     environment:
       - RABBITMQ_HOST={VM1內部IP}       # 例：10.140.0.2——同 VPC 用內部 IP
       - MYSQL_HOST={CloudSQL IP}        # 例：35.229.208.220
-      - GCP_PROJECT_ID={你的專案ID}     # config.py 要用它去 Secret Manager 拿密碼
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-1234}   # 部署指令有給就用給的，沒給退回 1234
   worker_tpex:
     environment:
       - RABBITMQ_HOST={VM1內部IP}
       - MYSQL_HOST={CloudSQL IP}
-      - GCP_PROJECT_ID={你的專案ID}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-1234}
 YML
 ```
 
-注意這裡**沒有寫密碼**。密碼由 Part B 的 Secret Manager 提供：容器裡的 `config.py` 會拿 `GCP_PROJECT_ID` 去讀 secret。容器本身不需要金鑰檔——它跑在 VM 上，會用 VM 的服務帳戶身分去讀，這正是 Part B-2 授權的那個帳戶。
+注意這裡**沒有把密碼寫死**。`${MYSQL_PASSWORD:-1234}` 是 compose 的變數插值：up 的當下如果 shell 環境有 `MYSQL_PASSWORD` 就用它、沒有就退 1234——密碼的值由下面的啟動指令從 Secret Manager 取出，檔案裡永遠不會出現明碼。讀 secret 用的是 VM 的服務帳戶身分（B-2 授權的那個），不需要金鑰檔。
 
-用「兩個 -f」啟動——compose 會把兩份檔案**合併**，後面的蓋前面的：
+用「兩個 -f」啟動——compose 會把兩份檔案**合併**，後面的蓋前面的；最前面掛上 B-4 的注入：
 
 ```bash
-sudo docker compose -f docker-compose-local.yml -f gcp-worker-override.yml \
+MYSQL_PASSWORD=$(gcloud secrets versions access latest --secret=mysql-password) \
+  sudo -E docker compose -f docker-compose-local.yml -f gcp-worker-override.yml \
   up -d --no-deps worker_twse worker_tpex
 
 sudo docker logs crawler_twse --tail 5
@@ -348,15 +335,15 @@ worker 跨機器連上了 VM1 的 RabbitMQ。`--no-deps` 的意思是「只啟�
 
 注意這裡沒有動任何防火牆設定，內部 IP 互連走的是 `default-allow-internal` 這條預設規則。**整次搬家，程式碼一行都沒改，設定的改動就是 override 檔裡那三個值。**
 
-確認密碼真的來自 Secret Manager（而不是退回 `.env` 的預設值）：
+確認密碼真的來自 Secret Manager（而不是插值退回的 1234）——直接看容器的環境變數：
 
 ```bash
-# 在 VM2 上，看容器裡讀到的密碼從哪來
-sudo docker exec crawler_twse python -c \
-  "from crawler.config import MYSQL_PASSWORD; print(MYSQL_PASSWORD)"
+# 在 VM2 上
+sudo docker exec crawler_twse env | grep MYSQL_PASSWORD
+# MYSQL_PASSWORD={secret 目前的值}
 ```
 
-搭配 Part B-4 的測試手法（先把 secret 換成 `sm-test-42` 再看這裡印出什麼），就能確認容器是去 Secret Manager 拿的。
+secret 的值跟預設一樣是 1234 時看不出來源——照 B-4 的輪替流程加一個好辨識的版本（例如 `sm-test-42`）、重跑注入 up、再看一次 env，值變了就證明是 Secret Manager 來的；測完記得把版本換回來。
 
 ### Part F：跨機器端到端
 
@@ -478,7 +465,7 @@ gcloud sql users set-password studio --host=% --instance={實例名} --password=
 
 **T-3 Secret Manager 的授權不用重做**
 
-B-2 的授權對象是 Compute Engine 預設服務帳戶——所有跑在兩台 VM 上的程式共用這個身分，不論哪位組員操作，一次授權全組涵蓋。組員個人帳號不需要 `secretAccessor`：人不直接讀 secret，程式才讀。
+B-2 的授權對象是 Compute Engine 預設服務帳戶——在 VM 上執行的注入指令用的就是這個身分，不論哪位組員跑 up，讀 secret 的都是同一個服務帳戶，一次授權全組涵蓋。組員個人帳號不需要 `secretAccessor`：個人帳號只在自己電腦上管理 secret（開專案者），VM 上的讀取走服務帳戶。
 
 授權狀態可以在 Console 核對：安全性 → Secret Manager → `mysql-password` → 「**權限**」分頁——服務帳戶掛「Secret Manager 密鑰存取者」，成員清單裡沒有任何組員的個人帳號，這就是「授權綁程式不綁人」的樣子：
 
@@ -504,7 +491,7 @@ gcloud secrets versions list mysql-password
 # 7     enabled   ...
 ```
 
-容器重啟後透過 B-4 的 fallback 拿到新版——**程式碼與 compose 檔一行都不用動**，這正是密碼集中管理在團隊場景的價值：換密碼是一個人的兩條指令，不是全組每台機器各改一次。
+SQL 端改完後，跑服務的 VM **重跑一次 B-4 的注入 up**，容器就拿到新版（記住：`docker restart` 不會，重跑 up 才會）——**程式碼與 compose 檔一行都不用動**，這正是密碼集中管理在團隊場景的價值：換密碼是一個人的兩三條指令，不是全組每台機器各改一次檔案。
 
 輪替軌跡在 Console 的「**版本**」分頁：每一列一個版本、帶建立日期，最新版在最上面——誰在什麼時候換過密碼，翻這頁就有紀錄：
 
@@ -561,15 +548,15 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 | VM2 上莫名多一個 rabbitmq 容器 | up 沒加 `--no-deps`，depends_on 連帶啟動 | `docker rm -f rabbitmq`，之後 up 記得加 `--no-deps` |
 | Cloud SQL Studio 的使用者下拉 root 是灰的 | Studio 不開放 root 登入；gcloud 建的使用者沒給 `--host=%` 也會被拒 | `gcloud sql users create studio --password=1234 --host=%` 後重新整理頁面 |
 | 兩台 VM 內部 IP 一樣？ | 不可能——同 VPC 內部 IP 唯一；你看到的多半是外部 IP 回收再發 | 分清楚兩欄：INTERNAL_IP vs EXTERNAL_IP |
-| 程式讀 secret 回 403 Permission denied | 沒做 B-2 的授權，或 member 填錯（要填 VM 用的那個服務帳戶） | 用 `gcloud secrets get-iam-policy mysql-password` 檢查授權對象 |
-| config.py import 時報 GCP_PROJECT_ID 未定義 | Secret Manager 區塊取消註解了，但上面的 `GCP_PROJECT_ID` 那行還註解著 | 兩處要一起取消註解 |
-| 容器讀到的密碼還是 .env 的預設值 | override 檔沒給 `GCP_PROJECT_ID`，或 secret 名稱打錯，fallback 就退回預設值 | 檢查 override 檔；用 B-4 的辨識值測試法確認來源 |
+| VM 上注入指令回 403 Permission denied | 沒做 B-2 的授權，或 member 填錯（要填 VM 用的那個服務帳戶） | 用 `gcloud secrets get-iam-policy mysql-password` 檢查授權對象 |
+| 容器裡的密碼還是預設值 1234 | up 時沒掛注入（少了 `MYSQL_PASSWORD=$(...)` 前綴）、或 `sudo` 沒加 `-E` 把環境變數清掉了 | 重跑完整的注入 up；`docker exec {容器} env \| grep MYSQL_PASSWORD` 確認 |
+| 換了密碼但容器沒生效 | 只做了 `docker restart`——環境變數在容器建立時就固定了 | 重跑注入 up，compose 會重建容器 |
 
 ## 本章總結
 
 - 託管 vs 自架是雲的核心交易：用錢買維運。資料庫最有資格先換成託管——有狀態、故障代價最高
 - 內部 IP 給機器互連（免費、不變、免防火牆），外部 IP 給對外（會回收、要授權）——分清楚這兩個，跨機器架構就通了
-- Secret Manager 保管密碼：集中儲存、可查詢誰讀過、每個版本都保留；程式端用 fallback 設計，讓同一份程式碼在雲端讀 secret、在本機讀 `.env`
+- Secret Manager 保管密碼：集中儲存、可查詢誰讀過、每個版本都保留；部署時注入讓密碼只存在 Secret Manager 一處——程式只讀環境變數，在雲端和本機用同一份程式碼
 - 授權可以綁在單一資源上（`gcloud secrets add-iam-policy-binding`），範圍比第 15 章的專案層級更精確
 - 在 VM 上執行的容器不需要金鑰檔，它用 VM 的服務帳戶身分讀 Secret Manager
 - compose override 檔讓「搬家」縮小成三個值的差異，這是設定集中管理與分層設計帶來的效果
