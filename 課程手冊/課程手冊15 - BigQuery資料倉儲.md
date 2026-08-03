@@ -13,9 +13,9 @@
 | BigQuery | GCP 服務 | 資料倉儲：接收 MySQL 同步來的股價，用視窗函數算分析表 |
 | IAM | GCP 服務 | 給服務帳戶補上兩個 BigQuery 角色——課程的第一條授權指令 |
 | Looker Studio | Google 免費 SaaS | Step 5 接 app 層拼四區塊儀表板 |
-| JSON 金鑰 | 憑證 | 本機程式對 GCP 的身分，`GOOGLE_APPLICATION_CREDENTIALS` 指向它 |
+| JSON 金鑰 | 憑證 | 程式對 GCP 的身分（上傳到 VM），`GOOGLE_APPLICATION_CREDENTIALS` 指向它 |
 | gcloud／bq CLI | 指令工具 | 開 API、授權、用查詢驗證資料落地 |
-| uv | 既有工具 | 在本機執行同步與轉換兩支程式 |
+| uv | 既有工具 | 在 VM 上執行同步與轉換兩支程式 |
 
 ## 做完這一章你會
 
@@ -145,21 +145,26 @@ FROM vw_stock_price_daily
 
 ## 一步一步
 
-### Step 0：確認資料來源（本機 MySQL）
+### Step 0：確認資料來源（VM 上的 MySQL 容器）
 
-本章的同步來源是**本機的容器 MySQL**（第 5 章起累積股價資料的那顆；第 16 章搬家後，同一支程式的來源會換成 Cloud SQL，只差一個 `MYSQL_HOST`）。開始前確認兩件事：
+本章的同步來源是**第 14 章搬上 VM 的那顆容器 MySQL**——系統上雲之後，爬蟲爬回來的股價就落在它裡面；第 16 章搬家後，同一支程式的來源會換成 Cloud SQL，只差一個 `MYSQL_HOST`。開始前 SSH 進 VM 確認兩件事：
 
 ```bash
-# MySQL 容器在跑
-docker compose -f docker-compose-local.yml up -d mysql
+# SSH 進 VM（VM 停機中先 start）
+gcloud compute ssh stock-crawler-vm --zone=asia-east1-b
 
-# 表裡有資料（沒有的話：起 rabbitmq + worker，跑一次 producer_multi_queue.py 灌入）
-docker exec mysql mysql -uroot -p1234 -N -e "SELECT COUNT(*) FROM mydb.TaiwanStockPrice;"
+# MySQL 容器在跑（第 14 章用的是 docker-compose-all.yml 這套）
+sudo docker compose -f docker-compose-all.yml up -d mysql
+
+# 表裡有資料（沒有的話：起 rabbitmq + worker，跑一次 producer 灌入）
+sudo docker exec mysql mysql -uroot -p1234 -N -e "SELECT COUNT(*) FROM mydb.TaiwanStockPrice;"
 ```
+
+> 沒跟到第 14 章、資料還在自己電腦（Lima）上的話，改走本章最後的〈補充：從本機（Lima）同步〉——流程相同，只差程式在哪裡跑、金鑰放在哪裡。
 
 ### Step 1：準備 GCP 環境
 
-GCP 帳號註冊、建立專案、建立服務帳戶（Service Account）與下載 JSON 金鑰，這些**在第 14 章都已經完成**。本章補上 BigQuery 專屬的四件事，全部用 gcloud 指令：
+GCP 帳號註冊、建立專案、建立服務帳戶（Service Account）與下載 JSON 金鑰，這些**在第 14 章都已經完成**。本章補上 BigQuery 專屬的四件事。執行位置：**第 1、2 件在你自己的電腦跑**（管理指令，用你 `gcloud auth login` 的身分）；**第 3、4 件在 VM 上做**（同步程式在那裡跑）。
 
 **1. 開啟 BigQuery API**（第 14 章開的是 Compute Engine 的 API，每個服務的 API 要各自啟用）：
 
@@ -205,12 +210,24 @@ Console 也能核對：IAM 與管理 → IAM，成員清單裡服務帳戶那列
 
 ![IAM 成員清單：服務帳戶的兩個 BigQuery 角色](images/ch14/53-IAM成員清單-組員四角色與服務帳戶.jpg)
 
-**3. 設定兩個環境變數**——憑證指向第 14 章下載的金鑰、專案 ID 指向你的專案：
+**3. 把金鑰上傳到 VM，設定兩個環境變數**
+
+同步程式在 VM 上跑，第 14 章下載到你電腦的 JSON 金鑰要先送上去（`gcloud compute scp` 的用法跟 `ssh` 同一家）：
 
 ```bash
-export GOOGLE_APPLICATION_CREDENTIALS="$HOME/gcp-keys/你的金鑰檔名.json"
+# 在你自己的電腦上：先在 VM 建目錄，再上傳金鑰
+gcloud compute ssh stock-crawler-vm --zone=asia-east1-b --command="mkdir -p ~/gcp-keys"
+gcloud compute scp ~/gcp-keys/你的金鑰檔名.json \
+  stock-crawler-vm:~/gcp-keys/sa-key.json --zone=asia-east1-b
+
+# SSH 進 VM 之後：憑證指向剛上傳的金鑰、專案 ID 指向你的專案
+export GOOGLE_APPLICATION_CREDENTIALS="$HOME/gcp-keys/sa-key.json"
 export GCP_PROJECT_ID="stock-crawler-course"   # 換成你的專案 ID
 ```
+
+> **VM 不是有自己的服務帳戶身分嗎，為什麼還要金鑰？** 有，但 VM 身分的權限被機器層的 scopes 卡住——預設 scopes 不含 BigQuery，要停機才能改（那是第 17 章的課）。金鑰簽出來的憑證不受 scopes 限制，程式帶著金鑰在哪裡跑都一樣。第 17 章把同步搬進排程時會把金鑰拿掉、改用 VM 身分——兩種身分機制各用一次，對照著學。
+>
+> 金鑰放 VM 的規矩比照第 14 章：不進 repo、不走聊天室；團體專案全組共用 VM 上這一把（〈團體專案上雲〉T-1）。
 
 **4. 取消程式裡的兩處註解**（兩處都要改，只改一處會用到預設值 "your-project-id" 而報錯）：
 
@@ -221,7 +238,10 @@ export GCP_PROJECT_ID="stock-crawler-course"   # 換成你的專案 ID
 
 ### Step 2：把 MySQL 同步進 BigQuery
 
+在 VM 的 `~/stock-crawler` 目錄下（uv 第 14 章裝過；環境變數就是 Step 1 剛 export 的那兩個）：
+
 ```bash
+export PATH="$HOME/.local/bin:$PATH"
 uv run crawler/stock_sync_mysql_to_bigquery.py
 ```
 
@@ -237,6 +257,8 @@ MySQL 到 BigQuery 的同步完成
 ```
 
 ### Step 3：在 BigQuery 上建分析 View / Table
+
+同樣在 VM 上接著跑：
 
 ```bash
 uv run crawler/stock_bigquery_data_transform.py
@@ -308,7 +330,7 @@ UNION ALL SELECT "app.summary", COUNT(*) FROM app.market_daily_summary
 ORDER BY layer;
 ```
 
-左側資源樹會多出三個 dataset，查詢結果就是分層的證據——raw 的筆數是 stage 的兩倍，代表原始資料有整批重複（append 模式的痕跡），**stage 的去重把它清掉了，而 raw 原封不動留著這個事實**：
+左側資源樹會多出三個 dataset，查詢結果就是分層的證據——raw 的筆數比 stage 多，多出來的就是重複列（append 模式跑過幾次就疊幾層），**stage 的去重把它清掉了，而 raw 原封不動留著這個事實**：
 
 ![BigQuery 分層 dataset 樹](images/ch15/13-BQ-分層dataset樹.jpg)
 
@@ -449,7 +471,7 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 **T-1 服務帳戶的授權不用重做——先搞懂為什麼**
 
-本章給 `bigquery.dataEditor`＋`jobUser` 兩個角色時，`--member` 填的是**服務帳戶**。程式用這個身分跑同步，不管是哪位組員觸發的，身分都是同一個——所以這條授權指令開專案者跑一次就好，組員不需要各自再授權。金鑰檔也比照第 14 章步驟 6 的規矩：全組共用同一把、放在共用 VM 上、不進 repo 不走聊天室。
+本章給 `bigquery.dataEditor`＋`jobUser` 兩個角色時，`--member` 填的是**服務帳戶**。程式用這個身分跑同步，不管是哪位組員觸發的，身分都是同一個——所以這條授權指令開專案者跑一次就好，組員不需要各自再授權。金鑰檔就是 Step 1 上傳到 VM 的那把：全組共用、不進 repo 不走聊天室（第 14 章步驟 6 的規矩）——組員 SSH 進 VM 就能用，不需要各自下載。
 
 **T-2 組員要自己查 BigQuery，先看清楚「沒授權會發生什麼」**
 
@@ -471,13 +493,13 @@ gcloud projects add-iam-policy-binding {專案ID} \
   --member="user:組員的Gmail" --role="roles/bigquery.dataViewer" --condition=None  # 能讀資料表
 ```
 
-組員重跑同一條查詢，這次通了：
+組員重跑同一條查詢，這次通了（筆數是你們自己資料的數量）：
 
 ```
 +------+
 |  n   |
 +------+
-| 1396 |
+| 6277 |
 +------+
 ```
 
@@ -602,11 +624,40 @@ Step 4 的分層是手動建的。把 4-3 與 4-4 的 SQL 包成函式，接在�
 |-------------|------|--------|
 | 憑證錯誤 / 權限不足 | `GOOGLE_APPLICATION_CREDENTIALS` 沒設對，或服務帳戶少權限 | 確認金鑰路徑；照 Step 1-2 給服務帳戶兩個 BigQuery 角色 |
 | 報錯訊息裡出現 your-project-id | `config.py` 或 `bigquery.py` 的註解只改了一處 | 兩個檔案都要改（Step 1 第 4 點） |
-| 同步顯示 0 筆記錄 | 本機 MySQL 的 TaiwanStockPrice 是空的 | 照 Step 0 起 worker、跑一次 producer 灌資料 |
+| 同步顯示 0 筆記錄 | VM 上 MySQL 的 TaiwanStockPrice 是空的 | 照 Step 0 起 worker、跑一次 producer 灌資料 |
+| VM 上同步報憑證錯誤 | 金鑰沒上傳，或 `GOOGLE_APPLICATION_CREDENTIALS` 路徑打錯 | `ls ~/gcp-keys/`、`echo $GOOGLE_APPLICATION_CREDENTIALS` 核對；重開 SSH 要重新 export |
 | 查詢很貴 | 用了 `SELECT *` 全表掃描 | 加分區過濾、只選需要的欄位 |
 | schema 型別對不上 | MySQL 與 BigQuery 型別對應問題 | 用 `bigquery.py` 裡定義好的 schema，或注意日期/數值精度 |
 
 ---
+
+## 補充：從本機（Lima）同步
+
+沒跟到第 14 章、或想直接用自己電腦裡累積的資料時，整條流程也能完全在本機跑——程式和 SQL 一行都不變，差別只有三個：
+
+| | 主線（VM 上跑） | 本機版 |
+|---|---|---|
+| 資料來源 | VM 上的 MySQL 容器 | 本機（Lima）的 MySQL 容器 |
+| 金鑰位置 | `gcloud compute scp` 上傳到 VM | 就在本機的 `~/gcp-keys/`，不用搬 |
+| 程式在哪跑 | SSH 進 VM 的 `~/stock-crawler` | 本機的 repo 目錄 |
+
+```bash
+# ① 本機 MySQL 在跑、有資料
+docker compose -f docker-compose-local.yml up -d mysql
+docker exec mysql mysql -uroot -p1234 -N -e "SELECT COUNT(*) FROM mydb.TaiwanStockPrice;"
+
+# ② 環境變數指向本機的金鑰
+export GOOGLE_APPLICATION_CREDENTIALS="$HOME/gcp-keys/你的金鑰檔名.json"
+export GCP_PROJECT_ID="{你的專案ID}"
+
+# ③ 同步＋轉換（跟 Step 2/3 同兩支程式）
+uv run crawler/stock_sync_mysql_to_bigquery.py
+uv run crawler/stock_bigquery_data_transform.py
+```
+
+之後的 Step 4（三層）與 Step 5（儀表板）全在 BigQuery／Looker Studio 上操作，跟資料從哪裡同步來無關，照主線做即可。
+
+> 這個版本也順便說明了金鑰的本質：`GOOGLE_APPLICATION_CREDENTIALS` 帶著金鑰，程式在 GCP 外面（你的電腦）跟在 GCP 裡面（VM）拿到的身分完全相同——這正是「服務帳戶是程式的身分、跟機器無關」的意思。
 
 ## 本章總結
 
