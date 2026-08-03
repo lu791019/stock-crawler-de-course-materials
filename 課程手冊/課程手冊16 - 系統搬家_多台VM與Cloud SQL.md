@@ -163,6 +163,8 @@ printf "1234" | gcloud secrets create mysql-password \
   --data-file=- --replication-policy=automatic
 ```
 
+建立成功後，Console 的「≡ → 安全性 → Secret Manager」清單會出現 `mysql-password`；點進去的「版本」分頁此時只有版本 1（B-4 之後這頁會累積出輪替軌跡，見後面的版本清單截圖）。
+
 **B-2 授權兩台 VM 讀取這顆 secret**：
 
 VM 上的程式要讀 secret，得先取得權限。這裡用第 15 章學過的 IAM 授權，但範圍不一樣。VM2 要到 Part D 才會建立，不影響這一步——兩台 VM 用同一個 Compute Engine 預設服務帳戶，授權一次就涵蓋兩台：
@@ -188,6 +190,10 @@ gcloud secrets add-iam-policy-binding mysql-password \
 這是最小權限原則更精確的做法：**角色收到最小**（`secretAccessor` 只能讀取內容，不能修改、刪除，也不能列出其他 secret），**範圍也收到最小**（單一資源，不是整個專案）。
 
 要注意的是，VM 的預設服務帳戶雖然掛著 Editor 這個涵蓋很廣的角色，但 **Editor 不包含讀取 secret 內容的權限**。不做這一步授權，程式讀 secret 會被 403 拒絕。
+
+授權結果在 Console 的核對位置：Secret Manager → `mysql-password` → 「**權限**」分頁——服務帳戶掛「Secret Manager 密鑰存取者」：
+
+![Secret Manager 權限頁](images/ch16/09-SecretManager權限頁SA存取者.jpg)
 
 **B-3 驗證**：
 
@@ -222,27 +228,35 @@ MYSQL_PASSWORD = _password_from_secret_manager() or MYSQL_PASSWORD
 
 這種寫法叫 **fallback（後備）設計**：先跟 Secret Manager 要密碼，要不到就用環境變數的值。這樣同一份程式碼，在有授權的 VM 上會用雲端的密碼、在你自己的電腦上會用 `.env` 的預設值——換部署環境時程式碼不用改。這跟第 6 章把設定集中在 config 的做法是同一個原則。
 
-在 VM1 上驗證。這裡會遇到一個問題：secret 的值和 `.env` 的預設值都是 1234，印出來看不出密碼是從哪邊來的。解法是利用 Secret Manager 的**版本**功能，先加一個容易辨識的值，測完再換回來：
+在 VM1 上驗證。這裡會遇到一個問題：secret 的值和 `.env` 的預設值都是 1234，印出來看不出密碼是從哪邊來的。解法是利用 Secret Manager 的**版本**功能，先加一個容易辨識的值，測完再換回來。**注意下面三段在不同機器上執行**：
+
+**（在你自己的電腦）** 新增一個版本，內容改成好辨識的字串——`versions add` 是新增版本，`latest` 會指向最新的這一版：
 
 ```bash
-# 在你自己的電腦上：新增一個版本，內容改成好辨識的字串
-# versions add 是新增版本，latest 會指向最新的這一版
 printf "sm-test-42" | gcloud secrets versions add mysql-password --data-file=-
+```
 
-# 在 VM1 的 ~/stock-crawler 目錄下：
+**（SSH 進 VM1，`~/stock-crawler` 目錄下）** 兩個測試——先確認讀得到 Secret Manager 的值，再故意弄壞確認 fallback：
+
+```bash
 export PATH="$HOME/.local/bin:$PATH"
 GCP_PROJECT_ID={你的專案ID} uv run python -c \
   "from crawler.config import MYSQL_PASSWORD; print('password =', MYSQL_PASSWORD)"
 # password = sm-test-42      ← 值來自 Secret Manager，不是 .env
 
-# 再驗證 fallback：故意給一個不存在的專案 ID，讀取會失敗
+# 故意給一個不存在的專案 ID，讀取會失敗
 GCP_PROJECT_ID=no-such-project uv run python -c \
   "from crawler.config import MYSQL_PASSWORD; print('password =', MYSQL_PASSWORD)"
 # password = 1234            ← 退回 .env 的預設值
+```
 
-# 在你自己的電腦上：再新增一個版本把密碼換回 1234
+**（回你自己的電腦）** 再新增一個版本把密碼換回 1234：
+
+```bash
 printf "1234" | gcloud secrets versions add mysql-password --data-file=-
 ```
+
+> fallback 的靜默是雙面刃：換環境不用改程式碼是它的優點，但授權壞掉時程式不會報錯、會直接改用預設密碼繼續跑——所以上面「故意弄壞」的測試不能省，部署後也要用這招確認密碼真的來自 Secret Manager。
 
 上面這三個動作就是**密碼輪替**的完整流程：新增一個版本，所有讀 `latest` 的程式下次啟動就會拿到新值，不需要逐台修改檔案。
 

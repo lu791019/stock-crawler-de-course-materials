@@ -201,6 +201,10 @@ gcloud projects get-iam-policy stock-crawler-course \
   --format="value(bindings.role)"
 ```
 
+Console 也能核對：IAM 與管理 → IAM，成員清單裡服務帳戶那列掛著 `BigQuery 資料編輯者`＋`BigQuery 工作使用者` 兩個角色（下圖是團體專案情境的同一個頁面——服務帳戶兩角色在下、組員個人角色在上，兩條線分得很清楚）：
+
+![IAM 成員清單：服務帳戶的兩個 BigQuery 角色](images/ch14/53-IAM成員清單-組員四角色與服務帳戶.jpg)
+
 **3. 設定兩個環境變數**——憑證指向第 14 章下載的金鑰、專案 ID 指向你的專案：
 
 ```bash
