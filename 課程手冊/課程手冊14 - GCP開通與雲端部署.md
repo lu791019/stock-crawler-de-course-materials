@@ -701,6 +701,44 @@ cp .env.example .env
 - repo 是公開的，clone 不需要帳號密碼
 - `.env` 裡的 `MYSQL_HOST=127.0.0.1` 等值不用改：容器內執行時，compose 檔的 environment 會覆蓋成容器名（第 12 章的 environment > env_file 優先序）
 
+**H-1b 安裝 uv 與 Python 環境**
+
+容器裡的程式不需要這一步（image 自帶環境），但**直接在 VM 上跑 Python 程式**的場景會一路用到：H-4 驗證要跑 producer 發任務、第 15 章要在 VM 上跑 BigQuery 同步。跟 F-4 裝 Docker 一樣，這是 VM 的一次性環境準備——重演第 2 章在自己電腦做過的事：
+
+```bash
+# ① 安裝 uv（官方安裝腳本，裝到 ~/.local/bin）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# ② 讓目前的 shell 找得到它（安裝腳本會寫進 ~/.bashrc，下次登入自動生效；
+#    這次登入要手動加）
+export PATH="$HOME/.local/bin:$PATH"
+
+# ③ 驗證
+uv --version
+# uv x.y.z (x86_64-unknown-linux-gnu)
+```
+
+**Python 不用另外裝**：Ubuntu 24.04 自帶 Python 3.12，滿足專案 `pyproject.toml` 的 `requires-python = ">=3.11"`，uv 會直接用它（萬一系統版本太舊，uv 也會自動下載一個合用的，不用手動處理）。
+
+接著在 repo 目錄把依賴裝起來：
+
+```bash
+cd ~/stock-crawler
+uv sync
+# Using CPython 3.12.3 interpreter at: /usr/bin/python3.12
+# Creating virtual environment at: .venv
+# Resolved 80 packages in ...
+# Installed 78 packages in ...
+```
+
+`uv sync` 做三件事：找到合用的 Python → 在 repo 底下建 `.venv` 虛擬環境 → 照 `pyproject.toml`／`uv.lock` 把依賴裝進去。之後所有 `uv run ...` 都自動用這個環境，不用手動 activate。
+
+```bash
+# 驗證環境好了
+uv run python -c "import celery, pandas; print('ok')"
+# ok
+```
+
 **H-2 Build stock-airflow image**
 
 ```bash
@@ -749,12 +787,9 @@ sudo docker logs crawler_twse 2>&1 | tail -5          # 預期 twse@xxxx ready.
 sudo docker logs mysql 2>&1 | grep "ready for connections"
 ```
 
-Step 4 發任務（VM 上要先裝 uv，重演第 2 章）：
+Step 4 發任務（uv 環境 H-1b 已備好）：
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
-uv sync
 uv run crawler/producer_multi_queue.py    # send task_2330 task、send task_00679b task
 ```
 

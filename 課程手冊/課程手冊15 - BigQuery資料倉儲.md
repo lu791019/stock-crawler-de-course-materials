@@ -239,7 +239,7 @@ export GCP_PROJECT_ID="stock-crawler-course"   # 換成你的專案 ID
 
 ### Step 2：把 MySQL 同步進 BigQuery 的 raw 層
 
-在 VM 的 `~/stock-crawler` 目錄下（uv 第 14 章裝過；前兩個環境變數是 Step 1 剛 export 的）。`BQ_DATASET=raw` 告訴同步程式落地在哪個 dataset——**原始資料直接進 raw 層**，這就是三層的入口：
+在 VM 的 `~/stock-crawler` 目錄下（uv 環境第 14 章 H-1b 裝好了；前兩個環境變數是 Step 1 剛 export 的）。`BQ_DATASET=raw` 告訴同步程式落地在哪個 dataset——**原始資料直接進 raw 層**，這就是三層的入口：
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
