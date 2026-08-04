@@ -166,7 +166,11 @@ docker exec airflow-scheduler airflow dags trigger stock_bigquery_etl_dag
 
 > unpause 之後 Graph 上可能突然多出一個你沒有觸發的 run。那是排程 DAG 被 unpause 時補跑的最近一期，即使 `catchup=False` 也會跑這一期，屬於正常行為。
 
-到瀏覽器開 `http://{VM1外部IP}:8080`（帳密 admin/admin），進入這支 DAG 的 Graph 分頁，六個 task 應該全部是綠色的 success。注意這裡的 port 是 **8080**，跟第 10 到 13 章本機環境用的 8081 不同——本機當時改成 8081 是為了避開 phpMyAdmin，雲端的 VM1 上沒有 phpMyAdmin，所以用 compose 檔原本的 8080。
+到瀏覽器開 `http://{VM1外部IP}:8080`（帳密 admin/admin），進入這支 DAG 的 Graph 分頁，六個 task 應該全部是綠色的 success；左側格狀圖每一直行是一次 run（unpause 補跑的那期也在裡面）：
+
+![每日資料線 DAG 六個 task 全綠](images/ch17/03-Airflow-BigQueryETL-DAG六task全綠.jpg)
+
+注意這裡的 port 是 **8080**，跟第 10 到 13 章本機環境用的 8081 不同——本機當時改成 8081 是為了避開 phpMyAdmin，雲端的 VM1 上沒有 phpMyAdmin，所以用 compose 檔原本的 8080。
 
 等 run 全綠後，用 bq 驗證整條線真的動了（本機或 VM 都能跑）：
 
