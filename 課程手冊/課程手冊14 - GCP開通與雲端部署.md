@@ -874,6 +874,42 @@ gcloud compute instances add-tags stock-crawler-vm --tags=stock-web --zone=asia-
 
 ![雲端 Airflow DAGs 清單](images/ch14/33-雲端Airflow-DAGs清單.jpg)
 
+**補充：在 Console 檢視與修改防火牆規則**
+
+- 路徑：「≡」選單 →「**網路安全性**」→「**防火牆政策**」，頁面下方的「**虛擬私有雲防火牆規則**」清單就是 CLI 建立的規則所在——看得到 `allow-stock-web`（目標 stock-web、通訊埠 tcp:5555, 8080, 8081, 8082, 15672、動作允許）。點規則名稱進去可以改 port、來源 IP 範圍、目標標籤，每個欄位對應 `firewall-rules create` 的一個參數
+- 頁面開頭的官方說明值得念一次：「根據預設，所有傳入指定網路的流量都會遭到封鎖」——這就是 Part G 熱身遇過、Part I 開頭講的「port 要自己開」
+
+![防火牆規則清單，看得到 allow-stock-web](images/ch14/45-Console-防火牆規則清單.jpg)
+
+### 確認 3306 與 5672 真的沒開
+
+「絕不對公網開放」不是做了什麼設定，而是**沒有任何規則放行它**——GCP 進站流量預設全擋，不開就是關的。但「應該是關的」和「驗證過是關的」是兩回事，驗證有兩層：
+
+**第一層：稽核規則清單。** 看所有規則的放行清單裡有沒有出現 3306 或 5672：
+
+```bash
+gcloud compute firewall-rules list \
+  --format="table(name,sourceRanges.list(),allowed[].map().firewall_rule().list(),targetTags.list())"
+```
+
+輸出裡逐條看 `ALLOWED` 欄：`allow-stock-web` 只有五個 Web port，四條 `default-` 規則裡放行全 port 的那條（`default-allow-internal`）來源限定內部網段 `10.140.0.0/20`，公網進不來。清單裡沒有任何一條把 3306/5672 開向公網來源——這就是「沒開」的證據。
+
+**第二層：從外面實際敲。** 規則清單可能看錯，實際連線測試不會。在自己電腦上：
+
+```bash
+nc -vz -w 5 {VM外部IP} 3306
+# nc: connectx to {VM外部IP} port 3306 (tcp) failed: Operation timed out   ← 防火牆擋下，連 TCP 都建不起來
+
+nc -vz -w 5 {VM外部IP} 8080
+# Connection to {VM外部IP} port 8080 [tcp/http-alt] succeeded!             ← 對照組：有開的 port 一敲就通
+
+nc -vz -w 5 {VM外部IP} 22
+# Connection to {VM外部IP} port 22 [tcp/ssh] succeeded!                    ← default-allow-ssh 放行的
+```
+
+3306 的逾時跟 8080 的 succeeded 對照，就是防火牆在工作的樣子。注意逾時不是「MySQL 沒在跑」——MySQL 容器好好地開著，是流量根本到不了它。
+
+
 **Part J：發任務——七步驟的下半場（從 Airflow 出發）**
 
 門開了，接著把 H-4 沒做完的驗證做完。發任務的方式從這章起固定走 **Airflow**——它本來就在系統裡（第 10 章起的編排層），之後 16、17 章的雲端操作全部從它出發。
@@ -926,41 +962,6 @@ sudo docker exec airflow-webserver airflow dags trigger stock_crawler_twse_tpex_
 Graph 上 `choose_market` 之後兩條分支同時走、全部綠色，沒有任何 skipped——分支 DAG 預設就是全跑，只有觸發時主動帶 `--conf '{"market": "twse"}'` 指定單邊，另一邊才會變成粉紅色的 skipped（第 12 章教過的行為，在雲端一模一樣）：
 
 ![雲端 Airflow 分支 DAG 全綠](images/ch14/49-雲端Airflow-分支DAG全綠.jpg)
-
-**補充：在 Console 檢視與修改防火牆規則**
-
-- 路徑：「≡」選單 →「**網路安全性**」→「**防火牆政策**」，頁面下方的「**虛擬私有雲防火牆規則**」清單就是 CLI 建立的規則所在——看得到 `allow-stock-web`（目標 stock-web、通訊埠 tcp:5555, 8080, 8081, 8082, 15672、動作允許）。點規則名稱進去可以改 port、來源 IP 範圍、目標標籤，每個欄位對應 `firewall-rules create` 的一個參數
-- 頁面開頭的官方說明值得念一次：「根據預設，所有傳入指定網路的流量都會遭到封鎖」——這就是 Part G 熱身遇過、Part I 開頭講的「port 要自己開」
-
-![防火牆規則清單，看得到 allow-stock-web](images/ch14/45-Console-防火牆規則清單.jpg)
-
-### 確認 3306 與 5672 真的沒開
-
-「絕不對公網開放」不是做了什麼設定，而是**沒有任何規則放行它**——GCP 進站流量預設全擋，不開就是關的。但「應該是關的」和「驗證過是關的」是兩回事，驗證有兩層：
-
-**第一層：稽核規則清單。** 看所有規則的放行清單裡有沒有出現 3306 或 5672：
-
-```bash
-gcloud compute firewall-rules list \
-  --format="table(name,sourceRanges.list(),allowed[].map().firewall_rule().list(),targetTags.list())"
-```
-
-輸出裡逐條看 `ALLOWED` 欄：`allow-stock-web` 只有五個 Web port，四條 `default-` 規則裡放行全 port 的那條（`default-allow-internal`）來源限定內部網段 `10.140.0.0/20`，公網進不來。清單裡沒有任何一條把 3306/5672 開向公網來源——這就是「沒開」的證據。
-
-**第二層：從外面實際敲。** 規則清單可能看錯，實際連線測試不會。在自己電腦上：
-
-```bash
-nc -vz -w 5 {VM外部IP} 3306
-# nc: connectx to {VM外部IP} port 3306 (tcp) failed: Operation timed out   ← 防火牆擋下，連 TCP 都建不起來
-
-nc -vz -w 5 {VM外部IP} 8080
-# Connection to {VM外部IP} port 8080 [tcp/http-alt] succeeded!             ← 對照組：有開的 port 一敲就通
-
-nc -vz -w 5 {VM外部IP} 22
-# Connection to {VM外部IP} port 22 [tcp/ssh] succeeded!                    ← default-allow-ssh 放行的
-```
-
-3306 的逾時跟 8080 的 succeeded 對照，就是防火牆在工作的樣子。注意逾時不是「MySQL 沒在跑」——MySQL 容器好好地開著，是流量根本到不了它。
 
 ### 那內部要怎麼連？
 
