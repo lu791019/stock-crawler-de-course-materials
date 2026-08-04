@@ -279,6 +279,8 @@ def crawler_finmind(stock_id):
 
 跟第 2 章的 `crawler_finmind_print` 對照，你會發現前面完全一樣，只多了兩行：`upload_data_to_mysql(df)` 和 `df.to_csv(...)`。這再次印證整套課的主線——**改的永遠只是最後「怎麼處理資料」那一小段**。（`utf-8-sig` 是為了讓 Excel 打開 CSV 時中文不亂碼。）
 
+> 打開 repo 裡的檔案，你會看到 `upload_data_to_mysql(df)` 後面還有一行 `upload_data_to_bigquery_raw(df)`、以及對應的函式定義——那是雲端段（第 14 章起）才會生效的 BigQuery 雙寫功能，本機沒設 `GCP_PROJECT_ID` 環境變數時它只印一行「BQ 未設定，略過雲端寫入」就返回，對本章的流程沒有任何影響。worker log 裡看到這行訊息是正常的，第 15 章會完整拆解這段程式。
+
 ---
 
 ## 一步一步跟著做
