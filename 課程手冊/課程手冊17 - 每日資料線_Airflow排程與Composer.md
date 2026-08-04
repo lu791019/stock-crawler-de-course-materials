@@ -291,7 +291,33 @@ Composer 大約一到兩分鐘同步一次 bucket，再由 Airflow 解析。等 
 gcloud composer environments run stock-composer --location=asia-east1 dags list
 ```
 
-清單裡看得到 `stock_bigquery_etl_dag`，代表 `crawler` 匯入成功。如果 import 有問題，DAG 不會出現在清單裡，UI 上也看不到。
+**這裡會發現主線 DAG 沒有出現**——清單裡只有其他 DAG，`stock_bigquery_etl_dag` 不在。DAG import 失敗時就是這個症狀：清單沒有它、UI 上也看不到。查 import 錯誤：
+
+```bash
+gcloud composer environments run stock-composer --location=asia-east1 dags list-import-errors
+```
+
+```
+/home/airflow/gcs/dags/stock_crawler_etl_bigquery_dag.py | Traceback (most recent call last):
+|   File "/home/airflow/gcs/dags/crawler/tasks_crawler_finmind.py", line 12, in <module>
+|     from crawler.worker import app
+|   File "/home/airflow/gcs/dags/crawler/worker.py", line 6, in <module>
+|     from loguru import logger
+| ModuleNotFoundError: No module named 'loguru'
+```
+
+追這條 traceback：DAG import `tasks_crawler_finmind`（要發 Celery 任務）→ 它 import `crawler.worker` → worker 用了 `loguru`——**Composer 3 的映像沒有內建 loguru**。自架環境從來不會踩到這個，因為套件是 `docker build` 時照 `pyproject.toml` 整包裝好的；Composer 的映像裝什麼是 Google 決定的，你的程式用到清單外的套件，就要自己補。查內建清單、補裝套件：
+
+```bash
+# 先看映像內建了什麼（pandas、PyMySQL、SQLAlchemy、google-cloud-bigquery 都在，loguru 不在）
+gcloud composer environments list-packages stock-composer --location=asia-east1
+
+# 補裝——這又是一次環境更新，要等幾分鐘
+gcloud composer environments update stock-composer --location=asia-east1 \
+  --update-pypi-package=loguru
+```
+
+更新完成後重跑 `dags list`，`stock_bigquery_etl_dag` 出現，代表 `crawler` 匯入成功。這一步是託管環境的第一課：**「環境裡有什麼套件」不再由你的 Dockerfile 決定**——先查清單、缺的用它的介面補、每補一次等一次更新。
 
 #### C-5 套用環境變數
 
@@ -418,13 +444,7 @@ gcloud compute firewall-rules delete allow-composer-rabbitmq --quiet
 
 #### 這次示範帶出的三件事
 
-**一、套件不一定要自己裝，但要先查。** 這支 DAG 需要的 pandas、PyMySQL、SQLAlchemy、google-cloud-bigquery、pyarrow，Composer 3 的映像都已經內建，一個都不用裝。查法：
-
-```bash
-gcloud composer environments list-packages stock-composer --location=asia-east1
-```
-
-反過來說，`FinMind` 不在內建清單裡。要跑會呼叫 FinMind API 的那幾支爬蟲 DAG，就得在環境設定的「PyPI 套件」頁面另外指定安裝，而每次安裝都是一次環境更新。同一份清單也會告訴你版本可能跟你本機不同——例如 SQLAlchemy 是 1.4 而不是專案 `pyproject.toml` 寫的 2.x，程式用到 2.0 才有的寫法就會出問題。
+**一、套件不一定要自己裝，但要先查。** C-4 已經真的踩過一次：DAG 需要的 pandas、PyMySQL、SQLAlchemy、google-cloud-bigquery、pyarrow 映像都內建，偏偏 `loguru` 沒有——查清單、補裝、等一次環境更新，DAG 才出現。同一份 `list-packages` 清單也會告訴你版本可能跟你本機不同——例如 SQLAlchemy 是 1.4 而不是專案 `pyproject.toml` 寫的 2.x，程式用到 2.0 才有的寫法就會出問題。`FinMind` 也不在清單裡，要跑會呼叫 FinMind API 的其他爬蟲 DAG 就得比照補裝。
 
 **二、「環境裡有什麼」變成要透過它的介面管理。** 自架時 `docker build` 一次處理完的事——程式碼進 image、套件裝進 image、環境變數寫在 compose——在 Composer 上拆成三件獨立的事：上傳程式碼到 bucket、在設定頁裝套件、用 update 指令改環境變數。每一件都是一次操作，套件與環境變數還各自要等一次環境更新。這是託管服務的隱藏成本：省下維護機器的力氣，換來一套要學的管理介面。
 
@@ -568,7 +588,7 @@ sudo docker exec airflow-webserver airflow users list
 | BigQuery 寫入 403 | VM scopes 不含 BigQuery（建機時沒給 `--scopes=cloud-platform`） | 停機 → `set-service-account --scopes=cloud-platform` → 開機 → 重授權 Cloud SQL（開工 SOP 第 2 步的補改流程） |
 | Composer 建立回報 `FAILED_PRECONDITION: Please enable all APIs` | 只開了 `composer.googleapis.com`，還相依 `iamcredentials.googleapis.com` | 兩個一起 enable 後重下建立指令 |
 | Composer 環境刪不掉，回報 `Cannot delete environment in state CREATING` | 建立中的環境不能刪 | 等 STATE 變成 `RUNNING` 再刪；建立那 20-30 分鐘的費用無法迴避 |
-| DAG 上傳了但 `dags list` 看不到 | `crawler` 模組沒一起上傳，DAG import 失敗 | `gcloud storage cp -r crawler {bucket}/dags/`，等 bucket 同步後重查 |
+| DAG 上傳了但 `dags list` 看不到 | DAG import 失敗——`crawler` 模組沒一起上傳，或用到映像沒有的套件（例如 loguru） | `dags list-import-errors` 看 traceback；缺模組就 `gcloud storage cp -r crawler {bucket}/dags/`、缺套件就 `--update-pypi-package` 補裝（C-4 的流程） |
 | Composer 上任務報 `Access Denied: Project your-project-id` | 沒設 `GCP_PROJECT_ID` 環境變數，`config.py` 退回預設值 | `environments update --update-env-variables=GCP_PROJECT_ID=...` |
 | Composer 上連 Cloud SQL 逾時 | 授權網路沒有 Composer 的對外 IP | 用探測 DAG 查出對外 IP（C-6），加進 `authorized-networks` |
 | 找不到 Composer 的任務 log | Composer 3 的 log 送到 Cloud Logging，不在 bucket | `gcloud logging read 'resource.type="cloud_composer_environment"'` |
