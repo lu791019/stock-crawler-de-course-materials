@@ -356,7 +356,7 @@ bq query --use_legacy_sql=false "SELECT COUNT(*) AS n FROM raw.TaiwanStockPrice 
 # n = 344
 ```
 
-MySQL 這邊要做到同一件事：得有人事先設好備份、然後把備份整份還原。BigQuery 的版本歷史是**內建、零設定**的——「raw 層是證據」這條規矩，平台自己又幫你多留了七天的後悔藥。
+MySQL 這邊要做到同一件事：得有人事先設好備份、然後把備份整份還原。BigQuery 的版本歷史是**內建、零設定**的——「raw 層是證據」這條規矩，平台又多保了七天的可回溯版本。
 
 **實驗四：BQML——一句 SQL 訓練一個模型**
 
@@ -795,7 +795,7 @@ OLTP 擅長「即時、頻繁的小筆讀寫」（例如爬蟲每天寫入股價
 | `bq query` 報 `ProjectId must be non-empty` | 這台機器的 gcloud 沒設定預設專案 | `gcloud config set project {你的專案ID}`，或指令加 `--project_id=` |
 | 查詢很貴 | 用了 `SELECT *` 全表掃描 | 加分區過濾、只選需要的欄位（實驗二） |
 | Materialized View 建立被拒 | 語法限制，例如聚合用了 `COUNT(DISTINCT ...)` | 改用允許的聚合（`COUNT(*)`、`SUM`…），詳見官方的 MV 限制清單 |
-| BQ 寫入報 403 `Quota exceeded: ... partition modifications` | 分區表有**每日分區修改配額**——課程爬蟲一次抓一年半，一個 load job 就觸碰數百個日分區；同一天反覆重跑會累積超標 | 等隔天配額重置；正式環境每天只 append 當日資料、一次只碰一個分區，天生不會踩到——這正是「教學用全量重抓」與「生產用增量」的差異 |
+| BQ 寫入報 403 `Quota exceeded: ... partition modifications` | 分區表有**每日分區修改配額**——課程爬蟲一次抓一年半，一個 load job 就觸碰數百個日分區；同一天反覆重跑會累積超標 | 等隔天配額重置；正式環境每天只 append 當日資料、一次只碰一個分區，不會觸及此配額——這正是「教學用全量重抓」與「生產用增量」的差異 |
 | 誤刪了表裡的資料 | DML 沒帶 WHERE 或條件寫錯 | 七天內用 Time Travel 兩步復原（實驗三）；超過七天只能認賠——這也是 raw 「只寫入不修改」規矩的由來 |
 | 本機跑補充版報憑證錯誤 | `GOOGLE_APPLICATION_CREDENTIALS` 沒設對或金鑰路徑錯 | `ls ~/gcp-keys/`、`echo $GOOGLE_APPLICATION_CREDENTIALS` 核對；重開終端機要重新 export |
 
@@ -850,7 +850,7 @@ worker log（或上面指令的輸出）會出現「資料已上傳到 BigQuery 
 
 - OLTP 負責即時寫入、OLAP 負責大規模分析——**雙寫讓同一筆資料一出生就有兩個副本**，各走各的命運。
 - 雙寫的三條設計紀律：環境變數當開關（明確降級）、分析副本失敗不擋營運主職、raw 只 append 不修改。
-- BigQuery 非它不可的證據：公開資料集的量級、dry run 先問價、Time Travel 七天後悔藥、BQML 倉儲內建 ML。
+- BigQuery 非它不可的證據：公開資料集的量級、dry run 先問價、Time Travel 七天版本回溯、BQML 倉儲內建 ML。
 - 省錢兩開關：少選欄位（欄式儲存）＋分區過濾；`COUNT(*)` 靠中繼資料連掃都不用掃。
 - 三層 raw／stage／app：爬蟲餵 raw，SQL 蓋 stage（去重 view）與 app（成品表），排錯照層走。
 - Looker Studio（免費 SaaS BI）用內建連接器直接接 BigQuery 畫圖——雲端段的 BI 角色由它接手 Metabase。
