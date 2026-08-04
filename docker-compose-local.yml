@@ -59,9 +59,13 @@ services: # 定義所有要啟動的服務
     command: uv run python -m celery -A crawler.worker worker --loglevel=info --hostname=twse@%h -Q twse
     restart: unless-stopped
     environment:
+      # ${變數:-預設值} 是 compose 的插值：同目錄 .env（或 shell 環境）有設就用設的值，
+      # 沒設就用預設的容器服務名——本機一切照舊；上雲要連別台機器時只改 .env（手冊16）
       - TZ=Asia/Taipei
-      - RABBITMQ_HOST=rabbitmq
-      - MYSQL_HOST=mysql
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - MYSQL_HOST=${MYSQL_HOST:-mysql}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-1234}   # 手冊16 起由部署指令從 Secret Manager 注入
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}       # 雙寫用：沒設就略過 BigQuery（手冊15）
       - MONGO_HOST=mongodb   # 補充F: worker 在容器內連 MongoDB 用服務名
       - PYTHONPATH=/crawler
     depends_on:
@@ -75,9 +79,13 @@ services: # 定義所有要啟動的服務
     command: uv run python -m celery -A crawler.worker worker --loglevel=info --hostname=tpex@%h -Q tpex
     restart: unless-stopped
     environment:
+      # ${變數:-預設值} 是 compose 的插值：同目錄 .env（或 shell 環境）有設就用設的值，
+      # 沒設就用預設的容器服務名——本機一切照舊；上雲要連別台機器時只改 .env（手冊16）
       - TZ=Asia/Taipei
-      - RABBITMQ_HOST=rabbitmq
-      - MYSQL_HOST=mysql
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - MYSQL_HOST=${MYSQL_HOST:-mysql}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-1234}   # 手冊16 起由部署指令從 Secret Manager 注入
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}       # 雙寫用：沒設就略過 BigQuery（手冊15）
       - MONGO_HOST=mongodb   # 補充F: worker 在容器內連 MongoDB 用服務名
       - PYTHONPATH=/crawler
     depends_on:
