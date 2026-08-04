@@ -2,7 +2,13 @@ import pandas as pd
 import requests
 from sqlalchemy import create_engine  # 建立資料庫連線的工具（SQLAlchemy）
 
-from crawler.config import MYSQL_ACCOUNT, MYSQL_HOST, MYSQL_PASSWORD, MYSQL_PORT
+from crawler.config import (
+    GCP_PROJECT_ID,
+    MYSQL_ACCOUNT,
+    MYSQL_HOST,
+    MYSQL_PASSWORD,
+    MYSQL_PORT,
+)
 from crawler.worker import app
 
 
@@ -62,6 +68,28 @@ def upload_data_to_mysql(df: pd.DataFrame):
         )
 
 
+def upload_data_to_bigquery_raw(df: pd.DataFrame):
+    # 雙寫的 BigQuery 半邊: 抓完的資料直接 append 進 raw 層（手冊15 詳細介紹）
+    # 沒設 GCP_PROJECT_ID（本機環境）就明確略過, MySQL 那份不受影響
+    if not GCP_PROJECT_ID:
+        print("BQ 未設定，略過雲端寫入")
+        return
+    try:
+        from crawler.bigquery import (
+            create_dataset_if_not_exists,
+            upload_data_to_bigquery,
+        )
+
+        bq_df = df.copy()
+        # to_sql 可以吃字串日期, BigQuery 的 DATE 欄位要先轉成 date 型別
+        bq_df["date"] = pd.to_datetime(bq_df["date"]).dt.date
+        create_dataset_if_not_exists("raw")
+        upload_data_to_bigquery("TaiwanStockPrice", bq_df, dataset_id="raw", mode="append")
+    except Exception as e:
+        # 分析副本寫入失敗不能擋住爬蟲主職（MySQL 已寫完）, 印明確錯誤方便排查
+        print(f"BigQuery 寫入失敗（MySQL 不受影響）: {e}")
+
+
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
 def crawler_finmind(stock_id):
@@ -84,8 +112,9 @@ def crawler_finmind(stock_id):
         df = pd.DataFrame(data["data"])
         print(df)
         # print("upload db")
-        # 將資料寫入 MySQL
+        # 雙寫: 同一份資料寫 MySQL（營運用）＋ BigQuery raw 層（分析用）
         upload_data_to_mysql(df)
+        upload_data_to_bigquery_raw(df)
         # 同時存一份 CSV
         df.to_csv(f"output/TaiwanStockPrice_{stock_id}.csv", index=False, encoding="utf-8-sig")
         print(f"TaiwanStockPrice_{stock_id}.csv saved.")

@@ -29,8 +29,10 @@ MONGO_PORT = int(os.environ.get("MONGO_PORT", 27017))
 MONGO_ACCOUNT = os.environ.get("MONGO_ACCOUNT", "root")
 MONGO_PASSWORD = os.environ.get("MONGO_PASSWORD", "1234")
 
-# GCP 設定（使用 BigQuery 時取消註解）
-# GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "your-project-id")
+# GCP 專案 ID（雙寫用, 手冊15 詳細介紹）
+# 沒設定就是空字串, worker 會印「BQ 未設定，略過雲端寫入」只寫 MySQL
+# 部署到 GCP 時由 compose 的 environment 注入實際專案 ID
+GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")
 
 # Secret Manager 執行時讀取（參考用, 課程不啟用）
 # 課程做法是「部署時注入」: up 指令用 $(gcloud secrets versions access ...) 把密碼塞進環境變數,

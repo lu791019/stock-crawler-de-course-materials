@@ -4,17 +4,17 @@
 > 反饋循環：每段程式改動都要跑起來驗證；教材段落寫完做重現性通讀＋禁用詞掃描。
 
 ## Phase 0：前置盤點（新 session 開工第一件事）
-- [ ] 讀 implementation_plan.md 全文
-- [ ] 讀 `crawler/worker.py` 與存檔路徑實際程式碼（schema-aware，確認函式與欄位）
-- [ ] 讀 `crawler/bigquery.py` 現況（BQ_DATASET 機制已在）
-- [ ] `gcloud config get-value account` 確認是 dexdeclass06
-- [ ] 查 Spanner 90 天免費試用官方文件，列限制 checklist（區域/PU/功能）
+- [x] 讀 implementation_plan.md 全文
+- [x] 讀 `crawler/worker.py` 與存檔路徑實際程式碼（schema-aware，確認函式與欄位）
+- [x] 讀 `crawler/bigquery.py` 現況（BQ_DATASET 機制已在）
+- [x] `gcloud config get-value account` 確認是 dexdeclass06
+- [x] 查 Spanner 90 天免費試用官方文件，列限制 checklist（區域/PU/功能）
 
 ## Phase 1：雙寫程式碼＋本機驗證
-- [ ] worker 存檔路徑加 BQ append（dataset 明確傳 "raw"；無 GCP_PROJECT_ID 印「BQ 未設定，略過雲端寫入」；BQ 失敗不擋 MySQL）
-- [ ] compose 三檔 environment 一致性（本機不給 GCP_PROJECT_ID、雲端 override 給）
-- [ ] 本機（Lima）跑 worker：MySQL 正常寫入＋略過訊息出現
-- [ ] commit
+- [x] worker 存檔路徑加 BQ append（dataset 明確傳 "raw"；無 GCP_PROJECT_ID 印「BQ 未設定，略過雲端寫入」；BQ 失敗不擋 MySQL）
+- [x] compose 三檔 environment 一致性（本機不給 GCP_PROJECT_ID、雲端 override 給）
+- [x] 本機（Lima）跑 worker：MySQL 正常寫入＋略過訊息出現
+- [x] commit
 
 ## Phase 2：VM 雙寫實測
 - [ ] VM 重建或 set-service-account 補 `cloud-platform` scopes（新建法：`--scopes=cloud-platform`）

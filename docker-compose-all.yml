@@ -88,6 +88,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       MYSQL_HOST: mysql
       MONGO_HOST: mongodb   # 補充F：worker 連 MongoDB 用服務名
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}   # 雙寫用：up 時從主機環境注入；沒設就略過 BQ（手冊15）
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -106,6 +107,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       MYSQL_HOST: mysql
       MONGO_HOST: mongodb   # 補充F：worker 連 MongoDB 用服務名
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}   # 雙寫用：up 時從主機環境注入；沒設就略過 BQ（手冊15）
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -161,6 +163,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       MYSQL_HOST: mysql
       MONGO_HOST: mongodb   # 補充F：worker 連 MongoDB 用服務名
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}   # 手冊17 transform task 用；沒設就略過 BQ
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/airflow.cfg:/opt/airflow/airflow.cfg
@@ -187,6 +190,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       MYSQL_HOST: mysql
       MONGO_HOST: mongodb   # 補充F：worker 連 MongoDB 用服務名
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}   # 手冊17 transform task 用；沒設就略過 BQ
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/airflow.cfg:/opt/airflow/airflow.cfg
