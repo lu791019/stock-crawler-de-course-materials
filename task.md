@@ -17,10 +17,10 @@
 - [x] commit
 
 ## Phase 2：VM 雙寫實測
-- [ ] VM 重建或 set-service-account 補 `cloud-platform` scopes（新建法：`--scopes=cloud-platform`）
-- [ ] VM 容器內 metadata server 憑證直通確認
-- [ ] producer 發任務 → worker 雙寫 → MySQL＋`raw.TaiwanStockPrice` 同時新增（bq query 前後筆數）
-- [ ] commit
+- [x] VM 重建或 set-service-account 補 `cloud-platform` scopes（新建法：`--scopes=cloud-platform`）
+- [x] VM 容器內 metadata server 憑證直通確認
+- [x] producer 發任務 → worker 雙寫 → MySQL＋`raw.TaiwanStockPrice` 同時新增（bq query 前後筆數）
+- [x] commit
 
 ## Phase 3：手冊14 微調
 - [ ] F 段建 VM 加 `--scopes=cloud-platform`＋ VM 身分說明
