@@ -8,6 +8,7 @@ from crawler.config import (
     MYSQL_HOST,
     MYSQL_PASSWORD,
     MYSQL_PORT,
+    SPANNER_INSTANCE,
 )
 from crawler.worker import app
 
@@ -97,6 +98,20 @@ def upload_data_to_bigquery_raw(df: pd.DataFrame):
         print(f"BigQuery 寫入失敗（MySQL 不受影響）: {e}")
 
 
+def upload_data_to_spanner_if_configured(df: pd.DataFrame):
+    # 手冊16 Spanner 節的體驗開關: 設了 SPANNER_INSTANCE 才多寫一份到 Spanner
+    # 平常（主線）不設定, 這個函式什麼都不做
+    if not SPANNER_INSTANCE:
+        return
+    try:
+        from crawler.spanner import upload_data_to_spanner
+
+        upload_data_to_spanner(df)
+    except Exception as e:
+        # 跟 BigQuery 同一條紀律: 體驗副本失敗不擋爬蟲主職
+        print(f"Spanner 寫入失敗（MySQL/BigQuery 不受影響）: {e}")
+
+
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
 def crawler_finmind(stock_id):
@@ -122,6 +137,8 @@ def crawler_finmind(stock_id):
         # 雙寫: 同一份資料寫 MySQL（營運用）＋ BigQuery raw 層（分析用）
         upload_data_to_mysql(df)
         upload_data_to_bigquery_raw(df)
+        # 手冊16 Spanner 體驗: 有設 SPANNER_INSTANCE 才會多寫一份
+        upload_data_to_spanner_if_configured(df)
         # 同時存一份 CSV
         df.to_csv(f"output/TaiwanStockPrice_{stock_id}.csv", index=False, encoding="utf-8-sig")
         print(f"TaiwanStockPrice_{stock_id}.csv saved.")

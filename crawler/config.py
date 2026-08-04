@@ -34,6 +34,12 @@ MONGO_PASSWORD = os.environ.get("MONGO_PASSWORD", "1234")
 # 部署到 GCP 時由 compose 的 environment 注入實際專案 ID
 GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")
 
+# Cloud Spanner 體驗用（手冊16 Spanner 節）
+# 設了 SPANNER_INSTANCE 爬蟲才會把資料多寫一份到 Spanner, 平常不設、不影響主線
+SPANNER_PROJECT_ID = os.environ.get("SPANNER_PROJECT_ID", GCP_PROJECT_ID)
+SPANNER_INSTANCE = os.environ.get("SPANNER_INSTANCE", "")
+SPANNER_DATABASE = os.environ.get("SPANNER_DATABASE", "stockdb")
+
 # Secret Manager 執行時讀取（參考用, 課程不啟用）
 # 課程做法是「部署時注入」: up 指令用 $(gcloud secrets versions access ...) 把密碼塞進環境變數,
 # 程式只讀環境變數（上面第 23 行）, 不裝 SDK。下面是另一種做法——程式執行時自己讀 secret,
