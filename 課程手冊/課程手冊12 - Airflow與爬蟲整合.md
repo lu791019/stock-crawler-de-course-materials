@@ -50,7 +50,7 @@
 | `airflow/dags/stock_crawler_producer_dag.py` | 串法二 | **交易日守門**後 `apply_async(queue="twse")` 發任務給 Celery |
 | `airflow/dags/stock_crawler_docker_producer_dag.py` | 串法三 | DockerOperator 起容器跑第 3 章多佇列 producer |
 | `airflow/dags/stock_crawler_etl_dag.py` | 完整 ETL | 爬蟲 + `crawler/mysql.py` 建 VIEW / 實體表 |
-| `airflow/dags/stock_crawler_etl_bigquery_dag.py` | 雲端 ETL | MySQL → BigQuery（需第 14 章 GCP 憑證）|
+| `airflow/dags/stock_crawler_etl_bigquery_dag.py` | 雲端每日資料線 | 觸發爬蟲雙寫＋重算 BigQuery 分析層（需第 14 章 GCP 環境）|
 | `crawler/mysql.py` | 工具模組 | `create_view` / `create_table_from_view` |
 
 ---

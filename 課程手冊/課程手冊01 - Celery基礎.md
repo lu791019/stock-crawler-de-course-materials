@@ -98,7 +98,7 @@ stock-crawler/
 │   ├── producer_demo_fail.py                 ← 發失敗情境任務（第 4 章）
 │   ├── mysql.py                              ← MySQL 工具模組：View、查詢（第 12 章）
 │   ├── bigquery.py                           ← BigQuery 工具模組（第 15 章）
-│   ├── stock_sync_mysql_to_bigquery.py       ← MySQL → BigQuery 同步（第 15 章）
+│   ├── stock_sync_mysql_to_bigquery.py       ← MySQL → BigQuery 回填工具（第 15 章補充）
 │   └── stock_bigquery_data_transform.py      ← BigQuery 分析表建立（第 15 章）
 ├── docker-compose-local.yml                  ← 一鍵啟動基礎服務（第 1 章就會用）
 ├── compose-advanced/                         ← 進階：拆開的 compose + 多 worker 網路版（第 3 章）

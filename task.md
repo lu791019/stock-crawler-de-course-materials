@@ -51,6 +51,6 @@
 - [x] 禁用詞掃描；commit＋push
 
 ## Phase 7：收尾
-- [ ] 全庫交叉引用掃描（四章互指＋補充章）
-- [ ] Lima pull；GCP 資源全停（VM/SQL/Spanner 試用刪除確認）
-- [ ] HANDOFF 更新；投影片落差記待辦（EP12/17/18/20 另開批次）
+- [x] 全庫交叉引用掃描（四章互指＋補充章）
+- [x] Lima pull；GCP 資源全停（VM/SQL 停；Spanner 試用機測畢已刪——注意：每專案終身一顆，course 專案不能再開）
+- [x] HANDOFF 更新；投影片落差記待辦（EP12/17/18/20 另開批次）
