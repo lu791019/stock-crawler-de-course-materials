@@ -1,8 +1,8 @@
 # 課程手冊16 - 系統搬家：多台 VM 與 Cloud SQL
 
-> 本章對應 EP18。前置：第 14、15 章做完（有 GCP 專案、gcloud 可用、stock-crawler-vm 存在且會開關機、服務帳戶已有 BigQuery 權限）。
+> 本章對應 EP18。前置：第 14、15 章做完（有 GCP 專案、gcloud 可用、stock-crawler-vm 存在且會開關機、雙寫已在運轉）。
 >
-> 第 14 章把整套系統塞進一台 VM——能動，但所有服務擠在一起：資料庫跟 worker 搶記憶體、一台掛全部掛。本章把它拆開：**資料庫換成託管的 Cloud SQL、worker 搬到第二台 VM**——補充B 講的「分散式」，這次真的跨機器。
+> 第 14 章把整套系統塞進一台 VM——能動，但所有服務擠在一起：資料庫跟 worker 搶記憶體、一台掛全部掛。本章把它拆開：**資料庫換成託管的 Cloud SQL、worker 搬到第二台 VM**——補充B 講的「分散式」，這次真的跨機器。搬家只動雙寫的 OLTP 半邊；BigQuery 那條分析線一個字都不用改，你會親自驗證這件事。最後再開一台 **Cloud Spanner** 試用機，看看「分散式資料庫」跟託管 MySQL 差在哪。
 
 ## 本章用到的工具與服務
 
@@ -13,6 +13,7 @@
 | Compute Engine（GCE） | GCP 服務 | 開第二台 VM，worker 獨立成一台機器 |
 | VPC 內部網路 | GCP 服務 | 跨 VM 用內部 IP 互連，`default-allow-internal` 預設放行 |
 | Cloud SQL Studio | Console 功能 | 在 Console 直接查 Cloud SQL 裡的資料表 |
+| Cloud Spanner | GCP 服務 | 開 90 天免費試用機體驗分散式資料庫，與 Cloud SQL 對照 |
 | gcloud CLI | 指令工具 | 建實例、設授權網路、建 secret 並授權 |
 | compose override 檔 | 既有工具 | 只改連線變數，就把同一套系統接上新的後端 |
 
@@ -23,8 +24,10 @@
 3. 分清楚內部 IP 與外部 IP，知道同一個 VPC 裡的機器怎麼互相溝通
 4. 用 Secret Manager 保管資料庫密碼，讓程式不必把密碼寫在檔案裡
 5. 開第二台 VM 專跑 worker，用 compose override 檔讓它連到別台機器的服務
-6. 跑通跨機器的完整閉環：VM1 發任務 → VM2 消化 → 資料落進 Cloud SQL
-7. 說得出 Swarm 與 Kubernetes 是什麼、為什麼本課程用 compose 就夠
+6. 跑通跨機器的完整閉環：VM1 發任務 → VM2 消化 → 雙寫同時落進 Cloud SQL 與 BigQuery
+7. 說得出 Cloud SQL 與 BigQuery 在營運面的差異（連線、授權、計費、停機模式）
+8. 開一台 Spanner 免費試用機動手操作，說得出它跟 Cloud SQL 的分工，以及 GCP 五種資料庫服務各自的適用場景
+9. 說得出 Swarm 與 Kubernetes 是什麼、為什麼本課程用 compose 就夠
 
 ## 先搞懂
 
@@ -47,11 +50,12 @@
 ```mermaid
 flowchart LR
     subgraph BEFORE["第 14 章：一台裝全部"]
-        ALL["stock-crawler-vm<br/>rabbitmq、worker×2、mysql、airflow…"]
+        ALL["stock-crawler-vm<br/>rabbitmq、worker×2、mysql、airflow…"] -->|雙寫②| BQ0[("BigQuery")]
     end
     subgraph AFTER["本章：拆成三份"]
         VM1["VM1（infra）<br/>rabbitmq、flower"] -->|任務| VM2["VM2（worker）<br/>worker×2"]
-        VM2 -->|寫入| SQL[("Cloud SQL<br/>託管 MySQL")]
+        VM2 -->|"雙寫①（換目標）"| SQL[("Cloud SQL<br/>託管 MySQL")]
+        VM2 -->|"雙寫②（原封不動）"| BQ[("BigQuery")]
     end
     BEFORE ==>|搬家| AFTER
 ```
@@ -59,6 +63,7 @@ flowchart LR
 - **VM1（既有的 stock-crawler-vm）**：收斂成 infra 角色，只跑 RabbitMQ 與 Flower
 - **VM2（本章新開）**：只跑兩個 worker——爬蟲的勞力工作獨立成一台，之後要加速就再開 VM3、VM4（第 7 章 `--scale` 的跨機器版）
 - **Cloud SQL**：取代 MySQL 容器。程式端只改 `MYSQL_HOST`——第 6 章把設定集中在 config 的做法，效果在這裡顯現
+- **BigQuery 完全不在搬家清單上**：雙寫的分析半邊憑 VM 身分直寫 BigQuery，跟 MySQL 在哪一台毫無關係——第 15 章「兩個命運」對照表的分工，在搬家這天兌現
 
 ### 內部 IP vs 外部 IP（跨機器前必懂）
 
@@ -264,7 +269,7 @@ sudo docker ps --format '{{.Names}}\t{{.Status}}'      # 只剩 rabbitmq、flowe
 
 ### Part D：開 VM2 並準備 worker
 
-worker 不需要 8GB，開小台的就好：
+worker 不需要 8GB，開小台的就好。`--scopes=cloud-platform` 跟第 14 章 F-2 一樣要給——**worker 搬到哪台，哪台就要有寫 BigQuery 的存取範圍**，雙寫的分析半邊才跟得過來：
 
 ```bash
 gcloud compute instances create stock-crawler-vm2 \
@@ -272,7 +277,8 @@ gcloud compute instances create stock-crawler-vm2 \
   --machine-type=e2-small \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
-  --boot-disk-size=20GB
+  --boot-disk-size=20GB \
+  --scopes=cloud-platform
 ```
 
 建好後 Console 的 VM 清單（≡ → Compute Engine → VM 執行個體）會有兩台並列。注意兩欄 IP：內部 IP 是連號的 `10.140.0.x`（同一個 VPC 依序配發），外部 IP 則是兩顆不相干的公網位址——這張圖就是「先搞懂」那張內外部 IP 對照表的實景：
@@ -293,26 +299,28 @@ sudo docker compose -f docker-compose-local.yml build worker_twse worker_tpex
 
 ### Part E：override 檔——「只改 HOST」的實作
 
-worker 在 compose 檔裡寫的是 `RABBITMQ_HOST=rabbitmq`、`MYSQL_HOST=mysql`——那是「大家都在同一台的容器名」。現在 RabbitMQ 在別台、MySQL 在 Cloud SQL，**用一個 override 檔蓋掉這兩個值**（在 VM2 的 `~/stock-crawler` 下建立）：
+worker 在 compose 檔裡寫的是 `RABBITMQ_HOST=rabbitmq`、`MYSQL_HOST=mysql`——那是「大家都在同一台的容器名」。現在 RabbitMQ 在別台、MySQL 在 Cloud SQL，**用一個 override 檔蓋掉這兩個值**，順便把雙寫的 `GCP_PROJECT_ID` 補上（`docker-compose-local.yml` 是本機用的，沒有這個變數）。在 VM2 的 `~/stock-crawler` 下建立：
 
 ```bash
 cat > gcp-worker-override.yml <<'YML'
-# worker 上雲的 override：覆蓋兩個 HOST，密碼由部署指令從 Secret Manager 注入
+# worker 上雲的 override：覆蓋兩個 HOST＋雙寫專案 ID，密碼由部署指令從 Secret Manager 注入
 services:
   worker_twse:
     environment:
       - RABBITMQ_HOST={VM1內部IP}       # 例：10.140.0.2——同 VPC 用內部 IP
       - MYSQL_HOST={CloudSQL IP}        # 例：35.229.208.220
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:-1234}   # 部署指令有給就用給的，沒給退回 1234
+      - GCP_PROJECT_ID={你的專案ID}     # 雙寫的 BigQuery 半邊（第 15 章讀碼段⓪）
   worker_tpex:
     environment:
       - RABBITMQ_HOST={VM1內部IP}
       - MYSQL_HOST={CloudSQL IP}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:-1234}
+      - GCP_PROJECT_ID={你的專案ID}
 YML
 ```
 
-注意這裡**沒有把密碼寫死**。`${MYSQL_PASSWORD:-1234}` 是 compose 的變數插值：up 的當下如果 shell 環境有 `MYSQL_PASSWORD` 就用它、沒有就退 1234——密碼的值由下面的啟動指令從 Secret Manager 取出，檔案裡永遠不會出現明碼。讀 secret 用的是 VM 的服務帳戶身分（B-2 授權的那個），不需要金鑰檔。
+注意這裡**沒有把密碼寫死**。`${MYSQL_PASSWORD:-1234}` 是 compose 的變數插值：up 的當下如果 shell 環境有 `MYSQL_PASSWORD` 就用它、沒有就退 1234——密碼的值由下面的啟動指令從 Secret Manager 取出，檔案裡永遠不會出現明碼。讀 secret 用的是 VM 的服務帳戶身分（B-2 授權的那個），不需要金鑰檔。`GCP_PROJECT_ID` 則是可以寫死的——專案 ID 不是機密（它出現在每個網址列），機密與非機密的待遇差別在這個檔案裡一目瞭然。
 
 用「兩個 -f」啟動——compose 會把兩份檔案**合併**，後面的蓋前面的；最前面掛上 B-4 的注入：
 
@@ -333,7 +341,7 @@ twse@xxxx ready.
 
 worker 跨機器連上了 VM1 的 RabbitMQ。`--no-deps` 的意思是「只啟動我指定的服務」——不加的話，compose 會照 `depends_on` 把本機的 rabbitmq 也一起啟動（worker 實際連的是 VM1，本機這顆只會佔用記憶體）。
 
-注意這裡沒有動任何防火牆設定，內部 IP 互連走的是 `default-allow-internal` 這條預設規則。**整次搬家，程式碼一行都沒改，設定的改動就是 override 檔裡那三個值。**
+注意這裡沒有動任何防火牆設定，內部 IP 互連走的是 `default-allow-internal` 這條預設規則。**整次搬家，程式碼一行都沒改；MySQL 換了目標、BigQuery 那半邊連設定都只是照抄專案 ID。**
 
 確認密碼真的來自 Secret Manager（而不是插值退回的 1234）——直接看容器的環境變數：
 
@@ -374,6 +382,15 @@ sudo docker run --rm mysql:8.0 \
 
 有筆數（兩支股票都有資料列）就是全通：**任務從 VM1 出發、在 VM2 被執行、資料落在 Cloud SQL**——三個零件在三個地方，協作靠的是第 1 章就認識的訊息佇列。表是 to_sql 自動建的，跟第 5 章在本機第一次寫入時一模一樣。
 
+雙寫的另一半也要驗——**BigQuery 那份在搬家後照常落地**（比對發任務前後的筆數，或看 worker log 的「資料已上傳到 BigQuery」）：
+
+```bash
+# 在 VM2（或任何登入 gcloud 的機器）上
+bq query --use_legacy_sql=false "SELECT COUNT(*) AS cnt FROM raw.TaiwanStockPrice"
+```
+
+筆數比發任務前多，證明「先搞懂」藍圖那條虛線成立：**搬家動的是 MySQL 的位置，BigQuery 的資料線從第 14 章到現在沒有斷過、也沒改過任何設定**——這就是雙寫架構在搬家日的價值。
+
 跨機分工在 Flower 上也看得到：瀏覽器開 `http://{VM1外部IP}:5555`——Flower 跑在 VM1，列出的兩個 worker 卻是 VM2 上的容器（worker 名稱 @ 後面的主機碼跟 VM1 不同台），各自 Succeeded 1 筆：
 
 ![Flower 跨機](images/ch16/04-Flower跨機兩worker各Succeeded1.jpg)
@@ -389,6 +406,129 @@ gcloud sql users create studio --instance=stock-mysql --password=1234 --host=%
 ![Cloud SQL Studio](images/ch16/05-CloudSQLStudio查詢TaiwanStockPrice.jpg)
 
 託管服務自帶管理介面，phpMyAdmin 在雲端段就退役了。
+
+## Cloud SQL vs BigQuery：營運面的對照
+
+第 15 章從「同一筆資料的兩個命運」比過 OLTP 與 OLAP 的概念差異；本章兩者你**都營運過了**——建過實例、設過授權、付過（試用額度的）錢。現在從營運者的角度再比一次，這張表的每一列你都有第一手經驗：
+
+| 營運面 | Cloud SQL（本章） | BigQuery（第 15 章） |
+|---|---|---|
+| 「開機器」這件事 | 有——建實例選機型（db-f1-micro），約 10 分鐘 | 沒有——沒有實例概念，開個 dataset 就能寫 |
+| 連線方式 | IP＋授權網路（你 patch 過的 authorized-networks）＋帳號密碼 | 無連線設定——走 API，身分即通行證（VM 身分或金鑰） |
+| 授權模型 | 資料庫自己的帳號系統（root、studio……）＋網路白名單 | 全走 GCP IAM（第 15 章 T-2 給組員的兩個角色） |
+| 計費邏輯 | **機器開多久**——實例跑著就計費，跟你查不查無關 | **掃描多少**——不查就近乎免費，儲存費另計但很小 |
+| 「下課停機」動作 | 必要：`--activation-policy=NEVER`，忘了就一直燒 | 不存在這個動作——沒有可以停的機器 |
+| 停機的代價 | 停用期間完全不能查 | ——（永遠在線） |
+| 擴充方式 | 換更大的機型（要重啟）、加唯讀副本 | 自動——你從沒設定過它的算力 |
+| 密碼／機密 | 有 root 密碼要管（本章 Secret Manager 的主角） | 沒有密碼這種東西 |
+
+一句話收斂：**Cloud SQL 是「託管的機器」，BigQuery 是「無伺服器的服務」**——前者你還看得到機器的影子（機型、IP、開關機），後者連機器的概念都被抽走了。這條光譜上還有一種更特別的動物，下一節開一台來看。
+
+## 動手開一台 Cloud Spanner——分散式資料庫長什麼樣
+
+Cloud SQL 是「一台託管的 MySQL」；**Cloud Spanner 是 Google 自研的分散式關聯式資料庫**——資料自動分片到多台機器、跨節點仍保有 SQL 交易與強一致性，Google 自家的廣告、Gmail 底層都跑它。它解的是 Cloud SQL 的天花板：單機 MySQL 撐不住的規模（水平擴充）與「升級要重啟」的停機窗。
+
+Spanner 有 **90 天免費試用 instance**（不扣試用額度、不會產生費用），拿它做三個實驗。
+
+> **動手前的三個限制先知道**（免費試用版）：
+> 1. **每個專案終身只有一次**——刪掉不會退還額度，這台開了就別隨手刪（反正它不計費，90 天到期會自動停用）
+> 2. 10GB 儲存、算力固定（不能調）、不支援備份還原
+> 3. 單區域限定；到期後有 30 天寬限期可升級成付費版保資料
+
+**S-1 啟用 API 並建立試用 instance**：
+
+```bash
+gcloud services enable spanner.googleapis.com
+
+gcloud spanner instances create stock-spanner-trial \
+  --config=regional-asia-east1 \
+  --description="course trial" \
+  --instance-type=FREE_INSTANCE
+```
+
+約半分鐘建好（對照 Cloud SQL 的 10 分鐘）。確認狀態與到期日：
+
+```bash
+gcloud spanner instances describe stock-spanner-trial \
+  --format="value(state,instanceType,freeInstanceMetadata.expireTime)"
+# READY  FREE_INSTANCE  {90天後的日期}
+```
+
+**S-2 建資料庫與表——SQL 幾乎一樣，主鍵長在不一樣的地方**：
+
+```bash
+gcloud spanner databases create stockdb --instance=stock-spanner-trial \
+  --ddl='CREATE TABLE StockPrice (
+    stock_id STRING(10) NOT NULL,
+    trade_date DATE NOT NULL,
+    close FLOAT64,
+    volume INT64
+  ) PRIMARY KEY (stock_id, trade_date)'
+```
+
+跟 MySQL 的差異很明顯：型別叫 `STRING(10)`／`FLOAT64`／`INT64`（Spanner 的 GoogleSQL 方言），而且 **`PRIMARY KEY` 寫在括號外面**——因為主鍵在 Spanner 不只是唯一性約束，它決定**資料怎麼分片到多台機器**（相近主鍵的列存一起）。設計主鍵＝設計資料分佈，這是分散式資料庫跟單機資料庫思維上的第一個分歧點。
+
+插入與查詢，跟你會的 SQL 沒有兩樣：
+
+```bash
+gcloud spanner databases execute-sql stockdb --instance=stock-spanner-trial \
+  --sql="INSERT INTO StockPrice (stock_id, trade_date, close, volume) VALUES
+         ('2330', '2025-06-17', 1045.0, 33478487),
+         ('2330', '2025-06-16', 1030.0, 25301396),
+         ('0050', '2025-06-17', 47.03, 12345678)"
+# Statement modified 3 rows
+
+gcloud spanner databases execute-sql stockdb --instance=stock-spanner-trial \
+  --sql="SELECT stock_id, trade_date, close FROM StockPrice ORDER BY stock_id, trade_date DESC"
+```
+
+**S-3 兩個「Cloud SQL 做不到」的實驗**：
+
+**實驗①：改 schema 不鎖表**。對正在服務的表加欄位：
+
+```bash
+gcloud spanner databases ddl update stockdb --instance=stock-spanner-trial \
+  --ddl='ALTER TABLE StockPrice ADD COLUMN ma5 FLOAT64'
+```
+
+Spanner 的 schema 變更是**線上作業**——執行期間讀寫照常，不鎖表、不停機。MySQL 的大表 `ALTER TABLE` 歷來是維運的難題（鎖表時間隨資料量成長）；Spanner 把它變成背景工作。
+
+**實驗②：調算力不用重啟——但免費版會告訴你另一件事**：
+
+```bash
+gcloud spanner instances update stock-spanner-trial --processing-units=200
+# ERROR: The field instance.processing_units cannot be set for free instances.
+```
+
+被拒了——免費試用版的算力是固定的。但這條指令在**付費版**上會直接生效：Spanner 的算力單位叫 **processing units（PU）**，調整時**不用停機、不用重啟、連線不中斷**——對照 Cloud SQL 換機型要重啟的停機窗，這是兩者在「擴充」這件事上的本質差異。免費版擋下這條指令的錯誤訊息，順便讓你看清楚「免費體驗」與「生產能力」的界線在哪。
+
+**S-4 對照表——什麼時候用誰**：
+
+| | Cloud SQL | Cloud Spanner |
+|---|---|---|
+| 本質 | 託管的**單機** MySQL/PostgreSQL | Google 自研的**分散式**關聯式資料庫 |
+| 擴充 | 垂直為主（換機型，要重啟）＋唯讀副本 | 水平（調 PU／加節點，**不停機**） |
+| 規模上限 | 單機的天花板（數 TB 級） | 近乎無上限（PB 級、全球分佈） |
+| schema 變更 | 大表 ALTER 可能鎖表 | 線上變更，不鎖表 |
+| 相容性 | 就是 MySQL——現有程式、工具直接用 | GoogleSQL／PostgreSQL 方言——`pymysql` 不能直連，要換 client |
+| 價格量級 | db-f1-micro 一個月十幾美元起 | 最小正式配置一個月百美元級起跳 |
+| 適用 | 中小規模、想沿用 MySQL 生態 | 超大規模、全球多區、不能停機的關鍵系統 |
+
+課程的爬蟲該搬去 Spanner 嗎？**不該**——資料量離 Cloud SQL 的天花板遠得很，而且 worker 用的 `pymysql`＋SQLAlchemy 生態直接可用。Spanner 是「規模到了、停機代價大到付得起它的價格」時的答案，不是預設選項。
+
+## GCP 資料庫選型光譜
+
+雲端段一路用過 Cloud SQL 和 BigQuery、剛剛又摸了 Spanner——把 GCP 的五種主力資料庫服務排成一張光譜，選型的問題就有地圖可查：
+
+| 服務 | 資料模型 | 一句話定位 | 典型場景 | 課程對應 |
+|------|---------|-----------|---------|---------|
+| **Cloud SQL** | 關聯式（MySQL/PostgreSQL/SQL Server） | 託管的單機資料庫 | 中小型應用的營運庫（OLTP） | 本章，爬蟲的 MySQL |
+| **Cloud Spanner** | 關聯式（分散式） | 不能停機、規模無上限的關聯式庫 | 金融核心、全球型服務 | 本章試用機 |
+| **BigQuery** | 欄式倉儲 | 無伺服器的分析倉儲（OLAP） | 報表、大規模統計、ML | 第 15 章 |
+| **Firestore** | 文件式 NoSQL | App 後端的即時文件庫 | 行動／Web app 的使用者資料 | 補充D 的 MongoDB 同族 |
+| **Bigtable** | 寬欄式 NoSQL | 低延遲海量鍵值讀寫 | 時序資料、IoT、監控指標 | ——（認得名字即可） |
+
+選型的判斷順序跟第 5 章、補充D 學過的一樣：**先問資料形狀與存取模式**（關聯？文件？分析掃描？），**再問規模與可用性要求**，最後才是價錢——光譜上往右下走（Spanner、Bigtable）都是「規模換錢」的選擇，規模沒到就是浪費。
 
 ## Swarm 一頁＋K8s 簡介
 
@@ -511,6 +651,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 |------|---------|-----------|
 | VM ×2 | TERMINATED，外部 IP 回收 | 磁碟費（兩顆 20GB 合計每月約 NT$50） |
 | Cloud SQL | 停用，資料保留 | 儲存費（少量） |
+| Spanner 試用機 | **不用停**——免費 instance 本來就不計費 | $0（90 天到期自動停用；記得別手動刪，額度不會退還） |
 
 重新開工的順序：Cloud SQL `--activation-policy=ALWAYS` → VM start → **查新的外部 IP → 重跑 authorized-networks 的 patch**（IP 換了，舊授權就失效——別忘了這步）。
 
@@ -520,8 +661,9 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 - [ ] 授權網路含兩台 VM 的外部 IP；mydb 資料庫存在
 - [ ] VM1 只跑 rabbitmq＋flower；VM2 只跑兩個 worker
 - [ ] VM2 worker log 有 `Connected to amqp://...{VM1內部IP}` 與 `ready`
-- [ ] VM1 發任務後，Cloud SQL 的 `mydb.TaiwanStockPrice` 查得到資料
-- [ ] 三個資源全部停止
+- [ ] VM1 發任務後，Cloud SQL 的 `mydb.TaiwanStockPrice` 查得到資料，**且 BigQuery 的 `raw.TaiwanStockPrice` 筆數同步增加**（雙寫兩邊都活著）
+- [ ] Spanner 試用 instance 存在（READY），三個實驗都跑過：GoogleSQL 建表插查、線上加欄位、調 PU 被免費版拒絕
+- [ ] VM ×2 與 Cloud SQL 停止（Spanner 試用機不計費，不用動）
 
 ## 想一想
 
@@ -551,6 +693,9 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 | VM 上注入指令回 403 Permission denied | 沒做 B-2 的授權，或 member 填錯（要填 VM 用的那個服務帳戶） | 用 `gcloud secrets get-iam-policy mysql-password` 檢查授權對象 |
 | 容器裡的密碼還是預設值 1234 | up 時沒掛注入（少了 `MYSQL_PASSWORD=$(...)` 前綴）、或 `sudo` 沒加 `-E` 把環境變數清掉了 | 重跑完整的注入 up；`docker exec {容器} env \| grep MYSQL_PASSWORD` 確認 |
 | 換了密碼但容器沒生效 | 只做了 `docker restart`——環境變數在容器建立時就固定了 | 重跑注入 up，compose 會重建容器 |
+| 搬家後 Cloud SQL 有資料、BigQuery 沒新增 | override 檔漏了 `GCP_PROJECT_ID`（worker 印「BQ 未設定，略過雲端寫入」），或 VM2 建機時沒給 `--scopes=cloud-platform` | 補 override 的變數重跑 up；scopes 要停機後 `gcloud compute instances set-service-account {VM} --scopes=cloud-platform` 補 |
+| Spanner 建試用機被拒：limited to 1 per project lifecycle | 這個專案開過（也許已刪掉）免費 instance——刪除不會退還額度 | 免費體驗一個專案只有一次；要再玩只能換專案或開付費 instance |
+| Spanner 調 PU 報 cannot be set for free instances | 免費試用版算力固定 | 正常——這正是免費版與付費版的界線（S-3 實驗②） |
 
 ## 本章總結
 
@@ -559,11 +704,13 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 - Secret Manager 保管密碼：集中儲存、可查詢誰讀過、每個版本都保留；部署時注入讓密碼只存在 Secret Manager 一處——程式只讀環境變數，在雲端和本機用同一份程式碼
 - 授權可以綁在單一資源上（`gcloud secrets add-iam-policy-binding`），範圍比第 15 章的專案層級更精確
 - 在 VM 上執行的容器不需要金鑰檔，它用 VM 的服務帳戶身分讀 Secret Manager
-- compose override 檔讓「搬家」縮小成三個值的差異，這是設定集中管理與分層設計帶來的效果
-- 跨機器閉環：VM1 發 → VM2 做 → Cloud SQL 存。把零件放到三個地方，協作靠訊息佇列
+- compose override 檔讓「搬家」縮小成幾個值的差異，這是設定集中管理與分層設計帶來的效果
+- 跨機器閉環：VM1 發 → VM2 做 → 雙寫落 Cloud SQL＋BigQuery。搬家只動 OLTP 半邊，分析線零改動——雙寫架構的價值在搬家日兌現
+- Cloud SQL 是「託管的機器」（開多久算多少、要管密碼與停機），BigQuery 是「無伺服器服務」（掃多少算多少、沒有機器概念）——營運面處處相反
+- Spanner 是分散式關聯庫：主鍵決定分片、schema 線上變更、調 PU 不停機；規模沒到它的量級就用 Cloud SQL——選型光譜五個服務各有位置
 - Swarm 已少人使用、K8s 是目前的標準但屬於另一門課的範圍——compose 練熟就是學 K8s 的基礎
-- 收工三停：VM ×2＋Cloud SQL；重開要記得「新 IP → 重 patch 授權」
+- 收工兩停一不動：VM ×2＋Cloud SQL 要停，Spanner 試用機不計費；重開要記得「新 IP → 重 patch 授權」
 
-下一章（第 17 章）是最後一章：用 Airflow 排程把「Cloud SQL → BigQuery」的同步變成每個交易日自動執行，並對照託管版的 Cloud Composer。
+下一章（第 17 章）是最後一章：用 Airflow 排程把「觸發爬蟲雙寫＋重算 BigQuery 分析層」變成每個交易日自動執行的一條線，並對照託管版的 Cloud Composer。
 
 如果你也想把 API 開到網路上讓別人查詢，可以看選讀的補充H——用 Artifact Registry 與 Cloud Run 把 FastAPI 部署成一個固定的 HTTPS 網址。

@@ -37,11 +37,11 @@
 - [x] 重現性通讀＋禁用詞掃描；commit＋push
 
 ## Phase 5：手冊16 大改
-- [ ] Part E override 重寫（雙寫下的搬家＝改 MYSQL_HOST，BQ 那份不受影響——搬家敘事的新賣點）
-- [ ] Cloud SQL vs BQ 營運級對照表
-- [ ] Spanner 動手節：試用 instance 建立→GoogleSQL 操作→不停機調 PU→對照表→刪除；全程實測
-- [ ] GCP 資料庫選型光譜表（SQL/Spanner/BQ/Firestore/Bigtable）
-- [ ] 連動：團體節/檢查表/收工段；禁用詞掃描；commit＋push
+- [x] Part E override 重寫（雙寫下的搬家＝改 MYSQL_HOST，BQ 那份不受影響——搬家敘事的新賣點）
+- [x] Cloud SQL vs BQ 營運級對照表
+- [x] Spanner 動手節：試用 instance 建立→GoogleSQL 操作→不停機調 PU→對照表→刪除；全程實測
+- [x] GCP 資料庫選型光譜表（SQL/Spanner/BQ/Firestore/Bigtable）
+- [x] 連動：團體節/檢查表/收工段；禁用詞掃描；commit＋push
 
 ## Phase 6：手冊17 大改
 - [ ] DAG 改造：移除 sync task、加 transform task（stage/app SQL 包函式）；程式實測
