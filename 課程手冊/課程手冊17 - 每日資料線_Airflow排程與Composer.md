@@ -584,6 +584,7 @@ sudo docker exec airflow-webserver airflow users list
 | DAG 全綠但 raw 筆數沒增加 | `send_crawler_tasks` 只負責發任務——worker 那端沒起來、或 worker 沒拿到 `GCP_PROJECT_ID`（log 印「BQ 未設定，略過雲端寫入」） | 查 VM2 的 worker 容器狀態與 env；Flower 看任務是否被消化 |
 | transform task 紅掉、SQL 錯誤裡表名少了專案段 | Airflow 容器沒拿到 `GCP_PROJECT_ID`（`.env` 漏了那行，或加了沒重跑 up） | 補 `.env` 重新 up（A-2），重觸發 DAG |
 | transform task 報 Not found: Dataset raw | 這個專案還沒有雙寫過任何資料（raw 是第一次雙寫時建的） | 先讓爬蟲跑過一輪（第 14 章 H-3/H-4），或等 DAG 的 wait 之後重試 |
+| worker 報 403 `Quota exceeded: ... partition modifications` | 同一天反覆觸發全量爬蟲，分區表的每日分區修改配額被燒完（第 15 章排錯表同一條） | 等隔天重置；MySQL/Cloud SQL 那半邊不受影響，隔天排程恢復正常 |
 | unpause 後多一個沒觸發過的 run | 排程 DAG unpause 會補跑最近一期（catchup=False 也一樣） | 正常現象；不想要就在 unpause 前先 trigger 手動 run 驗證 |
 | BigQuery 寫入 403 | VM scopes 不含 BigQuery（建機時沒給 `--scopes=cloud-platform`） | 停機 → `set-service-account --scopes=cloud-platform` → 開機 → 重授權 Cloud SQL（開工 SOP 第 2 步的補改流程） |
 | Composer 建立回報 `FAILED_PRECONDITION: Please enable all APIs` | 只開了 `composer.googleapis.com`，還相依 `iamcredentials.googleapis.com` | 兩個一起 enable 後重下建立指令 |
