@@ -723,7 +723,7 @@ cp .env.example .env
 
 **H-1b 安裝 uv 與 Python 環境**
 
-容器裡的程式不需要這一步（image 自帶環境），但**直接在 VM 上跑 Python 程式**的場景會一路用到：H-4 驗證要跑 producer 發任務、第 15 章要在 VM 上執行 BigQuery 分析層的程式。跟 F-4 裝 Docker 一樣，這是 VM 的一次性環境準備——重演第 2 章在自己電腦做過的事：
+容器裡的程式不需要這一步（image 自帶環境），但**直接在 VM 上跑 Python 程式**的場景會一路用到：第 15 章要在 VM 上執行 BigQuery 分析層的程式、平常排錯也常臨時跑個腳本。跟 F-4 裝 Docker 一樣，這是 VM 的一次性環境準備——重演第 2 章在自己電腦做過的事：
 
 ```bash
 # ① 安裝 uv（官方安裝腳本，裝到 ~/.local/bin）
@@ -775,14 +775,18 @@ sudo -E docker compose -f docker-compose-all.yml up -d --build --scale metabase=
 ```
 
 - 第一行把**專案 ID 塞進環境變數**再執行 up（`sudo -E` 讓 sudo 保留這個變數），compose 檔會把它轉交給 worker 容器。為什麼需要它：這套系統的爬蟲是**雙寫**的——每次抓完資料，同一份會寫進 MySQL，**同時**寫一份到 BigQuery（GCP 的資料倉儲服務）。worker 靠 `GCP_PROJECT_ID` 知道要寫進哪個專案；前面 1-13 章在本機沒設這個變數，worker 就印一行「BQ 未設定，略過雲端寫入」只寫 MySQL。BigQuery 那份是幹嘛用的，第 15 章詳細介紹——這一章先知道「雲端上的爬蟲會多寫一份」就夠
+- **這個變數在程式碼裡的完整路徑**（打開檔案就能對照，一行程式都不用改）：
+  1. `docker-compose-all.yml`：worker 服務的 environment 有一行 `GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}`——compose 的變數插值，把「up 當下 shell 環境的值」轉交給容器；shell 沒設就給空字串
+  2. `crawler/config.py`：`GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")`——程式從容器的環境變數讀進來，沒有就是空字串（第 6 章 config 集中管理的老規矩）
+  3. `crawler/tasks_crawler_finmind.py`：`upload_data_to_bigquery_raw()` 函式開頭 `if not GCP_PROJECT_ID:` ——空字串就印「BQ 未設定，略過雲端寫入」直接返回，MySQL 那份照寫。這段程式碼第 15 章會逐行拆解
 - `--build` 順便建好兩個 crawler worker 的 image；其餘 image 自動從 Docker Hub 拉。第一次啟動約 3-5 分鐘
 - `--scale metabase=0` 的意思是「metabase 這個服務這次開 0 份」＝完全不啟動它。**雲端段不跑 Metabase**，原因有二：
   1. BI 的角色在雲端段由 **Looker Studio** 接手（第 15 章 Step 5 會教，它有內建的 BigQuery 連接器）。第 8 章的本機 Metabase 保留不動，正好形成「自架 BI vs 託管 BI」的對照
   2. Metabase 是 Java 應用，一個容器就要 1GB 記憶體，而且啟動時常搶不到還沒就緒的 MySQL 而失敗——雲端 demo 用不到它，就不花這個資源
 
-**H-4 驗證（第 13 章的七步驟，雲端版——多一步雲端限定的 Step 8）**
+**H-4 起飛前檢查（系統活著沒？）**
 
-> 這一段全部用指令驗（`docker ps`／`logs`／`exec`），因為防火牆還沒開、瀏覽器進不來。Part I 開完 port 之後，同樣的東西會再用 Flower、Airflow、phpMyAdmin 的介面看一次——先確認系統活著，再開門用眼睛看。
+> 發任務之前先確認系統起得來。這一段用指令驗（`docker ps`／`curl`／`logs`）；**發任務留到 Part I 開完防火牆之後**——用瀏覽器上 Airflow 的介面觸發，跟之後每天操作它的方式一致。
 
 Step 1 容器狀態：
 
@@ -809,45 +813,13 @@ sudo docker logs crawler_twse 2>&1 | tail -5          # 預期 twse@xxxx ready.
 sudo docker logs mysql 2>&1 | grep "ready for connections"
 ```
 
-Step 4 發任務（uv 環境 H-1b 已備好）：
-
-```bash
-uv run crawler/producer_multi_queue.py    # send task_2330 task、send task_00679b task
-```
-
-Step 5 Worker 執行：
-
-```bash
-sudo docker logs crawler_twse 2>&1 | grep succeeded | tail -3
-sudo docker logs crawler_tpex 2>&1 | grep succeeded | tail -3
-```
-
-兩個 worker 各自 `succeeded`——twse 做 2330、tpex 做 00679B，第 3 章的分流在雲端照常運作。
-
-Step 6 DB 驗證：
-
-```bash
-sudo docker exec mysql mysql -uroot -p1234 mydb -e \
-  "SHOW TABLES; SELECT stock_id, COUNT(*) AS cnt FROM TaiwanStockPrice GROUP BY stock_id;"
-```
-
-`TaiwanStockPrice` 存在、兩支股票都有資料列。任務 succeeded 還不夠，資料在庫裡才算數。
-
-Step 7 Airflow 編排層：
+Step 3b Airflow 編排層就緒：
 
 ```bash
 sudo docker exec airflow-webserver airflow dags list 2>&1 | grep stock
 ```
 
-列出六個 stock DAG 就代表編排層就緒。
-
-Step 8 BigQuery 那份也落地了（雲端限定）：
-
-```bash
-bq query --use_legacy_sql=false "SELECT COUNT(*) AS cnt FROM raw.TaiwanStockPrice"
-```
-
-`bq` 是 BigQuery 的指令列工具，VM 上隨 gcloud 一起裝好了，用的同樣是 VM 身分。回傳的筆數大於 0，代表 H-3 說的雙寫真的發生：worker 抓完資料，MySQL（Step 6）和 BigQuery 的 `raw` 資料集**同時**各有一份。這兩份資料的角色差在哪、`raw` 這個名字是什麼意思，第 15 章開場就講。
+列出六個 stock DAG 就代表編排層就緒——發任務的入口等防火牆開完，從瀏覽器進去按。
 
 ### Part I：防火牆與瀏覽器連線
 
@@ -902,19 +874,49 @@ gcloud compute instances add-tags stock-crawler-vm --tags=stock-web --zone=asia-
 
 ![雲端 Airflow DAGs 清單](images/ch14/33-雲端Airflow-DAGs清單.jpg)
 
-Flower 上兩個 worker Online、各自 Succeeded——剛才發的任務在這裡留下紀錄:
+**Part J：發任務——七步驟的下半場（從 Airflow 出發）**
 
-![雲端 Flower](images/ch14/34-雲端Flower兩worker.jpg)
+門開了，接著把 H-4 沒做完的驗證做完。發任務的方式從這章起固定走 **Airflow**——它本來就在系統裡（第 10 章起的編排層），之後 16、17 章的雲端操作全部從它出發。
 
-再發一輪任務（H-4 的 producer 步驟）之後回來看，Processed 與 Succeeded 會跟著累加——執行層的帳都記在這裡：
+Step 4 觸發 producer DAG（第 12 章串法二：Airflow 只發任務，爬蟲交給 worker）。在 DAG 清單找到 `stock_crawler_producer_dag`，左側開關 unpause，按最右邊的 ▶ 觸發；或用指令：
+
+```bash
+sudo docker exec airflow-scheduler airflow dags unpause stock_crawler_producer_dag
+sudo docker exec airflow-scheduler airflow dags trigger stock_crawler_producer_dag
+```
+
+Graph 上會看到交易日分支走 `send_tasks` 那條路、十個發任務 task 全綠（假日觸發則走 `skip_no_trading`，整批粉紅色 skipped——第 12 章教過的守門行為）。**DAG 全綠只代表任務發出去了**，爬蟲的成敗看下面兩步。
+
+Step 5 Worker 執行（十支股票都發到 twse 佇列，單一 worker 逐筆處理約一兩分鐘）：
+
+```bash
+sudo docker logs crawler_twse 2>&1 | grep -c succeeded    # 期望 10
+```
+
+Flower（`http://{VM外部IP}:5555`）上同一件事用介面看：兩個 worker Online、twse 的 Processed 與 Succeeded 累加——執行層的帳都記在這裡：
 
 ![雲端 Flower 任務 Succeeded](images/ch14/47-雲端Flower-任務Succeeded.jpg)
 
-phpMyAdmin 登入（root/1234）後選 `mydb` → `TaiwanStockPrice`，H-4 用 `docker exec` 查過的同一批資料，現在用滑鼠就看得到：
+Step 6 DB 驗證：
+
+```bash
+sudo docker exec mysql mysql -uroot -p1234 mydb -e \
+  "SHOW TABLES; SELECT stock_id, COUNT(*) AS cnt FROM TaiwanStockPrice GROUP BY stock_id;"
+```
+
+`TaiwanStockPrice` 存在、十支股票都有資料列。任務 succeeded 還不夠，資料在庫裡才算數。phpMyAdmin（`http://{VM外部IP}:8080`，root/1234）選 `mydb` → `TaiwanStockPrice`，同一批資料用滑鼠就看得到：
 
 ![雲端 phpMyAdmin 資料列](images/ch14/48-雲端phpMyAdmin-TaiwanStockPrice.jpg)
 
-介面不只拿來看清單——在 Airflow 上實際觸發一支 DAG，整個執行過程都在 Graph 上。以第 12 章的分組爬蟲 DAG 為例（不帶參數觸發，兩組市場都跑）：
+Step 7 BigQuery 那份也落地了（雲端限定）：
+
+```bash
+bq query --use_legacy_sql=false "SELECT COUNT(*) AS cnt FROM raw.TaiwanStockPrice"
+```
+
+`bq` 是 BigQuery 的指令列工具，VM 上隨 gcloud 一起裝好了，用的同樣是 VM 身分。回傳的筆數大於 0，代表 H-3 說的雙寫真的發生：worker 抓完資料，MySQL（Step 6）和 BigQuery 的 `raw` 資料集**同時**各有一份。這兩份資料的角色差在哪、`raw` 這個名字是什麼意思，第 15 章開場就講。
+
+**再多跑一支：分支 DAG 的雲端版**。第 12 章的分組爬蟲 DAG 也在清單裡，不帶參數觸發，兩組市場都跑：
 
 ```bash
 sudo docker exec airflow-webserver airflow dags unpause stock_crawler_twse_tpex_dag
@@ -976,7 +978,7 @@ port 不對公網開，系統自己人要用怎麼辦——分兩種情況，都
 | 檢查點 | 為什麼要注意 | 本課程的做法 |
 |--------|-------------|-------------|
 | MySQL 的 root／user 密碼 | 弱密碼＋port 對外＝資料庫直接被掃走 | 課程沿用 `root/1234`，防線是 **3306 不對公網開**＋phpMyAdmin 只給自己的 IP；第 16 章換 Cloud SQL 後密碼進 Secret Manager。正式環境兩層都要做：改強密碼＋不開 port |
-| worker 連線的 host | 跨機器後 localhost 連不到服務 | 第 16 章 override 檔把 `RABBITMQ_HOST` 改成 VM1 的**內部 IP** |
+| worker 連線的 host | 跨機器後 localhost 連不到服務 | 第 16 章在 VM2 的 `.env` 把 `RABBITMQ_HOST` 改成 VM1 的**內部 IP** |
 | 防火牆規則 | 預設全擋，Web 介面要自己開 | Part G 熱身＋本段 `allow-stock-web`，來源一律限自己的 IP |
 | GitHub 連線 | 私有 repo 在 VM 上 clone 要另外處理認證 | 課程 repo 是公開的，`git clone` 免帳密；反過來記住：**金鑰與 .env 絕不 push 上公開 repo**（Part D 講過，Google 會自動停用被掃到的金鑰） |
 
@@ -1286,7 +1288,7 @@ Console 建立時的三個對應點選：區域選 us-west1、機器類型在 E2
 - [ ] 專案 `stock-crawler-course` 存在且是目前選取的專案
 - [ ] 服務帳戶 `stock-crawler-sa` 存在，金鑰 JSON 已下載並移到 `~/gcp-keys/`
 - [ ] `gcloud projects list` 列得出專案
-- [ ] VM 能開、能 SSH、能跑整套 compose、七步驟驗證全過（含 Step 8：BigQuery 的 `raw.TaiwanStockPrice` 有筆數）
+- [ ] VM 能開、能 SSH、能跑整套 compose；H-4 起飛前檢查＋Part J 從 Airflow 發任務的驗證全過（含 Step 7：BigQuery 的 `raw.TaiwanStockPrice` 有筆數）
 - [ ] 瀏覽器連得上雲端的 Airflow／Flower
 - [ ] **VM 已停機**（`gcloud compute instances list` 顯示 TERMINATED）
 
@@ -1299,7 +1301,7 @@ Console 建立時的三個對應點選：區域選 us-west1、機器類型在 E2
 ## 練習
 
 1. 用 `gcloud compute instances start` 把 VM 開回來，確認外部 IP 換了，瀏覽器用新 IP 重新打開 Airflow，然後停機
-2. 在 Airflow UI（8081）unpause 並 trigger `stock_crawler_dag`，用七步驟的 Step 6 確認資料增加——雲端版的編排閉環
+2. 在 Airflow UI（8081）unpause 並 trigger `stock_crawler_dag`（串法一：Airflow 自己爬），用 Part J 的 Step 6 確認資料增加——跟 producer DAG（串法二）對照兩種串法
 3. 把防火牆規則的 `--source-ranges` 改成另一個網路的 IP（例如手機熱點），驗證原本的網路連不上了——理解來源限制的意義
 
 ## 排錯

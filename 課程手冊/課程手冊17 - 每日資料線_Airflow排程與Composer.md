@@ -105,50 +105,43 @@ gcloud compute instances set-service-account stock-crawler-vm \
 
 開機後才發現 scopes 不對的話，就得再停一次機（IP 會再換一次，授權網路也要重設）——這正是「建機時就給對」的價值。
 
-### Part A：Airflow 上雲——建立排程環境
+### Part A：讓 Airflow 多一個身分——會寫 BigQuery 的排程者
 
-在 VM1 上準備自架 Airflow。兩個學員步驟：
+Airflow 從第 16 章 Part A 起就在 VM1 上跑著（發任務的中樞）。本章它多了一個工作：**自己動手重算 BigQuery 分析層**（transform task）——所以要補給它一個東西：`GCP_PROJECT_ID`。兩個學員步驟：
 
-**A-1 build image**（跟第 10 章本機同一份 Dockerfile）：
+**A-1 確認 image 還在**（第 14 章 H-2 build 過的那顆）：
 
 ```bash
 # 在 VM1 的 ~/stock-crawler
 git pull
-docker build -f airflow/Dockerfile -t stock-airflow:latest .   # 約 10 分鐘
+sudo docker images | grep stock-airflow
 ```
 
-> 如果你在 VM1 上跑過 `docker system prune -af` 清理磁碟，它會把「沒有容器在用」的 image 全部清掉，這裡就得重 build。build 等待的時間可以先讀「先搞懂」的 Composer 對照表。
+> 看不到的話（例如跑過 `docker system prune -af` 清理磁碟，它會把「沒有容器在用」的 image 全部清掉），重 build：`sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .`（約 10 分鐘）。等待的時間可以先讀「先搞懂」的 Composer 對照表。
 
-**A-2 寫 Airflow 的雲端 override 檔**（第 16 章 override 手法第三次使用）：
+**A-2 用 `.env` 給 Airflow 專案 ID，重跑 up**（第 16 章 Part E 的同一招——compose-all 的 Airflow 服務也有 `GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}` 插值）：
 
 ```bash
-cat > gcp-airflow-override.yml <<'YML'
-# Airflow 上雲 override：MySQL 改連 Cloud SQL、補 GCP 專案 ID
-# BigQuery 認證走 VM 中繼資料（服務帳戶），不需要金鑰檔
-services:
-  airflow-webserver:
-    environment:
-      MYSQL_HOST: {CloudSQL IP}
-      GCP_PROJECT_ID: {你的專案ID}
-  airflow-scheduler:
-    environment:
-      MYSQL_HOST: {CloudSQL IP}
-      GCP_PROJECT_ID: {你的專案ID}
-YML
+# 在 VM1 的 ~/stock-crawler：.env 加一行
+echo "GCP_PROJECT_ID={你的專案ID}" >> .env
 
-docker network create my_network    # airflow compose 宣告要用的外部網路（建過就跳過）
-docker compose -f airflow/docker-compose-airflow.yml -f gcp-airflow-override.yml up -d
+# 重跑 up，Airflow 容器重建後就帶著這個變數
+sudo docker compose -f docker-compose-all.yml up -d \
+  rabbitmq flower airflow-postgres airflow-init airflow-webserver airflow-scheduler
+
+# 驗證
+sudo docker exec airflow-scheduler env | grep GCP_PROJECT_ID
 ```
 
-注意 override 裡**沒有** `GOOGLE_APPLICATION_CREDENTIALS` 這個變數。第 15 章在本機需要金鑰檔，是因為你的筆電對 GCP 來說沒有身分；VM 本身有服務帳戶這個身分，Google 的程式庫會自動採用。**在 VM 上執行的程式不需要金鑰檔**，這跟第 16 章 worker 讀 Secret Manager 是同一個機制。
+注意這裡**沒有** `GOOGLE_APPLICATION_CREDENTIALS` 這個變數。第 15 章在本機需要金鑰檔，是因為你的筆電對 GCP 來說沒有身分；VM 本身有服務帳戶這個身分，Google 的程式庫會自動採用。**在 VM 上執行的程式不需要金鑰檔**，這跟第 16 章 worker 讀 Secret Manager 是同一個機制。
 
 ### Part B：觸發完整資料線
 
 等 Airflow init 完成（`docker ps` 看 webserver healthy），觸發每日資料線的 DAG：
 
 ```bash
-docker exec airflow-scheduler airflow dags unpause stock_bigquery_etl_dag
-docker exec airflow-scheduler airflow dags trigger stock_bigquery_etl_dag
+sudo docker exec airflow-scheduler airflow dags unpause stock_bigquery_etl_dag
+sudo docker exec airflow-scheduler airflow dags trigger stock_bigquery_etl_dag
 ```
 
 這支 DAG（`airflow/dags/stock_crawler_etl_bigquery_dag.py`）就是「先搞懂」那張圖的程式版，六個 task 一條直線：
@@ -166,11 +159,9 @@ docker exec airflow-scheduler airflow dags trigger stock_bigquery_etl_dag
 
 > unpause 之後 Graph 上可能突然多出一個你沒有觸發的 run。那是排程 DAG 被 unpause 時補跑的最近一期，即使 `catchup=False` 也會跑這一期，屬於正常行為。
 
-到瀏覽器開 `http://{VM1外部IP}:8080`（帳密 admin/admin），進入這支 DAG 的 Graph 分頁，六個 task 應該全部是綠色的 success；左側格狀圖每一直行是一次 run（unpause 補跑的那期也在裡面）：
+到瀏覽器開 `http://{VM1外部IP}:8081`（帳密 admin/admin，跟第 14 章 Part I 開的同一個 port），進入這支 DAG 的 Graph 分頁，六個 task 應該全部是綠色的 success；左側格狀圖每一直行是一次 run（unpause 補跑的那期也在裡面）：
 
 ![每日資料線 DAG 六個 task 全綠](images/ch17/03-Airflow-BigQueryETL-DAG六task全綠.jpg)
-
-注意這裡的 port 是 **8080**，跟第 10 到 13 章本機環境用的 8081 不同——本機當時改成 8081 是為了避開 phpMyAdmin，雲端的 VM1 上沒有 phpMyAdmin，所以用 compose 檔原本的 8080。
 
 等 run 全綠後，用 bq 驗證整條線真的動了（本機或 VM 都能跑）：
 
@@ -321,7 +312,7 @@ gcloud composer environments update stock-composer --location=asia-east1 \
 
 #### C-5 套用環境變數
 
-DAG 要發任務到 RabbitMQ、連 Cloud SQL、知道 BigQuery 專案，這些值在自架環境是 override 檔給的，在 Composer 是環境設定的一部分（`RABBITMQ_HOST` 要填 VM1 的**外部** IP——Composer 不在你的 VPC 裡，內部 IP 對它不通）：
+DAG 要發任務到 RabbitMQ、連 Cloud SQL、知道 BigQuery 專案，這些值在自架環境是 `.env` 給的，在 Composer 是環境設定的一部分（`RABBITMQ_HOST` 要填 VM1 的**外部** IP——Composer 不在你的 VPC 裡，內部 IP 對它不通）：
 
 ```bash
 gcloud composer environments update stock-composer --location=asia-east1 \
@@ -330,7 +321,7 @@ gcloud composer environments update stock-composer --location=asia-east1 \
 
 這是一次環境更新，要等幾分鐘，不是改完立刻生效。
 
-漏掉 `GCP_PROJECT_ID` 的話，`config.py` 拿到空字串，兩個 transform task 會因為表名少了專案段（`` `.stage.stock_price_daily` ``）而報 SQL 語法錯誤——task 紅掉，補上環境變數重觸發即可。（雙寫那半邊不受 Composer 的變數影響：實際寫入的是 VM2 的 worker，它讀的是自己 override 檔裡的專案 ID。）
+漏掉 `GCP_PROJECT_ID` 的話，`config.py` 拿到空字串，兩個 transform task 會因為表名少了專案段（`` `.stage.stock_price_daily` ``）而報 SQL 語法錯誤——task 紅掉，補上環境變數重觸發即可。（雙寫那半邊不受 Composer 的變數影響：實際寫入的是 VM2 的 worker，它讀的是自己 `.env` 裡的專案 ID。）
 
 #### C-6 讓 Composer 連得到 Cloud SQL
 
@@ -581,7 +572,7 @@ sudo docker exec airflow-webserver airflow users list
 
 ## 練習
 
-1. 照第 16 章的做法建第二顆 secret `rabbitmq-password`，只授權給 VM 的服務帳戶，啟動指令同時注入兩個變數（`WORKER_PASSWORD=$(...) MYSQL_PASSWORD=$(...) sudo -E docker compose ...`），override 檔補上對應的插值行
+1. 照第 16 章的做法建第二顆 secret `rabbitmq-password`，只授權給 VM 的服務帳戶，啟動指令同時注入兩個變數（`WORKER_PASSWORD=$(...) MYSQL_PASSWORD=$(...) sudo -E docker compose ...`），compose 檔的 worker 環境變數補上對應的插值行
 2. 對 `stock_bigquery_etl_dag` 的 `schedule_interval` 解讀：`"0 20 * * 1-5"` 是什麼時間？改成「每小時」怎麼寫？（第 9 章 cron 語法的複習）
 
 ## 排錯
@@ -589,11 +580,9 @@ sudo docker exec airflow-webserver airflow users list
 | 症狀 | 原因 | 處理 |
 |------|------|------|
 | airflow up 報 stock-airflow image 不存在 | 之前跑過 `prune -af`，把沒在用的 image 清掉了 | A-1 重 build |
-| 瀏覽器連 8081 打不開 Airflow | 雲端用的是 compose 檔原本的 8080，8081 是本機為了避開 phpMyAdmin 才改的 | 改連 `http://{VM1外部IP}:8080` |
-| 瀏覽器連 8080 逾時 | 你的對外 IP 換了，防火牆規則 allow-stock-web 還是舊 IP | `curl -4 ifconfig.me` 查目前 IP，再 `gcloud compute firewall-rules update allow-stock-web --source-ranges={新IP}/32` |
-| airflow up 報 network my_network not found | compose 宣告的外部網路還沒建 | `docker network create my_network` |
+| 瀏覽器連 8081 逾時 | 你的對外 IP 換了，防火牆規則 allow-stock-web 還是舊 IP | `curl -4 ifconfig.me` 查目前 IP，再 `gcloud compute firewall-rules update allow-stock-web --source-ranges={新IP}/32` |
 | DAG 全綠但 raw 筆數沒增加 | `send_crawler_tasks` 只負責發任務——worker 那端沒起來、或 worker 沒拿到 `GCP_PROJECT_ID`（log 印「BQ 未設定，略過雲端寫入」） | 查 VM2 的 worker 容器狀態與 env；Flower 看任務是否被消化 |
-| transform task 紅掉、SQL 錯誤裡表名少了專案段 | Airflow 容器沒拿到 `GCP_PROJECT_ID`（override 檔漏了或 up 時沒帶） | 補 override 的變數重新 up，重觸發 DAG |
+| transform task 紅掉、SQL 錯誤裡表名少了專案段 | Airflow 容器沒拿到 `GCP_PROJECT_ID`（`.env` 漏了那行，或加了沒重跑 up） | 補 `.env` 重新 up（A-2），重觸發 DAG |
 | transform task 報 Not found: Dataset raw | 這個專案還沒有雙寫過任何資料（raw 是第一次雙寫時建的） | 先讓爬蟲跑過一輪（第 14 章 H-3/H-4），或等 DAG 的 wait 之後重試 |
 | unpause 後多一個沒觸發過的 run | 排程 DAG unpause 會補跑最近一期（catchup=False 也一樣） | 正常現象；不想要就在 unpause 前先 trigger 手動 run 驗證 |
 | BigQuery 寫入 403 | VM scopes 不含 BigQuery（建機時沒給 `--scopes=cloud-platform`） | 停機 → `set-service-account --scopes=cloud-platform` → 開機 → 重授權 Cloud SQL（開工 SOP 第 2 步的補改流程） |
