@@ -336,10 +336,10 @@ gcloud composer environments update stock-composer --location=asia-east1 \
 
 Cloud SQL 的授權網路認的是來源 IP，所以要先知道 Composer 的工作節點對外時用哪個 IP。這個值 `describe` 查不到，用一支一次性的 DAG 問出來：
 
-這支 DAG 有兩個 task：第一個問出對外 IP，第二個直接試著連 Cloud SQL 的 3306，用來確認授權網路有沒有生效。
+這支 DAG 有三個 task：第一個問出對外 IP，後兩個分別試連 Cloud SQL 的 3306 與 VM1 RabbitMQ 的 5672——雙寫版的 DAG 兩條路都要通。
 
 ```python
-# probe_network_dag.py：查 Composer 的對外 IP，並測試能不能連到 Cloud SQL
+# probe_network_dag.py：查 Composer 的對外 IP，並測試 Cloud SQL 與 RabbitMQ 連線
 from datetime import datetime
 
 from airflow import DAG
@@ -354,28 +354,36 @@ def egress_ip():
     return ip
 
 
-def try_mysql():
+def _probe(label, host, port):
     import socket
 
-    host, port = "{CloudSQL 公用 IP}", 3306
     s = socket.socket()
     s.settimeout(15)
     try:
         s.connect((host, port))
-        print("TCP_CONNECT=OK")
+        print(f"{label}=OK")
     except Exception as e:
-        print(f"TCP_CONNECT=FAIL {type(e).__name__}: {e}")
+        print(f"{label}=FAIL {type(e).__name__}: {e}")
     finally:
         s.close()
+
+
+def try_mysql():
+    _probe("TCP_CONNECT", "{CloudSQL 公用 IP}", 3306)
+
+
+def try_rabbitmq():
+    _probe("MQ_CONNECT", "{VM1 外部 IP}", 5672)
 
 
 with DAG("probe_network_dag", start_date=datetime(2024, 1, 1),
          schedule_interval=None, catchup=False) as dag:
     PythonOperator(task_id="egress_ip", python_callable=egress_ip) >> \
-        PythonOperator(task_id="try_mysql", python_callable=try_mysql)
+        PythonOperator(task_id="try_mysql", python_callable=try_mysql) >> \
+        PythonOperator(task_id="try_rabbitmq", python_callable=try_rabbitmq)
 ```
 
-`try_mysql` 只做 TCP 連線測試，不需要帳號密碼——連得上代表授權網路通了，連不上會是逾時。把網路問題跟帳號密碼問題分開驗證，排錯時才知道是哪一層出事。
+兩個 try 都只做 TCP 連線測試，不需要帳號密碼——連得上代表網路層通了，連不上會是逾時。把網路問題跟帳號密碼問題分開驗證，排錯時才知道是哪一層出事。
 
 上傳、觸發，然後讀 log。**Composer 3 的任務 log 送到 Cloud Logging，不放在 bucket 裡**：
 
@@ -383,11 +391,14 @@ with DAG("probe_network_dag", start_date=datetime(2024, 1, 1),
 gcloud composer environments run stock-composer --location=asia-east1 \
   dags trigger -- probe_network_dag
 
-# 兩個 task 的輸出各讀一次，過濾字串要跟程式裡印的關鍵字對上
-gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"EGRESS_IP"' \
+# 三個 task 的輸出各讀一次，過濾字串要跟程式裡印的關鍵字對上
+gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"EGRESS_IP="' \
   --limit=1 --freshness=10m --format="value(textPayload)"
 
-gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"TCP_CONNECT"' \
+gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"TCP_CONNECT="' \
+  --limit=1 --freshness=10m --format="value(textPayload)"
+
+gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"MQ_CONNECT="' \
   --limit=1 --freshness=10m --format="value(textPayload)"
 ```
 
@@ -405,7 +416,7 @@ gcloud compute firewall-rules create allow-composer-rabbitmq \
   --allow=tcp:5672 --source-ranges={Composer對外IP}/32 --target-tags=stock-web
 ```
 
-授權前後各觸發一次探測 DAG，`TCP_CONNECT` 會從 `FAIL TimeoutError` 變成 `OK`。
+授權前後各觸發一次探測 DAG，`TCP_CONNECT` 與 `MQ_CONNECT` 會從 `FAIL TimeoutError` 變成 `OK`——兩條路都通了，才輪到主線 DAG。
 
 > 重新觸發之後如果讀到的還是上一次的結果，是 Cloud Logging 還沒收到新 log。`--freshness` 縮短到 `2m` 再讀一次，或等一分鐘。
 
@@ -591,6 +602,7 @@ sudo docker exec airflow-webserver airflow users list
 | DAG 上傳了但 `dags list` 看不到 | DAG import 失敗——`crawler` 模組沒一起上傳，或用到映像沒有的套件（例如 loguru） | `dags list-import-errors` 看 traceback；缺模組就 `gcloud storage cp -r crawler {bucket}/dags/`、缺套件就 `--update-pypi-package` 補裝（C-4 的流程） |
 | Composer 上任務報 `Access Denied: Project your-project-id` | 沒設 `GCP_PROJECT_ID` 環境變數，`config.py` 退回預設值 | `environments update --update-env-variables=GCP_PROJECT_ID=...` |
 | Composer 上連 Cloud SQL 逾時 | 授權網路沒有 Composer 的對外 IP | 用探測 DAG 查出對外 IP（C-6），加進 `authorized-networks` |
+| Composer 上 `send_crawler_tasks` 連 RabbitMQ 逾時 | 5672 防火牆規則沒開，或 `RABBITMQ_HOST` 填了內部 IP（Composer 不在你的 VPC 裡） | 照 C-6 開 `allow-composer-rabbitmq`（來源限 Composer IP）；環境變數改 VM1 外部 IP |
 | 找不到 Composer 的任務 log | Composer 3 的 log 送到 Cloud Logging，不在 bucket | `gcloud logging read 'resource.type="cloud_composer_environment"'` |
 
 ## 本章總結
