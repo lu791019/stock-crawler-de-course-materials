@@ -29,12 +29,12 @@
 - [x] 禁用詞掃描；commit＋push
 
 ## Phase 4：手冊15 大改
-- [ ] 敘事重排：雙寫詳解（讀 worker 程式碼）→ OLTP/OLAP＋Cloud SQL vs BQ 概念對照表 → 三層（Step 3/4 沿用）
-- [ ] BQ 亮點主線四個實跑＋寫入：公開資料集震撼查詢／dry run 掃描量／Time Travel 救回／BQML 線性回歸
-- [ ] BQ 亮點補充：Materialized View、Scheduled Queries、INFORMATION_SCHEMA
-- [ ] 移除同步程式主線段；金鑰改引用 14 章對照；本機補充改雙寫版
-- [ ] Step 5 Looker 段沿用、檢查表/練習/排錯/團體節連動
-- [ ] 重現性通讀＋禁用詞掃描；commit＋push
+- [x] 敘事重排：雙寫詳解（讀 worker 程式碼）→ OLTP/OLAP＋Cloud SQL vs BQ 概念對照表 → 三層（Step 3/4 沿用）
+- [x] BQ 亮點主線四個實跑＋寫入：公開資料集震撼查詢／dry run 掃描量／Time Travel 救回／BQML 線性回歸
+- [x] BQ 亮點補充：Materialized View、Scheduled Queries、INFORMATION_SCHEMA
+- [x] 移除同步程式主線段；金鑰改引用 14 章對照；本機補充改雙寫版
+- [x] Step 5 Looker 段沿用、檢查表/練習/排錯/團體節連動
+- [x] 重現性通讀＋禁用詞掃描；commit＋push
 
 ## Phase 5：手冊16 大改
 - [ ] Part E override 重寫（雙寫下的搬家＝改 MYSQL_HOST，BQ 那份不受影響——搬家敘事的新賣點）
