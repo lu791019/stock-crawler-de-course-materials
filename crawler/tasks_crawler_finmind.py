@@ -77,13 +77,20 @@ def upload_data_to_bigquery_raw(df: pd.DataFrame):
     try:
         from crawler.bigquery import (
             create_dataset_if_not_exists,
+            create_table_if_not_exists,
+            taiwan_stock_price_bq_schema,
             upload_data_to_bigquery,
         )
 
         bq_df = df.copy()
         # to_sql 可以吃字串日期, BigQuery 的 DATE 欄位要先轉成 date 型別
         bq_df["date"] = pd.to_datetime(bq_df["date"]).dt.date
+        # 第一次寫入前把 dataset 與帶日期分區的表準備好, 之後每次都只是 append
         create_dataset_if_not_exists("raw")
+        create_table_if_not_exists(
+            "TaiwanStockPrice", taiwan_stock_price_bq_schema(),
+            dataset_id="raw", partition_key="date",
+        )
         upload_data_to_bigquery("TaiwanStockPrice", bq_df, dataset_id="raw", mode="append")
     except Exception as e:
         # 分析副本寫入失敗不能擋住爬蟲主職（MySQL 已寫完）, 印明確錯誤方便排查

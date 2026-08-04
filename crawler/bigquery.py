@@ -64,6 +64,16 @@ def create_table(table_name: str, schema, dataset_id: str = DATASET_ID, partitio
     print(f"表格 {table_id} 建立成功")
 
 
+def create_table_if_not_exists(table_name: str, schema, dataset_id: str = DATASET_ID, partition_key: str = None):
+    """表格不存在才建立——雙寫的 append 需要先有帶分區的表, 已存在就不動它"""
+    client = get_bigquery_client()
+    table_id = f"{PROJECT_ID}.{dataset_id}.{table_name}"
+    try:
+        client.get_table(table_id)
+    except Exception:
+        create_table(table_name, schema, dataset_id, partition_key)
+
+
 def upload_data_to_bigquery(table_name: str, df: pd.DataFrame, dataset_id: str = DATASET_ID, mode: str = "replace"):
     """上傳 DataFrame 到 BigQuery"""
     client = get_bigquery_client()
