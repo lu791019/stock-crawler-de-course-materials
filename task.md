@@ -23,10 +23,10 @@
 - [x] commit
 
 ## Phase 3：手冊14 微調
-- [ ] F 段建 VM 加 `--scopes=cloud-platform`＋ VM 身分說明
-- [ ] 新增「兩種憑證對照」小節（金鑰=GCP 外／VM 身分=GCP 內）
-- [ ] H 段補雙寫預告一句＋ H-4 加第 8 步 BQ 驗證
-- [ ] 禁用詞掃描；commit＋push
+- [x] F 段建 VM 加 `--scopes=cloud-platform`＋ VM 身分說明
+- [x] 新增「兩種憑證對照」小節（金鑰=GCP 外／VM 身分=GCP 內）
+- [x] H 段補雙寫預告一句＋ H-4 加第 8 步 BQ 驗證
+- [x] 禁用詞掃描；commit＋push
 
 ## Phase 4：手冊15 大改
 - [ ] 敘事重排：雙寫詳解（讀 worker 程式碼）→ OLTP/OLAP＋Cloud SQL vs BQ 概念對照表 → 三層（Step 3/4 沿用）

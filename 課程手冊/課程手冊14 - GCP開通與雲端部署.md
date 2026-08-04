@@ -1,6 +1,6 @@
 # 課程手冊14 - GCP 開通與雲端部署
 
-> 本章對應 EP17。課堂教學順序：本章完成 GCP 開通之後，下一堂回頭做第 15 章的 BigQuery 實作——那一章需要的服務帳戶與金鑰，在本章就會發好。
+> 本章對應 EP17。課堂教學順序：本章完成 GCP 開通之後，下一堂回頭做第 15 章的 BigQuery 詳解——那一章用到的兩種憑證（服務帳戶金鑰、VM 身分）本章都會備好，爬蟲的 BigQuery 雙寫也在本章就開始運轉。
 >
 > 本章需要一張信用卡（或簽帳金融卡）與一個從未用過 GCP 的 Google 帳號。**課前請準備好這兩樣東西。**
 
@@ -22,10 +22,10 @@
 
 1. 開通 Google Cloud 的 $300 美元免費試用，並在第一時間設好預算警告
 2. 建立課程專用的專案（project），理解專案名稱與專案 ID 的差別
-3. 建立服務帳戶（Service Account）並下載 JSON 金鑰——第 15 章 BigQuery 實作的通行證
+3. 建立服務帳戶（Service Account）並下載 JSON 金鑰——GCP 外的程式呼叫 GCP 服務的通行證，並分清楚它和 VM 身分的分工
 4. 安裝 gcloud CLI，用指令登入、切換專案、管理雲端資源
-5. 開出第一台雲端 VM，SSH 進去安裝 Docker
-6. 把整套股票爬蟲系統（`docker-compose-all.yml`）搬上雲端，跑通完整閉環
+5. 開出第一台雲端 VM（連同寫 BigQuery 需要的 scopes），SSH 進去安裝 Docker
+6. 把整套股票爬蟲系統（`docker-compose-all.yml`）搬上雲端，跑通完整閉環——爬蟲每次抓取同時寫 MySQL 與 BigQuery 兩份
 7. 設定防火牆規則，從自己的瀏覽器打開雲端上的 Airflow、Flower、phpMyAdmin
 8. 規劃團體專案上雲：用 IAM 把組員加進專案、防火牆放行全組 IP、換強密碼並用 .env 帶入，全組共用同一台 VM 協作
 9. 用停機指令保住試用額度
@@ -156,7 +156,7 @@ GCP（Google Cloud Platform）是 Google 的雲端服務平台，提供運算、
 | phpMyAdmin 容器 | 退役（Cloud SQL 用 Console／Cloud SQL Studio 查） | 第 16 章 | — | 託管服務自帶管理介面 |
 | RabbitMQ／worker 容器 | 拆到**多台 GCE** 分工 | 第 16 章 | 不改，compose 拆檔 | 補充B 的「分散式」第一次真的跨機器 |
 | Metabase 容器 | **Looker Studio**（免費 SaaS BI） | 第 15 章 | 不用程式，滑鼠操作 | 免安裝免維運、內建 BigQuery 連接器——SaaS 的教科書案例 |
-| ——（本機沒有這層） | **BigQuery**（分析倉儲，新增） | 第 15 章 | 跑課程現成的 sync 程式 | OLTP／OLAP 分工：分析不再拖累營運資料庫 |
+| ——（本機沒有這層） | **BigQuery**（分析倉儲，新增） | 本章起雙寫、第 15 章詳講 | 爬蟲多寫一份（程式已內建，本章 H-3 生效） | OLTP／OLAP 分工：分析不再拖累營運資料庫 |
 | FastAPI（補充E） | **Cloud Run**（容器託管執行環境） | 補充H（選讀） | 不改，加發佈流程 | 固定 HTTPS 網址、自動擴縮、閒置縮零不計費，不用管機器 |
 | 手動 docker build／换版 | **CI/CD**（GitHub Actions：push → 自動測試、自動部署） | 補充I（選讀） | 加 workflow yml | 補充F 寫的測試在這裡成為上線前的檢查關卡 |
 | 自架 Airflow 容器 | 主線**仍在 GCE 自架**；**Cloud Composer**（託管 Airflow）認識＋對照示範 | 第 17 章 | DAG 的編排邏輯兩邊通用 | Composer 省維運但每月數百美元起跳，課程用示範讓你看見差異 |
@@ -175,8 +175,8 @@ flowchart TB
     subgraph S14["第 14 章：整套系統搬上一台 VM（本章）"]
         VM["GCE VM（e2-standard-2）<br/>爬蟲 worker、MySQL、RabbitMQ、Airflow、Flower…13 個容器<br/>本機那一套原封不動搬過來，程式沒改"]
     end
-    subgraph S15["第 15 章：新增分析層（不取代誰，是多一層）"]
-        M15["MySQL 容器"] -->|手動執行同步程式| BQ15[("BigQuery<br/>分析倉儲")] --> LS15["Looker Studio<br/>BI 儀表板"]
+    subgraph S15["第 15 章：分析層詳解（資料本章已經在寫了）"]
+        W15["爬蟲 worker<br/>（雙寫：MySQL＋BigQuery）"] -->|每次抓取落地| BQ15[("BigQuery<br/>raw → stage → app 三層")] --> LS15["Looker Studio<br/>BI 儀表板"]
     end
     subgraph S16["第 16 章：拆成多台，資料庫換託管，密碼交給 Secret Manager 保管"]
         VM1["VM1（infra）<br/>RabbitMQ、Flower"] -->|任務| VM2["VM2（worker）<br/>爬蟲"] -->|寫入| SQL16[("Cloud SQL<br/>託管 MySQL")]
@@ -185,7 +185,7 @@ flowchart TB
         U(("使用者")) -->|HTTPS| CR["Cloud Run stock-api<br/>固定網址、自動擴縮"] -.->|查詢| SQLG[("Cloud SQL")]
     end
     subgraph S17["第 17 章：讓它自己跑"]
-        AF17["VM1 的 Airflow"] -->|每個交易日 20:00 觸發| SY17["Cloud SQL → BigQuery 同步"]
+        AF17["VM1 的 Airflow"] -->|每個交易日 20:00 觸發| SY17["爬蟲雙寫當日資料<br/>＋重算 BigQuery 分析層"]
     end
     subgraph SI["補充I（選讀）：發佈流程自動化"]
         GH17["GitHub Actions"] -->|每次 push| T17["自動測試 → 自動部署"]
@@ -208,9 +208,10 @@ flowchart LR
         W["爬蟲 worker"]
     end
     MQ -->|任務| W
-    W -->|寫入| SQL[("Cloud SQL<br/>託管 MySQL（16 章）")]
-    AF -.->|"每個交易日 20:00 觸發同步（17 章）"| SQL
-    SQL -->|同步| BQ[("BigQuery<br/>分析倉儲（15 章）")]
+    W -->|雙寫| SQL[("Cloud SQL<br/>託管 MySQL（16 章）")]
+    W -->|雙寫| BQ[("BigQuery<br/>分析倉儲（14 章起寫入、15 章詳講）")]
+    AF -.->|"每個交易日 20:00 發爬蟲任務（17 章）"| MQ
+    AF -.->|"重算分析層（17 章）"| BQ
     BQ --> LS["Looker Studio<br/>BI 儀表板（15 章）"]
 ```
 
@@ -234,7 +235,7 @@ Google 帳號（你的 Gmail）
 ```
 
 - 資源開在某個**區域（region）**的某個**可用區（zone）**。本課程用 `asia-east1`（台灣彰化）
-- 每個服務的 API 要**各自啟用**：第一次用 Compute Engine 要啟用它的 API，第 15 章第一次用 BigQuery 也要啟用它的 API
+- 每個服務的 API 要**各自啟用**：第一次用 Compute Engine 要啟用它的 API，第 16 章第一次用 Secret Manager 也要啟用它的 API（少數服務例外，例如 BigQuery 的 API 新專案預設就是開的）
 
 ### 費用的四個事實
 
@@ -256,10 +257,10 @@ IAM 的內容不集中在單一章，而是分散在雲端段各章——每一�
 
 | 站 | 章節 | 教什麼 | 當章用在哪裡 |
 |---|------|--------|-------------|
-| 1 | 本章 Part D＋〈團體專案上雲〉 | 服務帳戶是給程式用的身分；先建身分、暫不授權（理由見 Part D）；〈團體專案上雲〉一節完整規劃——IAM 授權、防火牆、密碼與 .env | 幫第 15 章把憑證發好；讓全組共用同一台 VM |
-| 2 | 第 15 章 | IAM 的三個詞（成員、角色、權限）與第一條授權指令；最小權限的實作 | 服務帳戶要能寫 BigQuery |
-| 3 | 第 16 章 | 授權可以細到單一資源；VM 上的程式用機器自己的身分，不需要金鑰檔 | worker 要讀 Secret Manager 裡的密碼 |
-| 4 | 第 17 章 | scopes 是 IAM 之外的另一道舊式閘門，兩道都通過才放行 | Airflow 要寫入 BigQuery |
+| 1 | 本章 Part D／Part F＋〈團體專案上雲〉 | 服務帳戶是給程式用的身分；先建身分、暫不授權（理由見 Part D）；Part F 的 VM 身分與 scopes；〈團體專案上雲〉一節完整規劃——IAM 授權、防火牆、密碼與 .env | 雲端上的程式（含雙寫 BigQuery）用 VM 身分；金鑰發給 GCP 外的程式用；讓全組共用同一台 VM |
+| 2 | 第 15 章 | IAM 的三個詞（成員、角色、權限）與第一條授權指令；最小權限的實作 | 讓 GCP 外（本機補充）的金鑰身分也能寫 BigQuery |
+| 3 | 第 16 章 | 授權可以細到單一資源 | 讀 Secret Manager 裡的密碼 |
+| 4 | 第 17 章 | scopes 回顧：IAM 之外的另一道閘門，兩道都通過才放行（本章 Part F 建機時已給對；舊 VM 補改當排錯） | 排程觸發的爬蟲與分析層重算要寫 BigQuery |
 | 選讀 | 補充H | 託管服務用「執行身分」掛服務帳戶 | Cloud Run 要讀密碼連資料庫 |
 
 現在不需要記住每一站的細節。讀到對應章節時回來對照這張表，就知道自己走到這條弧線的哪裡。
@@ -389,8 +390,8 @@ IAM 的內容不集中在單一章，而是分散在雲端段各章——每一�
 
 - **服務帳戶是「給程式用的帳號」**。你登入 GCP 用的是 Google 帳號（人的身分）；程式要存取 GCP 資源時，不能把你的個人帳密寫進程式碼，而是給程式一個專屬的機器身分
 - 服務帳戶的格式像一個 email：`名稱@專案ID.iam.gserviceaccount.com`
-- **JSON 金鑰是這個身分的鑰匙**：程式拿著這個檔案向 Google 證明身分。第 15 章的 `GOOGLE_APPLICATION_CREDENTIALS` 環境變數指向的就是它
-- **建立時不給任何角色**：權限的原則是「需要什麼、才給什麼」（最小權限）。第 15 章要用 BigQuery 時再加對應角色
+- **JSON 金鑰是這個身分的鑰匙**：程式拿著這個檔案向 Google 證明身分。`GOOGLE_APPLICATION_CREDENTIALS` 環境變數指向的就是它——用在**跑在 GCP 外面**的程式（例如第 15 章本機補充）
+- **建立時不給任何角色**：權限的原則是「需要什麼、才給什麼」（最小權限）。第 15 章要讓它寫 BigQuery 時再加對應角色
 
 **D-1 建立服務帳戶**
 
@@ -426,11 +427,11 @@ IAM 的內容不集中在單一章，而是分散在雲端段各章——每一�
    mv ~/Downloads/stock-crawler-course-*.json ~/gcp-keys/
    chmod 600 ~/gcp-keys/stock-crawler-course-*.json
    ```
-2. 這個路徑第 15 章會填進 `GOOGLE_APPLICATION_CREDENTIALS`，先記住放在哪
+2. 這個路徑之後會填進 `GOOGLE_APPLICATION_CREDENTIALS`（第 15 章本機補充用），先記住放在哪
 3. 永遠不放進任何 git 專案資料夾
 4. 遺失或外洩的處理：回到「金鑰」分頁，用垃圾桶圖示刪掉舊金鑰（立即失效），再建一把新的
 
-> **這把金鑰在本章接下來完全用不到**——它是下一堂第 15 章在你自己電腦上跑 BigQuery 程式的身分證。本章先發好，是為了把所有要動 Console 的行政手續集中在這一堂辦完。之後你還會看到金鑰的完整弧線：程式一旦跑在 GCP 裡面（第 16、17 章的 VM），用的是機器自己附掛的服務帳戶身分，**連金鑰都不需要**——金鑰只給「GCP 外面的機器」用。
+> **這把金鑰在本章接下來完全用不到**——它是「在你自己電腦上跑 GCP 程式」的身分證（第 15 章本機補充會用）。本章先發好，是為了把所有要動 Console 的行政手續集中在這一堂辦完。跑在 GCP **裡面**的程式（Part F 開的 VM，含容器）用的是機器自己附掛的服務帳戶身分，**連金鑰都不需要**——金鑰只給「GCP 外面的機器」用。兩者的完整對照在 Part F。
 
 ### Part E：gcloud CLI
 
@@ -499,10 +500,15 @@ gcloud compute instances create stock-crawler-vm \
   --machine-type=e2-standard-2 \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
-  --boot-disk-size=20GB
+  --boot-disk-size=20GB \
+  --scopes=cloud-platform
 ```
 
-參數說明：`create` 後面接 VM 名稱（自取）；`--zone` 放在台灣的機房；`--machine-type` 機型；`--image-family` 作業系統用 Ubuntu 24.04 LTS（跟本機 VM 一致）；`--image-project` 是映像檔的來源專案（固定值）；`--boot-disk-size` 開機磁碟，全套 image 超過 5GB，開 20GB。
+參數說明：`create` 後面接 VM 名稱（自取）；`--zone` 放在台灣的機房；`--machine-type` 機型；`--image-family` 作業系統用 Ubuntu 24.04 LTS（跟本機 VM 一致）；`--image-project` 是映像檔的來源專案（固定值）；`--boot-disk-size` 開機磁碟，全套 image 超過 5GB，開 20GB；`--scopes=cloud-platform` 是這台 VM 的**存取範圍**——說明如下。
+
+**`--scopes=cloud-platform` 在做什麼：VM 自己也有身分**
+
+每台 GCE VM 都附掛一個服務帳戶（預設是專案的 Compute Engine 預設服務帳戶）。在 VM 上執行的程式可以**不帶任何金鑰檔**，直接以這個身分呼叫 GCP 服務——Google 的用戶端程式庫找不到金鑰時，會自動向 VM 內建的 metadata server 拿憑證。但這條路有一道閘門叫 **scopes（存取範圍）**：VM 建立時沒指定的話，預設 scopes 只涵蓋少數服務（讀 Storage、寫 Logging 等），呼叫 BigQuery 會被擋下。`--scopes=cloud-platform` 把範圍開到全部 GCP API，之後第 15 章爬蟲往 BigQuery 寫資料就直接用 VM 身分，不需要金鑰檔。scopes 只能在**建機時**指定或**停機後**修改（`gcloud compute instances set-service-account`），所以建機這一步就把它給對。
 
 成功輸出（重點是最後一行的表格）：
 
@@ -531,6 +537,19 @@ hostname      # stock-crawler-vm...
 free -h       # 7.8Gi 記憶體
 df -h /       # 19G 磁碟（自動擴展生效）
 ```
+
+**兩種憑證的分工：JSON 金鑰 vs VM 身分**
+
+到這裡你手上有兩種讓程式通過 GCP 認證的方式——Part D 下載的 JSON 金鑰檔，和剛才建 VM 時給的 VM 身分。分工原則只有一條：**看程式跑在哪裡**。
+
+| | JSON 金鑰檔 | VM 附掛身分 |
+|---|---|---|
+| 適用場景 | 程式跑在 **GCP 外面**（自己的電腦、公司機房） | 程式跑在 **GCP 裡面**（這台 VM 上，含容器內） |
+| 憑證來源 | 金鑰檔＋環境變數 `GOOGLE_APPLICATION_CREDENTIALS` | VM 內建的 metadata server，自動取得 |
+| 需要管理的東西 | 檔案本身：不能進 git、外洩要撤銷、建議定期輪替 | 沒有檔案；權限由服務帳戶角色＋ VM scopes 決定 |
+| 風險 | 金鑰檔就是通行證，拿到檔案的人都能用 | 憑證離不開這台 VM，沒有可外洩的檔案 |
+
+兩邊底層是同一套機制：程式庫啟動時按固定順序找憑證（環境變數指到的金鑰檔 → metadata server），這個機制叫 **ADC（Application Default Credentials）**。所以同一支程式不用改任何一行——在你電腦上跑就吃金鑰，搬上 VM 就吃 VM 身分。原則：**進得了 GCP 的程式用 VM 身分（少一個要保管的機密），出不去的才用金鑰**。
 
 **F-4 VM 上安裝 Docker（重演 EP03 的安裝手冊）**
 
@@ -599,8 +618,9 @@ sudo systemctl status docker    # active (running)，且 enabled
 4. 左側點「**OS 和儲存空間**」→「變更」，跳出「開機磁碟」視窗：作業系統選 Ubuntu、版本選 24.04 LTS（= `--image-family`），開機磁碟類型維持「已平衡的永久磁碟」，大小填 20GB（= `--boot-disk-size`），按「選取」
 
 ![開機磁碟視窗：Ubuntu 24.04 與 20GB](images/ch14/44-Console-開機磁碟Ubuntu與20GB.jpg)
-5. 其餘分類維持預設。**這裡示範到此為止就好，按「取消」離開**——機器已經用 CLI 建過，再按「建立」會多開一台、多花一份錢
-6. 表單最下方還有一個「**等效程式碼**」按鈕：Console 會把你在表單上點的所有設定翻譯成一條 gcloud 指令——這正是「介面和指令是同一件事的兩種寫法」的直接證明，也是從介面學指令的捷徑
+5. 左側「安全性」分類裡有「身分與 API 存取權」：服務帳戶維持預設，「存取範圍」選「**允許所有 Cloud API 的完整存取權**」——這就是 CLI 的 `--scopes=cloud-platform`
+6. 其餘分類維持預設。**這裡示範到此為止就好，按「取消」離開**——機器已經用 CLI 建過，再按「建立」會多開一台、多花一份錢
+7. 表單最下方還有一個「**等效程式碼**」按鈕：Console 會把你在表單上點的所有設定翻譯成一條 gcloud 指令——這正是「介面和指令是同一件事的兩種寫法」的直接證明，也是從介面學指令的捷徑
 
 ### Part G：熱身——第一條防火牆規則
 
@@ -703,7 +723,7 @@ cp .env.example .env
 
 **H-1b 安裝 uv 與 Python 環境**
 
-容器裡的程式不需要這一步（image 自帶環境），但**直接在 VM 上跑 Python 程式**的場景會一路用到：H-4 驗證要跑 producer 發任務、第 15 章要在 VM 上跑 BigQuery 同步。跟 F-4 裝 Docker 一樣，這是 VM 的一次性環境準備——重演第 2 章在自己電腦做過的事：
+容器裡的程式不需要這一步（image 自帶環境），但**直接在 VM 上跑 Python 程式**的場景會一路用到：H-4 驗證要跑 producer 發任務、第 15 章要在 VM 上執行 BigQuery 分析層的程式。跟 F-4 裝 Docker 一樣，這是 VM 的一次性環境準備——重演第 2 章在自己電腦做過的事：
 
 ```bash
 # ① 安裝 uv（官方安裝腳本，裝到 ~/.local/bin）
@@ -750,15 +770,17 @@ compose-all 裡三個 Airflow 容器用的 `stock-airflow:latest` 是課程自�
 **H-3 全套啟動（雲端不跑 Metabase）**
 
 ```bash
-sudo docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
+GCP_PROJECT_ID=$(gcloud config get-value project) \
+sudo -E docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
 ```
 
+- 第一行把**專案 ID 塞進環境變數**再執行 up（`sudo -E` 讓 sudo 保留這個變數），compose 檔會把它轉交給 worker 容器。為什麼需要它：這套系統的爬蟲是**雙寫**的——每次抓完資料，同一份會寫進 MySQL，**同時**寫一份到 BigQuery（GCP 的資料倉儲服務）。worker 靠 `GCP_PROJECT_ID` 知道要寫進哪個專案；前面 1-13 章在本機沒設這個變數，worker 就印一行「BQ 未設定，略過雲端寫入」只寫 MySQL。BigQuery 那份是幹嘛用的，第 15 章詳細介紹——這一章先知道「雲端上的爬蟲會多寫一份」就夠
 - `--build` 順便建好兩個 crawler worker 的 image；其餘 image 自動從 Docker Hub 拉。第一次啟動約 3-5 分鐘
 - `--scale metabase=0` 的意思是「metabase 這個服務這次開 0 份」＝完全不啟動它。**雲端段不跑 Metabase**，原因有二：
   1. BI 的角色在雲端段由 **Looker Studio** 接手（第 15 章 Step 5 會教，它有內建的 BigQuery 連接器）。第 8 章的本機 Metabase 保留不動，正好形成「自架 BI vs 託管 BI」的對照
   2. Metabase 是 Java 應用，一個容器就要 1GB 記憶體，而且啟動時常搶不到還沒就緒的 MySQL 而失敗——雲端 demo 用不到它，就不花這個資源
 
-**H-4 驗證（第 13 章的七步驟，雲端版）**
+**H-4 驗證（第 13 章的七步驟，雲端版——多一步雲端限定的 Step 8）**
 
 > 這一段全部用指令驗（`docker ps`／`logs`／`exec`），因為防火牆還沒開、瀏覽器進不來。Part I 開完 port 之後，同樣的東西會再用 Flower、Airflow、phpMyAdmin 的介面看一次——先確認系統活著，再開門用眼睛看。
 
@@ -818,6 +840,14 @@ sudo docker exec airflow-webserver airflow dags list 2>&1 | grep stock
 ```
 
 列出六個 stock DAG 就代表編排層就緒。
+
+Step 8 BigQuery 那份也落地了（雲端限定）：
+
+```bash
+bq query --use_legacy_sql=false "SELECT COUNT(*) AS cnt FROM raw.TaiwanStockPrice"
+```
+
+`bq` 是 BigQuery 的指令列工具，VM 上隨 gcloud 一起裝好了，用的同樣是 VM 身分。回傳的筆數大於 0，代表 H-3 說的雙寫真的發生：worker 抓完資料，MySQL（Step 6）和 BigQuery 的 `raw` 資料集**同時**各有一份。這兩份資料的角色差在哪、`raw` 這個名字是什麼意思，第 15 章開場就講。
 
 ### Part I：防火牆與瀏覽器連線
 
@@ -1256,7 +1286,7 @@ Console 建立時的三個對應點選：區域選 us-west1、機器類型在 E2
 - [ ] 專案 `stock-crawler-course` 存在且是目前選取的專案
 - [ ] 服務帳戶 `stock-crawler-sa` 存在，金鑰 JSON 已下載並移到 `~/gcp-keys/`
 - [ ] `gcloud projects list` 列得出專案
-- [ ] VM 能開、能 SSH、能跑整套 compose、七步驟驗證全過
+- [ ] VM 能開、能 SSH、能跑整套 compose、七步驟驗證全過（含 Step 8：BigQuery 的 `raw.TaiwanStockPrice` 有筆數）
 - [ ] 瀏覽器連得上雲端的 Airflow／Flower
 - [ ] **VM 已停機**（`gcloud compute instances list` 顯示 TERMINATED）
 
@@ -1294,8 +1324,8 @@ Console 建立時的三個對應點選：區域選 us-west1、機器類型在 E2
 - 開通 GCP 的順序是：試用註冊 → **預算警告** → 課程專案 → 服務帳戶與金鑰——保險絲永遠先裝
 - 專案 ID 全球唯一且不可變；服務帳戶是給程式用的身分，金鑰檔只發一次、絕不進 git
 - gcloud CLI 讓雲端操作可以複製、重跑、寫成腳本；`auth login`、`config set project`、驗證三連是每台新電腦的起手式
-- 一台 8GB 的雲端 VM 裝上 Docker 之後，第 13 章的整套系統原封不動搬上去就能跑——環境變了，程式沒變
+- 一台 8GB 的雲端 VM 裝上 Docker 之後，第 13 章的整套系統原封不動搬上去就能跑——環境變了，程式沒變；上雲後爬蟲多做一件事：每次抓取同時寫 MySQL 與 BigQuery 各一份（憑 VM 身分，不用金鑰）
 - 防火牆只開需要的 port、來源限自己的 IP；資料庫與訊息佇列不對公網
 - 運算費只在開機時計——**下課前停機**跟寫程式一樣是本課程的必修動作
 
-下一章（第 15 章）用本章發好的服務帳戶金鑰，把 MySQL 的資料搬進雲端倉儲 BigQuery；第 16 章再把這台「一台裝全部」的機器拆開：多台 VM 分工、資料庫換成託管的 Cloud SQL——系統正式搬家。
+下一章（第 15 章）回頭把本章已經在寫的 BigQuery 講清楚：資料倉儲是什麼、雙寫的程式碼長什麼樣、raw/stage/app 三層怎麼分工，最後接上 Looker Studio 做出儀表板；第 16 章再把這台「一台裝全部」的機器拆開：多台 VM 分工、資料庫換成託管的 Cloud SQL——系統正式搬家。

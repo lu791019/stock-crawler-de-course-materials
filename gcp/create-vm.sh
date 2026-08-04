@@ -16,7 +16,9 @@ gcloud compute instances create "${VM_NAME}" \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size="${DISK_SIZE}" \
+  --scopes=cloud-platform \
   --tags=stock-web            # 防火牆規則綁這個標籤（第 14 章 Part H）
+# --scopes=cloud-platform: VM 身分可呼叫全部 GCP API（爬蟲雙寫 BigQuery 用，第 14 章 Part F）
 
 gcloud compute instances list
 echo "VM 建好了。下一步：gcloud compute ssh ${VM_NAME} --zone=${ZONE}"
