@@ -44,11 +44,11 @@
 - [x] 連動：團體節/檢查表/收工段；禁用詞掃描；commit＋push
 
 ## Phase 6：手冊17 大改
-- [ ] DAG 改造：移除 sync task、加 transform task（stage/app SQL 包函式）；程式實測
-- [ ] 每日線敘事＋資料線圖重畫（雙寫版）
-- [ ] T-1 scopes 段改寫（建機即給，舊 VM 補改當排錯）
-- [ ] 端到端：排程觸發→雙寫→transform→app 更新（七步驟級驗證）
-- [ ] 禁用詞掃描；commit＋push
+- [x] DAG 改造：移除 sync task、加 transform task（stage/app SQL 包函式）；程式實測
+- [x] 每日線敘事＋資料線圖重畫（雙寫版）
+- [x] T-1 scopes 段改寫（建機即給，舊 VM 補改當排錯）
+- [x] 端到端：排程觸發→雙寫→transform→app 更新（七步驟級驗證）
+- [x] 禁用詞掃描；commit＋push
 
 ## Phase 7：收尾
 - [ ] 全庫交叉引用掃描（四章互指＋補充章）
