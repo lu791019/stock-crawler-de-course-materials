@@ -66,6 +66,9 @@ services: # 定義所有要啟動的服務
       - MYSQL_HOST=${MYSQL_HOST:-mysql}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:-1234}   # 手冊16 起由部署指令從 Secret Manager 注入
       - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}       # 雙寫用：沒設就略過 BigQuery（手冊15）
+      - SPANNER_PROJECT_ID=${SPANNER_PROJECT_ID:-}  # 手冊16 Spanner 體驗用，平常不設
+      - SPANNER_INSTANCE=${SPANNER_INSTANCE:-}
+      - SPANNER_DATABASE=${SPANNER_DATABASE:-stockdb}
       - MONGO_HOST=mongodb   # 補充F: worker 在容器內連 MongoDB 用服務名
       - PYTHONPATH=/crawler
     depends_on:
@@ -86,6 +89,9 @@ services: # 定義所有要啟動的服務
       - MYSQL_HOST=${MYSQL_HOST:-mysql}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:-1234}   # 手冊16 起由部署指令從 Secret Manager 注入
       - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}       # 雙寫用：沒設就略過 BigQuery（手冊15）
+      - SPANNER_PROJECT_ID=${SPANNER_PROJECT_ID:-}  # 手冊16 Spanner 體驗用，平常不設
+      - SPANNER_INSTANCE=${SPANNER_INSTANCE:-}
+      - SPANNER_DATABASE=${SPANNER_DATABASE:-stockdb}
       - MONGO_HOST=mongodb   # 補充F: worker 在容器內連 MongoDB 用服務名
       - PYTHONPATH=/crawler
     depends_on:
