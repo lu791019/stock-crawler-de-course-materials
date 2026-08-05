@@ -1,0 +1,24 @@
+# build context 排除清單：COPY . 時不送進 image 的東西
+# 沒有這個檔案時，主機上的 .venv（uv sync 產生的幾百 MB）會整包進到 COPY 層，
+# image 因此多肥好幾百 MB，20GB 磁碟的 VM 幾輪 build 就滿
+
+# 虛擬環境：容器內會用 uv sync 重建自己的，主機那份不需要也不該帶進去
+.venv
+
+# 版本庫與快取
+.git
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+**/.pytest_cache
+
+# 課程教材：手冊與截圖跟程式執行無關
+課程手冊/
+
+# 執行期產物：output/ 由 volume 掛載，資料檔不進 image
+output/*
+*.csv
+
+# 機密不進 image（with.env.Dockerfile 的 .env 是 build 時由 genenv.py 產生，不受此影響）
+.env
