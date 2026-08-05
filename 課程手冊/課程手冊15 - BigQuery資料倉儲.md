@@ -728,7 +728,7 @@ bq query --use_legacy_sql=false --dry_run 'SELECT * FROM stage.stock_price_daily
 
 | 你遇到的狀況 | 原因 | 怎麼解 |
 |-------------|------|--------|
-| worker log 印「BQ 未設定，略過雲端寫入」 | 容器沒拿到 `GCP_PROJECT_ID`——up 指令沒帶注入前綴，或忘了 `sudo -E` | 照第 14 章 H-3 的指令重新 up；`sudo docker exec crawler_twse env \| grep GCP` 驗證容器內的值 |
+| worker log 印「BQ 未設定，略過雲端寫入」 | 容器沒拿到 `GCP_PROJECT_ID`——`.env` 沒有那行，或寫入後沒重跑 up | 照第 14 章 H-3 補進 `.env` 後重新 up；`sudo docker exec crawler_twse env \| grep GCP` 驗證容器內的值 |
 | worker log 印「BigQuery 寫入失敗（MySQL 不受影響）」 | 專案 ID 打錯、VM 身分缺角色、或 scopes 不足 | 看訊息後半的實際錯誤：`Not found: Project` → 專案 ID 錯；`Access Denied` → 查 VM 服務帳戶的角色與 scopes（第 14 章 Part F） |
 | raw 有資料但一直長重複列 | 雙寫 append 的天性，同一天重跑就疊 | 不是 bug；分析走 stage（已去重）。介意 raw 體積可定期清理舊分區 |
 | `bq query` 報 `ProjectId must be non-empty` | 這台機器的 gcloud 沒設定預設專案 | `gcloud config set project {你的專案ID}`，或指令加 `--project_id=` |

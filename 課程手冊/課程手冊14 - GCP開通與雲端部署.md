@@ -822,7 +822,7 @@ sudo docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
 ![IAM 清單：三種身分各自的角色](images/ch14/57-IAM三個身分的角色.jpg)
 
 這張清單順便把三種身分的分工攤開了：**VM 的服務帳戶**（編輯者，程式在 GCP 裡用）、**你的 Google 帳號**（擁有者，人在 Console 操作用）、**Part D 建的 `stock-crawler-sa`**（第 15 章補充段會給它 BigQuery 兩個角色，程式在 GCP 外用）
-- **例外是密碼**：第 16 章的資料庫密碼**不會**寫進 `.env`，改用指令前綴從 Secret Manager 取出（`MYSQL_PASSWORD=$(gcloud secrets ...) sudo -E docker compose ...`）。差別在機密與否——專案 ID 到處看得到，密碼不能落地成檔案
+- **密碼也走同一套**：第 16 章的資料庫密碼同樣寫進 `.env`，但值不用手打——用同樣的 `echo "MYSQL_PASSWORD=$(gcloud secrets ...)" >> .env` 從 Secret Manager 取出寫入。差別在**來源**：專案 ID 問 gcloud config、密碼向 Secret Manager 要，兩者都不經鍵盤
 - **這個變數在程式碼裡的完整路徑**（打開檔案就能對照，一行程式都不用改）：
   1. `docker-compose-all.yml`：worker 服務的 environment 有一行 `GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}`——compose 的變數插值，把 `.env`（或 shell 環境）裡的值轉交給容器；兩邊都沒設就給空字串
   2. `crawler/config.py`：`GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")`——程式從容器的環境變數讀進來，沒有就是空字串（第 6 章 config 集中管理的老規矩）

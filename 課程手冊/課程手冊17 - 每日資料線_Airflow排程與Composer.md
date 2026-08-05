@@ -591,7 +591,7 @@ sudo docker exec airflow-webserver airflow users list
 
 ## 練習
 
-1. 照第 16 章的做法建第二顆 secret `rabbitmq-password`，只授權給 VM 的服務帳戶，啟動指令同時注入兩個變數（`WORKER_PASSWORD=$(...) MYSQL_PASSWORD=$(...) sudo -E docker compose ...`），compose 檔的 worker 環境變數補上對應的插值行
+1. 照第 16 章的做法建第二顆 secret `rabbitmq-password`，只授權給 VM 的服務帳戶，再照 D-4 的做法把它取出寫進 `.env`（`echo "WORKER_PASSWORD=$(gcloud secrets versions access latest --secret=rabbitmq-password)" >> .env`），compose 檔的 worker 環境變數補上對應的插值行
 2. 對 `stock_bigquery_etl_dag` 的 `schedule_interval` 解讀：`"0 20 * * 1-5"` 是什麼時間？改成「每小時」怎麼寫？（第 9 章 cron 語法的複習）
 
 ## 排錯

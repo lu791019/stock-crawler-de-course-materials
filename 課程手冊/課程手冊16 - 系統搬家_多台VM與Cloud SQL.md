@@ -292,20 +292,26 @@ gcloud secrets versions access latest --secret=mysql-password
 # 1234
 ```
 
-**D-4 部署時注入——密碼在啟動指令裡從 Secret Manager 取出**：
+**D-4 部署時取出——密碼從 Secret Manager 寫進 `.env`**：
 
-程式讀密碼的方式**維持原樣**：`config.py` 的 `MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "1234")`，只認環境變數。要換的是**部署那一刻怎麼把值塞進環境變數**——啟動指令先跟 Secret Manager 要密碼、再交給 compose：
+程式讀密碼的方式**維持原樣**：`config.py` 的 `MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "1234")`，只認環境變數。要換的是 **`.env` 裡那個值從哪裡來**——不再手打密碼，用指令當場向 Secret Manager 取出、寫進 `.env`（跟第 14 章 H-3 寫 `GCP_PROJECT_ID` 同一套做法）：
 
 ```bash
-# 先看懂結構：$(...) 會先執行括號裡的指令、把輸出當值放進 MYSQL_PASSWORD
-# sudo -E 的 -E 是保留環境變數（sudo 預設會清空環境，不加 -E 值就傳不進去）
-MYSQL_PASSWORD=$(gcloud secrets versions access latest --secret=mysql-password) \
-  sudo -E docker compose -f docker-compose-local.yml up -d
+# 在 VM 的 ~/stock-crawler
+# ① 先刪掉既有的 MYSQL_PASSWORD 行——第一次執行時檔案裡沒有這行，這條只是讓重跑安全
+sed -i '/^MYSQL_PASSWORD=/d' .env
+
+# ② 取出最新版密碼、附加到 .env
+#    $(...) 會先執行括號裡的指令、把輸出當值寫進去
+echo "MYSQL_PASSWORD=$(gcloud secrets versions access latest --secret=mysql-password)" >> .env
+
+# ③ 啟動——compose 的插值會從 .env 讀到密碼
+sudo docker compose -f docker-compose-local.yml up -d
 ```
 
-這個做法的分工：**密碼管理是部署的事，不是程式的事**。程式一行不改、不裝任何 SDK；讀 secret 的動作發生在 up 的那一瞬間，用的是「執行指令的機器」的身分——在 VM 上就是 D-2 授權的服務帳戶。密碼不落地成檔案（磁碟上找不到）、也不進指令歷史（`history` 只看得到 `$(...)` 這串文字，不是密碼的值）。
+這個做法的分工：**Secret Manager 是密碼的唯一真實來源，`.env` 是部署那一刻取出的落地值**。程式一行不改、不裝任何 SDK；取出動作用的是「執行指令的機器」的身分——在 VM 上就是 D-2 授權的服務帳戶。整個流程你**沒有手打過密碼**：不經鍵盤、不經聊天室，指令歷史裡也只有 `$(...)` 這串文字，不是密碼的值。`.env` 本身在 `.gitignore` 裡（第 14 章步驟 6 的規矩），不會進 repo。
 
-**換密碼＝新增版本＋重跑 up。** 團隊環境密碼會需要輪替（組員退出專題、密碼外流）。流程兩步，**注意在不同機器執行**：
+**換密碼＝新增版本＋重新取出＋up。** 團隊環境密碼會需要輪替（組員退出專題、密碼外流）。流程兩步，**注意在不同機器執行**：
 
 **（在你自己的電腦）** 新增一個版本——`versions add` 是新增版本，`latest` 會自動指向最新這一版：
 
@@ -314,18 +320,18 @@ printf "{新密碼}" | gcloud secrets versions add mysql-password --data-file=-
 # Created version [10] of the secret [mysql-password].
 ```
 
-**（SSH 進跑服務的 VM）** 重跑一次注入啟動，容器就會拿到新值。驗證直接看容器的環境變數：
+**（SSH 進跑服務的 VM）** 重跑 D-4 的 ①②③（刪舊行 → 取出寫入 → up），容器就會拿到新值。驗證直接看容器的環境變數：
 
 ```bash
 sudo docker exec {容器名} env | grep MYSQL_PASSWORD
 # MYSQL_PASSWORD={新密碼}     ← 值來自 Secret Manager 的 latest
 ```
 
-一個要記住的行為：**`docker restart` 拿不到新密碼**——環境變數是容器「建立」時由 compose 插值寫入的，restart 只是重開同一個容器；要拿新版本就重跑上面的注入 up（compose 偵測到環境變數變了會自動重建容器）：
+一個要記住的行為：**`docker restart` 拿不到新密碼**——環境變數是容器「建立」時由 compose 插值寫入的，restart 只是重開同一個容器；要拿新版本就重跑 ①②③（compose 偵測到 `.env` 的值變了，`up -d` 會自動重建容器）：
 
 ```bash
 sudo docker restart {容器名}   # ← 容器內 MYSQL_PASSWORD 還是舊值
-# 重跑注入 up                  # ← 這才會換新值
+# 重跑 D-4 的 ①②③            # ← 這才會換新值
 ```
 
 Console 上可以看到累積的所有版本（≡ → 安全性 → Secret Manager → 點 mysql-password → 版本分頁）。每個版本都保留著，可以停用、也可以切回舊版——這頁就是密碼輪替的軌跡：
@@ -350,20 +356,25 @@ worker 在 compose 檔裡的連線目標長這樣（打開 `docker-compose-local
 現在 RabbitMQ 在別台、MySQL 在 Cloud SQL，**把 VM2 的 `.env` 打開，告訴它新目標在哪**（B 段 `cp .env.example .env` 複製好的檔案裡，這三行本來就以註解形式等在那裡，打開改值即可）：
 
 ```bash
-# 在 VM2 的 ~/stock-crawler 下，編輯 .env（用 vi 或 sed 都可以），加上三行：
-RABBITMQ_HOST={VM1內部IP}      # 例：10.140.0.2——同 VPC 用內部 IP
-MYSQL_HOST={CloudSQL IP}       # 例：35.229.208.220
-GCP_PROJECT_ID={你的專案ID}    # 雙寫的 BigQuery 半邊（第 15 章讀碼段⓪）
+# 在 VM2 的 ~/stock-crawler 下，把三個連線目標寫進 .env（第 14 章 H-3 的同一套做法）：
+echo "RABBITMQ_HOST={VM1內部IP}" >> .env       # 例：10.140.0.2——同 VPC 用內部 IP
+echo "MYSQL_HOST={CloudSQL IP}" >> .env        # 例：35.229.208.220
+echo "GCP_PROJECT_ID=$(gcloud config get-value project)" >> .env   # 雙寫的 BigQuery 半邊（第 15 章讀碼段⓪）
+
+tail -3 .env    # 核對寫進去的值
 ```
 
-一句話總結這個設計：**同一份 compose 檔走遍本機和雲端，每台機器的連線目標由它自己的 `.env` 決定**——第 6 章「設定集中管理」的完整版。三個值的性質也值得注意：兩個 HOST 和專案 ID 都**不是機密**（IP 和專案 ID 到處看得到），可以安心寫在 `.env`；密碼是機密，**不寫進 `.env`**，由啟動指令從 Secret Manager 注入（D-4）——機密與非機密的待遇差別，在這個檔案裡一目瞭然。
+`.env.example` 的模板裡這三行以註解形式存在——`echo` 直接補在檔尾即可，compose 只認沒被註解的行。
 
-用 D-4 的注入指令啟動 worker：
+一句話總結這個設計：**同一份 compose 檔走遍本機和雲端，每台機器的連線目標由它自己的 `.env` 決定**——第 6 章「設定集中管理」的完整版。四個值的**來源**值得注意：兩個 HOST 抄自 `instances list`、專案 ID 問 `gcloud config`、密碼向 Secret Manager 要——**沒有一個值是憑記憶手打的**，這就是設定管理的紀律：每個值都有可查證的出處。
+
+第四行是密碼——在 VM2 重做一次 D-4 的取出寫入，然後啟動 worker：
 
 ```bash
-MYSQL_PASSWORD=$(gcloud secrets versions access latest --secret=mysql-password) \
-  sudo -E docker compose -f docker-compose-local.yml \
-  up -d --no-deps worker_twse worker_tpex
+sed -i '/^MYSQL_PASSWORD=/d' .env
+echo "MYSQL_PASSWORD=$(gcloud secrets versions access latest --secret=mysql-password)" >> .env
+
+sudo docker compose -f docker-compose-local.yml up -d --no-deps worker_twse worker_tpex
 
 sudo docker logs crawler_twse --tail 5
 ```
@@ -377,7 +388,7 @@ twse@xxxx ready.
 
 worker 跨機器連上了 VM1 的 RabbitMQ。`--no-deps` 的意思是「只啟動我指定的服務」——不加的話，compose 會照 `depends_on` 把本機的 rabbitmq 也一起啟動（worker 實際連的是 VM1，本機這顆只會佔用記憶體）。
 
-注意這裡沒有動任何防火牆設定，內部 IP 互連走的是 `default-allow-internal` 這條預設規則。**整次搬家，程式碼一行都沒改；改動就是 `.env` 的三行，外加啟動指令前面的密碼注入。**
+注意這裡沒有動任何防火牆設定，內部 IP 互連走的是 `default-allow-internal` 這條預設規則。**整次搬家，程式碼一行都沒改；改動就是 `.env` 的四行——三個連線目標加一行從 Secret Manager 取出的密碼。**
 
 兩個驗證——連線值真的進了容器、密碼真的來自 Secret Manager：
 
@@ -389,7 +400,7 @@ sudo docker exec crawler_twse env | grep MYSQL_PASSWORD
 # MYSQL_PASSWORD={secret 目前的值}
 ```
 
-secret 的值跟預設一樣是 1234 時看不出來源——照 D-4 的輪替流程加一個好辨識的版本（例如 `sm-test-42`）、重跑注入 up、再看一次 env，值變了就證明是 Secret Manager 來的；測完記得把版本換回來。
+secret 的值跟預設一樣是 1234 時看不出來源——照 D-4 的輪替流程加一個好辨識的版本（例如 `sm-test-42`）、重跑 ①②③、再看一次 env，值變了就證明是 Secret Manager 來的；測完記得把版本換回來。
 
 > 對照：第 12 章教過「compose 檔 `environment:` 寫死的值會蓋過 env_file」——當時的結論是 environment 優先。現在 environment 這一側自己變成了插值，值的來源反轉成「`.env` → 插值 → 容器」，這正是插值跟 env_file 的差別：env_file 是「另一個給值的來源（會被 environment 蓋掉）」，插值是「environment 自己開的洞」。
 
@@ -536,15 +547,14 @@ gcloud spanner databases create stockdb --instance=stock-spanner-trial \
 
 第三欄就是等一下 S-3 末尾要對照的東西——`crawler/spanner.py` 只有這一個關鍵差異。
 
-在 **VM2** 的 `.env` 再加兩行、重跑注入 up：
+在 **VM2** 的 `.env` 再加一行、重跑 up：
 
 ```bash
-# VM2 的 ~/stock-crawler/.env 加上：
-SPANNER_INSTANCE=stock-spanner-trial
+# VM2 的 ~/stock-crawler
+echo "SPANNER_INSTANCE=stock-spanner-trial" >> .env
 # （instance 開在別的專案才需要 SPANNER_PROJECT_ID；同專案不用設）
 
-MYSQL_PASSWORD=$(gcloud secrets versions access latest --secret=mysql-password) \
-  sudo -E docker compose -f docker-compose-local.yml up -d --no-deps worker_twse worker_tpex
+sudo docker compose -f docker-compose-local.yml up -d --no-deps worker_twse worker_tpex
 ```
 
 回 VM1 的 Airflow 再觸發一次 `stock_crawler_producer_dag`，VM2 的 worker log 會多一行：
@@ -560,7 +570,7 @@ gcloud spanner databases execute-sql stockdb --instance=stock-spanner-trial \
   --sql="SELECT COUNT(*) AS n, COUNT(DISTINCT stock_id) AS stocks FROM TaiwanStockPrice"
 ```
 
-連跑兩次 DAG 就看得出差別：Spanner 的筆數**第二次不會再增加**（upsert 以主鍵去重，同一支股票同一天只有一列），Cloud SQL 與 BigQuery raw 則是各疊一輪。同一批資料寫進三種資料庫，寫入語義的差別在筆數上直接看得到。體驗完把 `.env` 那兩行拿掉、重跑 up，爬蟲就回到雙寫。
+連跑兩次 DAG 就看得出差別：Spanner 的筆數**第二次不會再增加**（upsert 以主鍵去重，同一支股票同一天只有一列），Cloud SQL 與 BigQuery raw 則是各疊一輪。同一批資料寫進三種資料庫，寫入語義的差別在筆數上直接看得到。體驗完把 `.env` 那行拿掉（`sed -i '/^SPANNER_INSTANCE=/d' .env`）、重跑 up，爬蟲就回到雙寫。
 
 用滑鼠查同一份資料——Console 的 **Spanner Studio**（≡ → Spanner → 執行個體 → 資料庫 → 左側「Spanner Studio」）。左側 Explorer 展開 `Schemas → Default → Tables` 就是 S-2 建的 `TaiwanStockPrice`，右邊開一個查詢分頁下 SQL：
 
@@ -696,7 +706,7 @@ gcloud sql users set-password studio --host=% --instance={實例名} --password=
 
 **T-3 Secret Manager 的授權不用重做**
 
-D-2 的授權對象是 Compute Engine 預設服務帳戶——在 VM 上執行的注入指令用的就是這個身分，不論哪位組員跑 up，讀 secret 的都是同一個服務帳戶，一次授權全組涵蓋。組員個人帳號不需要 `secretAccessor`：個人帳號只在自己電腦上管理 secret（開專案者），VM 上的讀取走服務帳戶。
+D-2 的授權對象是 Compute Engine 預設服務帳戶——在 VM 上執行 `gcloud secrets versions access` 用的就是這個身分，不論哪位組員做 D-4 的取出寫入，讀 secret 的都是同一個服務帳戶，一次授權全組涵蓋。組員個人帳號不需要 `secretAccessor`：個人帳號只在自己電腦上管理 secret（開專案者），VM 上的讀取走服務帳戶。
 
 授權狀態可以在 Console 核對：安全性 → Secret Manager → `mysql-password` → 「**權限**」分頁——服務帳戶掛「Secret Manager 密鑰存取者」，成員清單裡沒有任何組員的個人帳號，這就是「授權綁程式不綁人」的樣子：
 
@@ -722,7 +732,7 @@ gcloud secrets versions list mysql-password
 # 7     enabled   ...
 ```
 
-SQL 端改完後，跑服務的 VM **重跑一次 D-4 的注入 up**，容器就拿到新版（記住：`docker restart` 不會，重跑 up 才會）——**程式碼與 compose 檔一行都不用動**，這正是密碼集中管理在團隊場景的價值：換密碼是一個人的兩三條指令，不是全組每台機器各改一次檔案。
+SQL 端改完後，跑服務的 VM **重跑一次 D-4 的 ①②③**（刪舊行 → 取出寫入 → up），容器就拿到新版（記住：`docker restart` 不會）——**程式碼與 compose 檔一行都不用動**，這正是密碼集中管理在團隊場景的價值：換密碼是一個人的兩三條指令，不是全組每台機器各改一次檔案。
 
 輪替軌跡在 Console 的「**版本**」分頁：每一列一個版本、帶建立日期，最新版在最上面——誰在什麼時候換過密碼，翻這頁就有紀錄：
 
@@ -781,9 +791,9 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 | VM2 上莫名多一個 rabbitmq 容器 | up 沒加 `--no-deps`，depends_on 連帶啟動 | `docker rm -f rabbitmq`，之後 up 記得加 `--no-deps` |
 | Cloud SQL Studio 的使用者下拉 root 是灰的 | Studio 不開放 root 登入；gcloud 建的使用者沒給 `--host=%` 也會被拒 | `gcloud sql users create studio --password=1234 --host=%` 後重新整理頁面 |
 | 兩台 VM 內部 IP 一樣？ | 不可能——同 VPC 內部 IP 唯一；你看到的多半是外部 IP 回收再發 | 分清楚兩欄：INTERNAL_IP vs EXTERNAL_IP |
-| VM 上注入指令回 403 Permission denied | 沒做 D-2 的授權，或 member 填錯（要填 VM 用的那個服務帳戶） | 用 `gcloud secrets get-iam-policy mysql-password` 檢查授權對象 |
-| 容器裡的密碼還是預設值 1234 | up 時沒掛注入（少了 `MYSQL_PASSWORD=$(...)` 前綴）、或 `sudo` 沒加 `-E` 把環境變數清掉了 | 重跑完整的注入 up；`docker exec {容器} env \| grep MYSQL_PASSWORD` 確認 |
-| 換了密碼但容器沒生效 | 只做了 `docker restart`——環境變數在容器建立時就固定了 | 重跑注入 up，compose 會重建容器 |
+| VM 上 `secrets versions access` 回 403 Permission denied | 沒做 D-2 的授權，或 member 填錯（要填 VM 用的那個服務帳戶） | 用 `gcloud secrets get-iam-policy mysql-password` 檢查授權對象 |
+| 容器裡的密碼還是預設值 1234 | `.env` 裡沒有 `MYSQL_PASSWORD=` 那行——D-4 的取出寫入沒做，或做在別台機器上 | 在跑服務的那台重跑 D-4 的 ①②③；`docker exec {容器} env \| grep MYSQL_PASSWORD` 確認 |
+| 換了密碼但容器沒生效 | 只做了 `docker restart`，或 `.env` 還是舊值（沒重新取出） | 重跑 D-4 的 ①②③，compose 偵測到值變了會重建容器 |
 | 搬家後 Cloud SQL 有資料、BigQuery 沒新增 | `.env` 漏了 `GCP_PROJECT_ID`（worker 印「BQ 未設定，略過雲端寫入」），或 VM2 建機時沒給 `--scopes=cloud-platform` | 補 `.env` 的變數重跑 up；scopes 要停機後 `gcloud compute instances set-service-account {VM} --scopes=cloud-platform` 補 |
 | Spanner 建試用機被拒：limited to 1 per project lifecycle | 這個專案開過（也許已刪掉）免費 instance——刪除不會退還額度 | 免費體驗一個專案只有一次；要再玩只能換專案或開付費 instance |
 | Spanner 調 PU 報 cannot be set for free instances | 免費試用版算力固定 | 正常——這正是免費版與付費版的界線（S-4 實驗②） |
@@ -792,7 +802,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 
 - 託管 vs 自架是雲的核心交易：用錢買維運。資料庫最有資格先換成託管——有狀態、故障代價最高
 - 內部 IP 給機器互連（免費、不變、免防火牆），外部 IP 給對外（會回收、要授權）——分清楚這兩個，跨機器架構就通了
-- Secret Manager 保管密碼：集中儲存、可查詢誰讀過、每個版本都保留；部署時注入讓密碼只存在 Secret Manager 一處——程式只讀環境變數，在雲端和本機用同一份程式碼
+- Secret Manager 保管密碼：集中儲存、可查詢誰讀過、每個版本都保留；`.env` 裡的值用指令取出寫入，不經鍵盤與聊天室——換密碼＝加新版本＋重新取出，程式只讀環境變數，一行不改
 - 授權可以綁在單一資源上（`gcloud secrets add-iam-policy-binding`），範圍比第 15 章的專案層級更精確
 - 在 VM 上執行的容器不需要金鑰檔，它用 VM 的服務帳戶身分讀 Secret Manager
 - compose 插值＋`.env` 讓「搬家」縮小成三行值的差異——同一份 compose 檔走遍本機和雲端，每台機器的連線目標由它自己的 `.env` 決定
