@@ -86,7 +86,7 @@ stock-crawler/
 ├── airflow/                              # Airflow：Dockerfile、compose、DAGs、README
 ├── metabase/                             # Metabase：compose、README
 ├── example/                              # SQL 範例、mock 資料、pandas 練習、獨立爬蟲範例
-├── 課程手冊/                              # 完整課程手冊（17 章 + 補充A~J）
+├── 課程手冊/                              # 完整課程手冊（17 章 + 補充A~K）
 ├── Dockerfile                            # Worker 容器化（Ubuntu + uv）
 ├── pyproject.toml / uv.lock              # Python 依賴管理
 └── README.md
@@ -149,6 +149,7 @@ stock-crawler/
 | 補充H | 對外服務：API 上雲與 Cloud Run（image 倉庫、發佈流程、revision 換版）| 手冊16-17 之後 | `api/main.py`、`api/Dockerfile` |
 | 補充I | CI 與 CD：GitHub Actions 從自動測試到自動部署 | 手冊17 與補充H 之後 | `.github/workflows/ci.yml`、`api/Dockerfile` |
 | 補充J | 從一支爬蟲到分散式：六步拆解（整條架構的演進脈絡）| 全課程之後回顧，或開課前導覽 | `example/evolution/` |
+| 補充K | BigQuery 深入：三個亮點實驗（欄式掃描量／Time Travel／BQML）、Studio 六項功能、五個強項對照 MySQL | 手冊15 之後（連線那節要等手冊16）| `bq` CLI、BigQuery Studio |
 
 ---
 
