@@ -130,7 +130,7 @@ stock-crawler/
 |----|------|---------------|
 | 14 | GCP 開通與雲端部署（VM、防火牆、IAM 與小組協作）——**雙寫從這一章開始運轉** | `gcloud`、Console、`docker-compose-all.yml` |
 | 15 | BigQuery 資料倉儲（OLTP → OLAP、raw/stage/app 三層、Looker Studio）| `crawler/tasks_crawler_finmind.py`、`crawler/bigquery.py` |
-| 16 | 系統搬家：多台 VM 與 Cloud SQL（Secret Manager、Spanner 試用）| `docker-compose-local.yml` + `.env` 三行 |
+| 16 | 系統搬家：多台 VM 與 Cloud SQL（Secret Manager、Spanner 試用為 Bonus）| `docker-compose-local.yml` + `.env` 三行 |
 | 17 | 每日資料線：Airflow 排程與 Composer | `airflow/dags/stock_crawler_etl_bigquery_dag.py` |
 
 ### 補充教材

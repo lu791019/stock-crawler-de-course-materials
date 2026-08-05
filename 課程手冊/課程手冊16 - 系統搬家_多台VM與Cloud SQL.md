@@ -2,7 +2,7 @@
 
 > 本章對應 EP18。前置：第 14、15 章做完（有 GCP 專案、gcloud 可用、stock-crawler-vm 存在且會開關機、雙寫已在運轉）。
 >
-> 第 14 章把整套系統塞進一台 VM——能動，但所有服務擠在一起：資料庫跟 worker 搶記憶體、一台掛全部掛。本章把它拆開：**資料庫換成託管的 Cloud SQL、worker 搬到第二台 VM**——補充B 講的「分散式」，這次真的跨機器。搬家只動雙寫的 OLTP 半邊；BigQuery 那條分析線一個字都不用改，你會親自驗證這件事。最後再開一台 **Cloud Spanner** 試用機，看看「分散式資料庫」跟託管 MySQL 差在哪。
+> 第 14 章把整套系統塞進一台 VM——能動，但所有服務擠在一起：資料庫跟 worker 搶記憶體、一台掛全部掛。本章把它拆開：**資料庫換成託管的 Cloud SQL、worker 搬到第二台 VM**——補充B 講的「分散式」，這次真的跨機器。搬家只動雙寫的 OLTP 半邊；BigQuery 那條分析線一個字都不用改，你會親自驗證這件事。最後的 Bonus 節再開一台 **Cloud Spanner** 試用機，看看「分散式資料庫」跟託管 MySQL 差在哪。
 
 ## 本章用到的工具與服務
 
@@ -27,7 +27,7 @@
 5. 開第二台 VM 專跑 worker，用 `.env` 三行讓它連到別台機器的服務
 6. 跑通跨機器的完整閉環：VM1 發任務 → VM2 消化 → 雙寫同時落進 Cloud SQL 與 BigQuery
 7. 說得出 Cloud SQL 與 BigQuery 在營運面的差異（連線、授權、計費、停機模式）
-8. 開一台 Spanner 免費試用機動手操作，說得出它跟 Cloud SQL 的分工，以及 GCP 五種資料庫服務各自的適用場景
+8. （Bonus）開一台 Spanner 免費試用機動手操作，說得出它跟 Cloud SQL 的分工，以及 GCP 五種資料庫服務各自的適用場景
 9. 說得出 Swarm 與 Kubernetes 是什麼、為什麼本課程用 compose 就夠
 
 ## 先搞懂
@@ -464,11 +464,13 @@ gcloud sql users create studio --instance=stock-mysql --password=1234 --host=%
 
 一句話收斂：**Cloud SQL 是「託管的機器」，BigQuery 是「無伺服器的服務」**——前者你還看得到機器的影子（機型、IP、開關機），後者連機器的概念都被抽走了。這條光譜上還有一種更特別的動物，下一節開一台來看。
 
-## 動手開一台 Cloud Spanner——分散式資料庫長什麼樣
+## 動手開一台 Cloud Spanner（Bonus）——分散式資料庫長什麼樣
 
 Cloud SQL 是「一台託管的 MySQL」；**Cloud Spanner 是 Google 自研的分散式關聯式資料庫**——資料自動分片到多台機器、跨節點仍保有 SQL 交易與強一致性，Google 自家的廣告、Gmail 底層都跑它。它解的是 Cloud SQL 的天花板：單機 MySQL 撐不住的規模（水平擴充）與「升級要重啟」的停機窗。
 
 Spanner 有 **90 天免費試用 instance**（不扣試用額度、不會產生費用）。這一節開一台，讓**真的爬蟲資料流進去**——用跟搬家同一套辦法（`.env` 加開關、Airflow 發任務），再做兩個「Cloud SQL 做不到」的實驗。
+
+**這一節是 Bonus**：主線的雙寫與後續章節都不依賴它，跳過不影響第 17 章。另外注意免費試用 instance **每個專案終身只有一次**——專案已經開過（即使刪掉了）就無法再開；做不了的話，把 S-4 的兩個實驗結論與 S-5 的對照表讀懂，這一節的目的就達成了。要真的動手也可以開最小的付費 instance（`--processing-units=100`，從試用額度扣、按小時計，做完刪除即停止計費）。
 
 > **動手前的三個限制先知道**（免費試用版）：
 > 1. **每個專案終身只有一次**——刪掉不會退還額度，這台開了就別隨手刪（反正它不計費，90 天到期會自動停用）
@@ -740,7 +742,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 |------|---------|-----------|
 | VM ×2 | TERMINATED，外部 IP 回收 | 磁碟費（兩顆 20GB 合計每月約 NT$50） |
 | Cloud SQL | 停用，資料保留 | 儲存費（少量） |
-| Spanner 試用機 | **不用停**——免費 instance 本來就不計費 | $0（90 天到期自動停用；記得別手動刪，額度不會退還） |
+| Spanner 試用機（Bonus 有做才有） | **不用停**——免費 instance 本來就不計費 | $0（90 天到期自動停用；記得別手動刪，額度不會退還） |
 
 重新開工的順序：Cloud SQL `--activation-policy=ALWAYS` → VM start → **查新的外部 IP → 重跑 authorized-networks 的 patch**（IP 換了，舊授權就失效——別忘了這步）。
 
@@ -751,7 +753,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 - [ ] VM1 只跑 Airflow 三容器＋rabbitmq＋flower；VM2 只跑兩個 worker
 - [ ] VM2 worker log 有 `Connected to amqp://...{VM1內部IP}` 與 `ready`
 - [ ] VM1 發任務後，Cloud SQL 的 `mydb.TaiwanStockPrice` 查得到資料，**且 BigQuery 的 `raw.TaiwanStockPrice` 筆數同步增加**（雙寫兩邊都活著）
-- [ ] Spanner 試用 instance 存在（READY）且 `TaiwanStockPrice` 有爬蟲寫入的資料；兩個實驗跑過：線上加欄位、調 PU 被免費版拒絕
+- [ ]（Bonus，有做才勾）Spanner 試用 instance 存在（READY）且 `TaiwanStockPrice` 有爬蟲寫入的資料；兩個實驗跑過：線上加欄位、調 PU 被免費版拒絕
 - [ ] VM ×2 與 Cloud SQL 停止（Spanner 試用機不計費，不用動）
 
 ## 想一想
