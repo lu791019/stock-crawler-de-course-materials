@@ -510,6 +510,10 @@ gcloud compute instances create stock-crawler-vm \
 
 每台 GCE VM 都附掛一個服務帳戶（預設是專案的 Compute Engine 預設服務帳戶）。在 VM 上執行的程式可以**不帶任何金鑰檔**，直接以這個身分呼叫 GCP 服務——Google 的用戶端程式庫找不到金鑰時，會自動向 VM 內建的 metadata server 拿憑證。但這條路有一道閘門叫 **scopes（存取範圍）**：VM 建立時沒指定的話，預設 scopes 只涵蓋少數服務（讀 Storage、寫 Logging 等），呼叫 BigQuery 會被擋下。`--scopes=cloud-platform` 把範圍開到全部 GCP API，之後第 15 章爬蟲往 BigQuery 寫資料就直接用 VM 身分，不需要金鑰檔。scopes 只能在**建機時**指定或**停機後**修改（`gcloud compute instances set-service-account`），所以建機這一步就把它給對。
 
+建好之後在 Console 核對：Compute Engine → VM 執行個體 → 點 VM 名稱 → 詳細資訊頁往下捲到「**API 與身分識別管理**」。「服務帳戶」是這台 VM 的身分，「Cloud API 存取權範圍」顯示**允許所有 Cloud API 的完整存取權**就是 `--scopes=cloud-platform` 生效的樣子（VM 停機中也看得到）：
+
+![VM 詳細頁的 API 與身分識別管理](images/ch14/56-VM詳細頁存取權範圍.jpg)
+
 成功輸出（重點是最後一行的表格）：
 
 ```
@@ -781,7 +785,11 @@ sudo docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
 
 - **為什麼要這個變數**：這套系統的爬蟲是**雙寫**的——每次抓完資料，同一份會寫進 MySQL，**同時**寫一份到 BigQuery（GCP 的資料倉儲服務）。worker 靠 `GCP_PROJECT_ID` 知道要寫進哪個專案；前面 1-13 章在本機沒設這個變數，worker 就印一行「BQ 未設定，略過雲端寫入」只寫 MySQL。BigQuery 那份是幹嘛用的，第 15 章詳細介紹——這一章先知道「雲端上的爬蟲會多寫一份」就夠
 - **為什麼寫在 `.env` 而不是打在指令前面**：兩種 compose 都吃（它的插值同時讀 shell 環境與同目錄的 `.env`），但寫進 `.env` 只要做一次，之後每次 `up` 都自動生效。打在指令前面的話，哪一次忘了帶，worker 就靜靜地只寫 MySQL——**它不會報錯，只會在 log 裡印一行略過訊息**，很容易到了第 15 章才發現 BigQuery 沒資料。第 16 章 VM2 的連線設定、第 17 章 Airflow 的專案 ID 都沿用這個做法
-- **不用另外授權**：VM 附掛的 Compute Engine 預設服務帳戶帶著專案的 Editor 角色（涵蓋 BigQuery 讀寫），加上 F-2 給的 `--scopes=cloud-platform`，兩道閘門本來就是開的——所以這裡不需要任何 `add-iam-policy-binding`。為什麼是這兩道、實務上該怎麼收緊，第 15 章 Step 1 拆解
+- **不用另外授權**：VM 附掛的 Compute Engine 預設服務帳戶帶著專案的 Editor 角色（涵蓋 BigQuery 讀寫），加上 F-2 給的 `--scopes=cloud-platform`，兩道閘門本來就是開的——所以這裡不需要任何 `add-iam-policy-binding`。為什麼是這兩道、實務上該怎麼收緊，第 15 章 Step 1 拆解。Console 上核對：IAM 與管理 → IAM，那個 `{專案編號}-compute@developer.gserviceaccount.com`（名稱是 Compute Engine default service account）掛著**編輯者**角色：
+
+![IAM 清單：三種身分各自的角色](images/ch14/57-IAM三個身分的角色.jpg)
+
+這張清單順便把三種身分的分工攤開了：**VM 的服務帳戶**（編輯者，程式在 GCP 裡用）、**你的 Google 帳號**（擁有者，人在 Console 操作用）、**Part D 建的 `stock-crawler-sa`**（第 15 章補充段會給它 BigQuery 兩個角色，程式在 GCP 外用）
 - **例外是密碼**：第 16 章的資料庫密碼**不會**寫進 `.env`，改用指令前綴從 Secret Manager 取出（`MYSQL_PASSWORD=$(gcloud secrets ...) sudo -E docker compose ...`）。差別在機密與否——專案 ID 到處看得到，密碼不能落地成檔案
 - **這個變數在程式碼裡的完整路徑**（打開檔案就能對照，一行程式都不用改）：
   1. `docker-compose-all.yml`：worker 服務的 environment 有一行 `GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}`——compose 的變數插值，把 `.env`（或 shell 環境）裡的值轉交給容器；兩邊都沒設就給空字串
