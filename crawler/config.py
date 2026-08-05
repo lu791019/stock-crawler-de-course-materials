@@ -36,7 +36,8 @@ GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")
 
 # Cloud Spanner 體驗用（手冊16 Spanner 節）
 # 設了 SPANNER_INSTANCE 爬蟲才會把資料多寫一份到 Spanner, 平常不設、不影響主線
-SPANNER_PROJECT_ID = os.environ.get("SPANNER_PROJECT_ID", GCP_PROJECT_ID)
+# compose 的插值會把沒設的變數注入成空字串, 用 or 讓空字串也回退到 GCP_PROJECT_ID
+SPANNER_PROJECT_ID = os.environ.get("SPANNER_PROJECT_ID") or GCP_PROJECT_ID
 SPANNER_INSTANCE = os.environ.get("SPANNER_INSTANCE", "")
 SPANNER_DATABASE = os.environ.get("SPANNER_DATABASE", "stockdb")
 
