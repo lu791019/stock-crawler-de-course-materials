@@ -302,7 +302,13 @@ gcloud composer environments run stock-composer --location=asia-east1 dags list-
 | ModuleNotFoundError: No module named 'loguru'
 ```
 
-追這條 traceback：DAG import `tasks_crawler_finmind`（要發 Celery 任務）→ 它 import `crawler.worker` → worker 用了 `loguru`——**Composer 3 的映像沒有內建 loguru**。自架環境從來不會踩到這個，因為套件是 `docker build` 時照 `pyproject.toml` 整包裝好的；Composer 的映像裝什麼是 Google 決定的，你的程式用到清單外的套件，就要自己補。查內建清單、補裝套件：
+traceback 由下往上讀，三層就找到根因：
+
+1. DAG 要 import `tasks_crawler_finmind`（它負責發 Celery 任務）
+2. 這支又 import `crawler.worker`
+3. 而 `worker.py` 用了 `loguru`——**Composer 3 的映像沒有內建這個套件**
+
+自架環境不會踩到這個坑：套件是 `docker build` 時照 `pyproject.toml` 整包裝進 image 的。Composer 的映像裝什麼由 Google 決定，程式用到清單外的套件就要自己補。查內建清單、補裝套件：
 
 ```bash
 # 先看映像內建了什麼（pandas、PyMySQL、SQLAlchemy、google-cloud-bigquery 都在，loguru 不在）

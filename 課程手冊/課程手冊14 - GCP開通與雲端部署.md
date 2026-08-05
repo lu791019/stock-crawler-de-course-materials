@@ -504,11 +504,34 @@ gcloud compute instances create stock-crawler-vm \
   --scopes=cloud-platform
 ```
 
-參數說明：`create` 後面接 VM 名稱（自取）；`--zone` 放在台灣的機房；`--machine-type` 機型；`--image-family` 作業系統用 Ubuntu 24.04 LTS（跟本機 VM 一致）；`--image-project` 是映像檔的來源專案（固定值）；`--boot-disk-size` 開機磁碟，全套 image 超過 5GB，開 20GB；`--scopes=cloud-platform` 是這台 VM 的**存取範圍**——說明如下。
+七個參數逐一對照：
+
+| 參數 | 本課程填的值 | 它決定什麼 |
+|------|-------------|-----------|
+| （`create` 後的第一個值） | `stock-crawler-vm` | VM 名稱，自取 |
+| `--zone` | `asia-east1-b` | 機器放在哪個機房，這裡是台灣彰化 |
+| `--machine-type` | `e2-standard-2` | 機型（2 vCPU／8GB） |
+| `--image-family` | `ubuntu-2404-lts-amd64` | 作業系統，跟本機 VM 一致 |
+| `--image-project` | `ubuntu-os-cloud` | 映像檔的來源專案，固定值 |
+| `--boot-disk-size` | `20GB` | 開機磁碟。全套 image 超過 5GB，開 20GB 才夠 |
+| `--scopes` | `cloud-platform` | 這台 VM 的**存取範圍**——下一段專門說明 |
 
 **`--scopes=cloud-platform` 在做什麼：VM 自己也有身分**
 
-每台 GCE VM 都附掛一個服務帳戶（預設是專案的 Compute Engine 預設服務帳戶）。在 VM 上執行的程式可以**不帶任何金鑰檔**，直接以這個身分呼叫 GCP 服務——Google 的用戶端程式庫在這台機器上找不到任何指向金鑰的設定，就會向 VM 內建的 metadata server 拿憑證（完整的查找順序見 F-3 後面的「兩種憑證的分工」）。但這條路有一道閘門叫 **scopes（存取範圍）**：VM 建立時沒指定的話，預設 scopes 只涵蓋少數服務（讀 Storage、寫 Logging 等），呼叫 BigQuery 會被擋下。`--scopes=cloud-platform` 把範圍開到全部 GCP API，之後第 15 章爬蟲往 BigQuery 寫資料就直接用 VM 身分，不需要金鑰檔。scopes 只能在**建機時**指定或**停機後**修改（`gcloud compute instances set-service-account`），所以建機這一步就把它給對。
+一句話：**這台 VM 自己就是一個身分，`--scopes` 決定這個身分能碰哪些服務。** 拆成三件事看。
+
+**① 身分從哪來。** 每台 GCE VM 都附掛一個服務帳戶（預設是專案的 Compute Engine 預設服務帳戶）。在 VM 上執行的程式可以**不帶任何金鑰檔**就以這個身分呼叫 GCP 服務——Google 的用戶端程式庫在這台機器上找不到任何指向金鑰的設定，就會向 VM 內建的 metadata server 拿憑證（完整的查找順序見 F-3 後面的「兩種憑證的分工」）。
+
+**② 閘門是什麼。** 有身分還不夠，這條路上有一道叫 **scopes（存取範圍）** 的閘門：
+
+| scopes 設定 | 涵蓋範圍 | 呼叫 BigQuery 會 |
+|---|---|---|
+| 不指定（預設） | 少數服務：讀 Storage、寫 Logging 等 | 被擋下 |
+| `cloud-platform`（本課程） | 全部 GCP API | 通過 |
+
+所以之後第 15 章爬蟲往 BigQuery 寫資料，直接用 VM 身分就成立，不需要金鑰檔。
+
+**③ 為什麼建機這一步就要給對。** scopes 只能在**建機時**指定，或**停機後**用 `gcloud compute instances set-service-account` 修改——機器跑著改不了。當下多打這一個參數，比之後停機、改設定、再開機（外部 IP 還會換掉）省事得多。
 
 建好之後在 Console 核對：Compute Engine → VM 執行個體 → 點 VM 名稱 → 詳細資訊頁往下捲到「**API 與身分識別管理**」。「服務帳戶」是這台 VM 的身分，「Cloud API 存取權範圍」顯示**允許所有 Cloud API 的完整存取權**就是 `--scopes=cloud-platform` 生效的樣子（VM 停機中也看得到）：
 

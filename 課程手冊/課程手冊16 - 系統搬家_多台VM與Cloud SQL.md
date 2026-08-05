@@ -85,7 +85,16 @@ flowchart LR
 
 ## 一步一步
 
-拆家的順序照「機器 → 資料庫 → 密碼 → 接線 → 驗收」走：先把兩台機器的角色定下來（Part A、B），機器都在了再建 Cloud SQL（Part C——授權網路要填兩台的 IP，機器不先開好就沒有 IP 可填），然後把密碼交給 Secret Manager（Part D）、用 `.env` 把 VM2 的 worker 接上新後端（Part E），最後跨機器端到端驗收（Part F）。
+拆家的順序照「**機器 → 資料庫 → 密碼 → 接線 → 驗收**」走：
+
+| Part | 做什麼 | 為什麼排在這個位置 |
+|------|--------|------------------|
+| A | VM1 收斂成 infra 角色 | 先把既有那台的角色定下來 |
+| B | 開 VM2、準備 worker | 兩台機器都在了，才有 IP 可用 |
+| C | 建 Cloud SQL | 授權網路要填兩台 VM 的 IP——**機器不先開好就沒有 IP 可填** |
+| D | 密碼交給 Secret Manager | 資料庫存在了才有密碼要保管 |
+| E | `.env` 三行接線 | 前面的 IP 與位址到齊，worker 才知道要連去哪 |
+| F | 跨機器端到端驗收 | 零件都就位，最後跑一次完整閉環 |
 
 > 本章的 IP 每個人都不同。做到哪、抄到哪，後面指令照抄你自己的值：
 >
@@ -168,7 +177,15 @@ gcloud sql instances create stock-mysql \
   --root-password=1234
 ```
 
-參數說明：`stock-mysql` 是實例名稱（自取）；`--database-version` 跟課程一路用的 MySQL 8.0 對齊；`--tier=db-f1-micro` 是最小最便宜的規格（教學夠用）；`--region` 跟 VM 同區（連線最快）；`--root-password` 刻意設 `1234`——**跟 `.env.example` 的預設一致，這是等一下「程式一行都不用改帳密」的關鍵**。
+五個參數逐一對照（格式跟第 14 章 F-2 建 VM 那張表一樣）：
+
+| 參數 | 本課程填的值 | 為什麼填這個 |
+|------|-------------|-------------|
+| （`create` 後的第一個值） | `stock-mysql` | 實例名稱，自取 |
+| `--database-version` | `MYSQL_8_0` | 跟課程一路用的 MySQL 8.0 對齊 |
+| `--tier` | `db-f1-micro` | 最小最便宜的規格，教學夠用 |
+| `--region` | `asia-east1` | 跟 VM 同區，連線最快 |
+| `--root-password` | `1234` | **刻意跟 `.env.example` 的預設一致**——這是等一下「程式一行都不用改帳密」的關鍵 |
 
 - **建立要等約 10 分鐘**（Google 在幫你準備一台帶備份機制的資料庫伺服器），比開 VM 慢很多是正常的
 - 完成後查狀態與 IP：
@@ -505,7 +522,17 @@ gcloud spanner databases create stockdb --instance=stock-spanner-trial \
 
 **S-3 讓真的爬蟲資料流進來——`.env` 加兩行、Airflow 發一次任務**：
 
-repo 的爬蟲任務裡藏著第三個寫入口：`upload_data_to_spanner_if_configured(df)`——沒設 `SPANNER_INSTANCE` 時它什麼都不做（1-15 章一路都是這個狀態），設了就把同一份資料**用主鍵 upsert** 多寫一份到 Spanner（`crawler/spanner.py` 的 `insert_or_update`）。三個寫入口正好三種語義：MySQL／Cloud SQL 是 append（`to_sql` 整批附加）、BigQuery raw 也是 append、**只有 Spanner 這條是主鍵 upsert**——所以下一步的筆數對照才有東西可看。
+爬蟲任務裡有第三個寫入口：`upload_data_to_spanner_if_configured(df)`。它的開關跟雙寫的 BigQuery 半邊同一套設計——沒設 `SPANNER_INSTANCE` 就什麼都不做（1 到 15 章一路都是這個狀態），設了才寫。
+
+設了之後，同一份資料會落進三個地方，而三邊的**寫入語義各不相同**：
+
+| 目的地 | 寫法 | 同一天重跑會怎樣 |
+|--------|------|-----------------|
+| Cloud SQL | `to_sql(if_exists="append")` | 疊一份重複 |
+| BigQuery raw | 批次 load，`WRITE_APPEND` | 疊一份重複（raw 的天性） |
+| **Spanner** | `insert_or_update`（主鍵 upsert） | **筆數不變**，同股同日只有一列 |
+
+第三欄就是等一下 S-3 末尾要對照的東西——`crawler/spanner.py` 只有這一個關鍵差異。
 
 在 **VM2** 的 `.env` 再加兩行、重跑注入 up：
 
