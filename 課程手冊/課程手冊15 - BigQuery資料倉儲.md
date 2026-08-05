@@ -271,7 +271,7 @@ bq query --use_legacy_sql=false "SELECT COUNT(*) AS cnt FROM raw.TaiwanStockPric
    - **IAM 角色**：VM 預設附掛的 Compute Engine 服務帳戶帶著專案的 Editor 角色，涵蓋 BigQuery 讀寫
    - **scopes**：第 14 章建 VM 時 `--scopes=cloud-platform` 給足了存取範圍
 
-打權限指令之前，先認識 **IAM** 的三個詞——本章團體節（T-2）與補充的授權指令都由它們組成：
+**所以本章主線一條授權指令都不用打**——VM 身分本來就寫得進去。但接下來兩個場景需要授權：團體節 T-2（讓組員的**個人帳號**能查 BigQuery）與〈補充：在本機雙寫〉（給第 14 章那把金鑰的服務帳戶補角色，它建立時刻意一個角色都沒給）。先認識 **IAM** 的三個詞，那兩處的指令都由它們組成：
 
 | 詞 | 白話 | 例子 |
 |----|------|---------|
