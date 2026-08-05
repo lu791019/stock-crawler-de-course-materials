@@ -243,7 +243,7 @@ uv run python example/evolution/step1_functions.py
 - 設定值改用 `os.environ.get()` 讀環境變數，讀不到才用預設值。
 - CSV 與 MySQL 各自獨立成函式，用環境變數 `STORAGE` 決定要寫哪些。
 
-Step 1 的三個函式與 Step 2 的三支檔案一一對應：
+Step 1 的三個函式與 Step 2 的三支檔案對應如下：
 
 | Step 1 的函式 | Step 2 的檔案 | 這一層負責的事 |
 |---|---|---|
@@ -252,6 +252,34 @@ Step 1 的三個函式與 Step 2 的三支檔案一一對應：
 | `save()` | `repository.py` | 存資料 |
 | 模組上方的常數 | `config.py` | 設定值 |
 | `main()` | `main.py` | 決定要抓什麼、串接順序 |
+
+### 一個階段一個模組，不是一個函式一個檔案
+
+上面那張表看起來像「一個函式搬進一個檔案」，這是示範規模小造成的巧合，不是規則。
+
+規則是**一個階段一個模組**。檔案是「改動理由相同的東西的容器」，容器裡放幾個函式由規模決定。這一點在 Step 2 就已經看得到：`repository.py` 裡有 `save_to_csv()`、`save_to_mysql()`、`save()` 三個函式，加上 `SAVERS` 對照表，因為儲存目標是最先變多的東西。
+
+放大到真實專案，每一層都會變成多函式：
+
+```
+client.py       fetch_stock_price / fetch_stock_news / fetch_institutional
+                _request()        ← 共用的重試、逾時、錯誤判斷
+transformer.py  transform_price / transform_news
+                _drop_dup() / _cast_types()  ← 共用的整理動作
+repository.py   save_to_csv / save_to_mysql / save_to_bigquery / save
+```
+
+課程正式版的 `crawler/mysql.py` 就是這個樣子：`upload_data_to_mysql`、`create_view`、`create_table_from_view`、`query_to_dataframe`、`execute_query`，五個函式加一個私有的 `_get_engine()`，全部屬於同一個改動理由（MySQL 怎麼操作）。
+
+### 什麼時候該把一個檔案再拆開
+
+判準沒有變，還是「會為了不同理由改變」，只是這次套用在檔案內部：
+
+- 檔案裡的函式開始有不同的改動週期。`repository.py` 長到同時管 MySQL 與 BigQuery 時，兩者的變更理由已經不同（一個跟營運資料庫走、一個跟分析需求走），這時拆成 `repository/mysql.py`、`repository/bigquery.py`。
+- 檔案長度超過 200 到 400 行。
+- 新增一個來源要同時改到不相干的段落。
+
+也就是說檔案數量是隨「來源數 × 儲存目標數」成長，不是隨函式數成長。
 
 ### 程式檔說明
 
@@ -653,6 +681,10 @@ Airflow 會自動載入 `airflow/dags/` 目錄下的檔案。啟動與操作方�
 
 可以，但不建議在第一次拆解時這樣做。Step 1 的作用是先確認邊界劃對了，這件事在同一支檔案裡驗證最快。邊界劃錯時，Step 1 只要搬幾行程式碼就能修正，Step 2 之後要改的是檔案之間的依賴關係。
 
+**問：是不是每個函式都要獨立成一支檔案？**
+
+不是。示範裡 client 與 transformer 各只有一個函式，是因為只處理一個資料集、一種整理規則。同一份程式裡的 `repository.py` 已經有三個函式，因為儲存目標最先變多。判斷依據是改動理由，不是函式數量，詳細說明見 Step 2 的「一個階段一個模組，不是一個函式一個檔案」。
+
 **問：整理的動作放在 client 或 repository 裡不行嗎？**
 
 可以執行，但會產生兩種代價：
@@ -724,6 +756,7 @@ Celery 支援多種 broker，RabbitMQ 只是其中一種。Step 3 完成之後�
 - 步驟順序的依據是「每一步都要能執行」，不能拆到一半不能跑。
 - 資料處理的三個階段分別是：抓資料（client）、整理資料（transformer）、存資料（repository）；決定要抓什麼是另一件事，由 producer 負責。
 - 整理獨立成一層，是為了讓抓取與儲存都不必知道資料的形狀，換掉任何一邊都不影響另一邊。
+- 檔案是「改動理由相同的東西的容器」，一個階段一個模組，容器裡放幾個函式由規模決定。檔案數量隨來源數與儲存目標數成長，不隨函式數成長。
 - 任務參數化是分散式的前提，這一步與 Celery 無關，做完之後任何佇列工具都能接。
 - Celery 換掉的是「誰來執行、在哪裡執行」，不是「執行什麼」，所以接上它時爬蟲邏輯的改動量是零。
 - Airflow 換掉的是「誰來呼叫 producer」，DAG 內不搬運資料，爬取工作留在 worker。
