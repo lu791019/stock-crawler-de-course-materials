@@ -473,6 +473,10 @@ gcloud spanner instances describe stock-spanner-trial \
 # READY  FREE_INSTANCE  {90天後的日期}
 ```
 
+Console 上核對（≡ → Spanner → 點執行個體名稱）。這一頁把免費試用版的三個特徵都攤在同一張表裡：設定是 `asia-east1（台灣）`＝建立時 `--config=regional-asia-east1` 的單一區域、資源調度模式是「手動分配」、還有一列**「Spanner 免費試用執行個體到期日」**——上面那條指令查到的日期，介面版在這裡：
+
+![Spanner 試用執行個體總覽](images/ch16/11-Spanner試用instance總覽.jpg)
+
 **S-2 建資料庫與表——SQL 幾乎一樣，主鍵長在不一樣的地方**：
 
 建的表用跟 MySQL 那張同名同欄位的 `TaiwanStockPrice`（等一下爬蟲要直接寫進來）：
@@ -524,6 +528,17 @@ gcloud spanner databases execute-sql stockdb --instance=stock-spanner-trial \
 ```
 
 注意筆數會**比 BigQuery raw 這一輪新增的少**——upsert 以主鍵去重，同一支股票同一天只有一列；raw 是 append，重跑就疊。同一批資料寫進三種資料庫，三種寫入語義在筆數上直接看得到。體驗完把 `.env` 那兩行拿掉、重跑 up，爬蟲就回到雙寫。
+
+用滑鼠查同一份資料——Console 的 **Spanner Studio**（≡ → Spanner → 執行個體 → 資料庫 → 左側「Spanner Studio」）。左側 Explorer 展開 `Schemas → Default → Tables` 就是 S-2 建的 `TaiwanStockPrice`，右邊開一個查詢分頁下 SQL：
+
+```sql
+SELECT stock_id, date, open, close, Trading_Volume
+FROM TaiwanStockPrice WHERE stock_id = '2330' ORDER BY date DESC LIMIT 10
+```
+
+![Spanner Studio 查爬蟲寫進來的資料](images/ch16/12-SpannerStudio查爬蟲資料.jpg)
+
+這張畫面跟 Part F 的 Cloud SQL Studio 是同一個角色——託管服務自帶的查詢介面。差別在方言：這裡跑的是 GoogleSQL，不是 MySQL 的 SQL。
 
 **S-4 兩個「Cloud SQL 做不到」的實驗**：
 
