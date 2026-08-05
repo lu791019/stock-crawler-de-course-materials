@@ -32,7 +32,10 @@ def create_dataset_if_not_exists(dataset_id: str = DATASET_ID):
         # 跟 VM／Cloud SQL 同區（手冊14 起資源都在 asia-east1）；
         # 同區才能用 federated query 一句 SQL 同時查 Cloud SQL 與 BigQuery（手冊15）
         dataset.location = os.environ.get("BQ_LOCATION", "asia-east1")
-        client.create_dataset(dataset)
+        # exists_ok=True：多個 worker 同時首次寫入時，可能同時查到「不存在」而同時建立，
+        # 後到的會收到 409 Already Exists。「先查再建」的查與建之間有空窗，
+        # 讓建立動作本身容忍已存在，這個競態就消失（MySQL 那側用重試解同一類問題）
+        client.create_dataset(dataset, exists_ok=True)
         print(f"Created dataset {dataset_id}")
 
 
@@ -52,8 +55,12 @@ def taiwan_stock_price_bq_schema():
     ]
 
 
-def create_table(table_name: str, schema, dataset_id: str = DATASET_ID, partition_key: str = None):
-    """建立 BigQuery 表格"""
+def create_table(table_name: str, schema, dataset_id: str = DATASET_ID, partition_key: str = None, exists_ok: bool = False):
+    """建立 BigQuery 表格
+
+    exists_ok=True 時，表已存在不報錯（給 create_table_if_not_exists 的並行場景用）；
+    預設 False 維持「重複建立會報錯」的行為。
+    """
     client = get_bigquery_client()
     table_id = f"{PROJECT_ID}.{dataset_id}.{table_name}"
     table = bigquery.Table(table_id, schema=schema)
@@ -62,7 +69,7 @@ def create_table(table_name: str, schema, dataset_id: str = DATASET_ID, partitio
             type_=bigquery.TimePartitioningType.DAY,
             field=partition_key,
         )
-    table = client.create_table(table)
+    table = client.create_table(table, exists_ok=exists_ok)
     print(f"表格 {table_id} 建立成功")
 
 
@@ -73,7 +80,9 @@ def create_table_if_not_exists(table_name: str, schema, dataset_id: str = DATASE
     try:
         client.get_table(table_id)
     except Exception:
-        create_table(table_name, schema, dataset_id, partition_key)
+        # exists_ok=True 的理由同 create_dataset_if_not_exists：
+        # 多個 worker 同時查到「表不存在」時，只有一個建得成，其他的不該因 409 而放棄整筆雙寫
+        create_table(table_name, schema, dataset_id, partition_key, exists_ok=True)
 
 
 def upload_data_to_bigquery(table_name: str, df: pd.DataFrame, dataset_id: str = DATASET_ID, mode: str = "replace"):
