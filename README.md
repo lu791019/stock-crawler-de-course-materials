@@ -79,7 +79,7 @@ stock-crawler/
 │   ├── stock_bigquery_data_transform.py  # BigQuery stage／app 分析層建立（第 17 章 DAG 用）
 │   └── upload_*.py 等                    # 各種資料上傳輔助腳本（教學用）
 ├── docker-compose-local.yml              # 整合版：一鍵啟動基礎服務（推薦日常使用）
-├── docker-compose-all.yml                # 全服務整合版：11 容器一次啟動（含 Airflow + Metabase）
+├── docker-compose-all.yml                # 全服務整合版：13 個服務一次啟動（含 Airflow + Metabase）
 ├── compose-advanced/                     # 進階：拆開的 compose（network 版、--scale 用）
 ├── api/                                  # FastAPI：MySQL 資料的 REST 出口（補充E）
 ├── tests/                                # pytest 測試：單元 + 整合（補充F）
