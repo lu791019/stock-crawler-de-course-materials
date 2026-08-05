@@ -501,7 +501,7 @@ gcloud spanner databases create stockdb --instance=stock-spanner-trial \
 
 **S-3 讓真的爬蟲資料流進來——`.env` 加兩行、Airflow 發一次任務**：
 
-repo 的爬蟲任務裡藏著第三個寫入口：`upload_data_to_spanner_if_configured(df)`——沒設 `SPANNER_INSTANCE` 時它什麼都不做（1-15 章一路都是這個狀態），設了就把同一份資料**用主鍵 upsert** 多寫一份到 Spanner（`crawler/spanner.py`，寫法對照：MySQL 是 upsert、BigQuery raw 是 append、Spanner 是 `insert_or_update`——又一次「寫入端去重 vs 分析端去重」的選邊）。
+repo 的爬蟲任務裡藏著第三個寫入口：`upload_data_to_spanner_if_configured(df)`——沒設 `SPANNER_INSTANCE` 時它什麼都不做（1-15 章一路都是這個狀態），設了就把同一份資料**用主鍵 upsert** 多寫一份到 Spanner（`crawler/spanner.py` 的 `insert_or_update`）。三個寫入口正好三種語義：MySQL／Cloud SQL 是 append（`to_sql` 整批附加）、BigQuery raw 也是 append、**只有 Spanner 這條是主鍵 upsert**——所以下一步的筆數對照才有東西可看。
 
 在 **VM2** 的 `.env` 再加兩行、重跑注入 up：
 
@@ -527,7 +527,7 @@ gcloud spanner databases execute-sql stockdb --instance=stock-spanner-trial \
   --sql="SELECT COUNT(*) AS n, COUNT(DISTINCT stock_id) AS stocks FROM TaiwanStockPrice"
 ```
 
-注意筆數會**比 BigQuery raw 這一輪新增的少**——upsert 以主鍵去重，同一支股票同一天只有一列；raw 是 append，重跑就疊。同一批資料寫進三種資料庫，三種寫入語義在筆數上直接看得到。體驗完把 `.env` 那兩行拿掉、重跑 up，爬蟲就回到雙寫。
+連跑兩次 DAG 就看得出差別：Spanner 的筆數**第二次不會再增加**（upsert 以主鍵去重，同一支股票同一天只有一列），Cloud SQL 與 BigQuery raw 則是各疊一輪。同一批資料寫進三種資料庫，寫入語義的差別在筆數上直接看得到。體驗完把 `.env` 那兩行拿掉、重跑 up，爬蟲就回到雙寫。
 
 用滑鼠查同一份資料——Console 的 **Spanner Studio**（≡ → Spanner → 執行個體 → 資料庫 → 左側「Spanner Studio」）。左側 Explorer 展開 `Schemas → Default → Tables` 就是 S-2 建的 `TaiwanStockPrice`，右邊開一個查詢分頁下 SQL：
 

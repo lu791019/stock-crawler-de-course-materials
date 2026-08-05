@@ -48,7 +48,7 @@
 |---|---|---|
 | 誰在查它 | 應用程式、API（補充H 的 stock-api） | 分析師、BI 報表、排程的統計工作 |
 | 典型查詢 | 「2330 今天收多少」——毫秒級點查 | 「全市場三年的 MA20 趨勢」——秒級全掃 |
-| 寫入方式 | 一筆一筆 upsert（第 6 章的冪等） | 批次 append 進 raw，不改舊資料 |
+| 寫入方式 | 一筆一筆即時寫入，可改舊資料（第 6 章的 upsert 就寫在這一側） | 批次 append 進 raw，不改舊資料 |
 | 儲存組織 | 列式（row-based）：InnoDB 把一列的所有欄值放一起 | 欄式（columnar）：同一欄的值放一起，查兩欄就只讀兩欄 |
 | 計費思維 | 機器開多久（第 16 章詳談） | 掃描多少資料（本章亮點實驗一） |
 
@@ -102,7 +102,7 @@ BigQuery 把兩者拆開：資料存在儲存層，查詢執行時由查詢引�
 
 ```mermaid
 flowchart TD
-    C["爬蟲 worker（VM 上）"] -->|"雙寫①：upsert（營運）"| M[("VM 的 MySQL<br/>OLTP")]
+    C["爬蟲 worker（VM 上）"] -->|"雙寫①：append（營運）"| M[("VM 的 MySQL<br/>OLTP")]
     C -->|"雙寫②：append（分析）"| R[("BigQuery raw 層<br/>原始表 TaiwanStockPrice")]
     R -->|"SQL：去重、統一欄名（Transform）"| S["stage 層<br/>stock_price_daily"]
     S -->|"SQL：視窗函數算成品表"| A["app 層<br/>趨勢表、大盤摘要"]
@@ -175,7 +175,7 @@ def upload_data_to_bigquery_raw(df: pd.DataFrame):
 3. **落地前先把地基準備好**。`create_dataset_if_not_exists` 與 `create_table_if_not_exists` 讓第一次寫入自動建好 raw dataset 和**帶日期分區**的表（分區是什麼、為什麼重要，見小節②③）；之後每次呼叫它們都只是確認一下就跳過
 4. **`mode="append"` 而不是覆蓋**。raw 層的規矩是只追加不修改；同一天重跑會疊出重複列——這不是 bug，是 raw 的天性，stage 層（Step 3）負責把它整理乾淨
 
-> 對照第 6 章：MySQL 那邊用主鍵 upsert 在**寫入端**去重；BigQuery 這邊 append 進 raw、在**分析端**（stage）去重。同一個問題，OLTP 和 OLAP 給出兩種答案。
+> **順帶釐清一件容易誤會的事**：這支雙寫版的 `crawler_finmind` 寫 MySQL 用的也是 `if_exists="append"`（打開 `upload_data_to_mysql` 就看得到），所以**同一天重跑，MySQL 那邊一樣會疊重複列**。第 6 章教的主鍵 upsert 寫在另一支示範程式 `tasks_crawler_finmind_duplicate.py` 裡，用逐列 `INSERT ... ON DUPLICATE KEY UPDATE` 換掉整批 `to_sql`——那是「寫入端去重」的完整做法，代價是要先給表主鍵、而且逐列寫比批次慢。主線保持 append，是為了讓兩邊的落地方式一致、把去重集中在 stage 這一層講；真的要在 OLTP 側保持每組一列，就換成第 6 章那支的寫法。
 
 ### ① 上傳到 BigQuery（`bigquery.py`）
 
