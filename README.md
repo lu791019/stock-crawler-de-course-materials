@@ -11,15 +11,16 @@
 ```
 Airflow / Scheduler（排程編排）
    →  發送任務 (Producer)  →  RabbitMQ 佇列  →  工人 (Worker) 執行爬蟲
-   →  寫入 MySQL（冪等 upsert）  →  同步 BigQuery（分析）  →  Metabase（視覺化）
+   →  雙寫：MySQL（營運）＋ BigQuery raw（分析）
+   →  Metabase（本機視覺化）／ Looker Studio（雲端視覺化）
 ```
 
 - **Airflow / APScheduler（排程編排）**：定時自動觸發，管理步驟依賴與失敗補跑
 - **Producer（生產者）**：把「要爬哪支股票」這件任務丟到 RabbitMQ 排隊
 - **RabbitMQ（訊息佇列）**：像是任務的「候位區」，讓工人依序領工作
 - **Worker（工人）**：從佇列拿任務，呼叫 FinMind API 抓股價資料
-- **MySQL / BigQuery**：資料落地（營運庫）與雲端倉儲（分析庫）
-- **Metabase**：把資料變成看得到的 Dashboard
+- **MySQL / BigQuery**：**雙寫**——同一份資料同時落進營運庫（OLTP）與雲端倉儲（OLAP）。本機沒設 `GCP_PROJECT_ID` 時只寫 MySQL，並印一行「BQ 未設定，略過雲端寫入」
+- **Metabase / Looker Studio**：把資料變成看得到的 Dashboard（前者接本機 MySQL，後者接 BigQuery）
 
 ## 為什麼要這樣設計？
 
@@ -60,7 +61,7 @@ stock-crawler/
 │   ├── worker.py                         # 建立 Celery app（所有 task 的總入口）
 │   ├── tasks.py                          # 範例 task（print 版假任務）
 │   ├── producer.py                       # 最簡單的任務派送範例
-│   ├── tasks_crawler_finmind.py          # 實際的爬蟲 task（print 版 + append 寫 DB 版）
+│   ├── tasks_crawler_finmind.py          # 實際的爬蟲 task（雙寫：MySQL + BigQuery raw；選配 Spanner）
 │   ├── producer_crawler_finmind_print.py # 批次派送（print 版）
 │   ├── producer_crawler_finmind.py       # 批次派送（寫 DB 版）
 │   ├── producer_multi_queue_print.py     # 多佇列分流（print 版）
@@ -72,9 +73,10 @@ stock-crawler/
 │   ├── tasks_demo_fail.py                # retry / requeue / reject / slow 四情境
 │   ├── producer_demo_fail.py             # 發送失敗情境任務
 │   ├── mysql.py                          # MySQL 工具模組（View、查詢、上傳）
-│   ├── bigquery.py                       # BigQuery 工具模組
-│   ├── stock_sync_mysql_to_bigquery.py   # MySQL → BigQuery 同步
-│   ├── stock_bigquery_data_transform.py  # BigQuery 分析表建立
+│   ├── bigquery.py                       # BigQuery 工具模組（建 dataset／分區表／上傳）
+│   ├── spanner.py                        # Spanner 寫入（主鍵 upsert，第 16 章選配）
+│   ├── stock_sync_mysql_to_bigquery.py   # MySQL → BigQuery 整批回填（backfill 工具，非主線）
+│   ├── stock_bigquery_data_transform.py  # BigQuery stage／app 分析層建立（第 17 章 DAG 用）
 │   └── upload_*.py 等                    # 各種資料上傳輔助腳本（教學用）
 ├── docker-compose-local.yml              # 整合版：一鍵啟動基礎服務（推薦日常使用）
 ├── docker-compose-all.yml                # 全服務整合版：11 容器一次啟動（含 Airflow + Metabase）
@@ -84,7 +86,7 @@ stock-crawler/
 ├── airflow/                              # Airflow：Dockerfile、compose、DAGs、README
 ├── metabase/                             # Metabase：compose、README
 ├── example/                              # SQL 範例、mock 資料、pandas 練習、獨立爬蟲範例
-├── 課程手冊/                              # 完整課程手冊（17 章 + 補充A~I）
+├── 課程手冊/                              # 完整課程手冊（17 章 + 補充A~J）
 ├── Dockerfile                            # Worker 容器化（Ubuntu + uv）
 ├── pyproject.toml / uv.lock              # Python 依賴管理
 └── README.md
@@ -126,9 +128,9 @@ stock-crawler/
 
 | 章 | 主題 | 用到的關鍵檔案 |
 |----|------|---------------|
-| 14 | GCP 開通與雲端部署（VM、防火牆、IAM 與小組協作）| `gcloud`、Console |
-| 15 | BigQuery 資料倉儲（OLTP → OLAP）| `crawler/bigquery.py`、`stock_sync_mysql_to_bigquery.py` |
-| 16 | 系統搬家：多台 VM 與 Cloud SQL（Secret Manager）| `docker-compose-local.yml` + override |
+| 14 | GCP 開通與雲端部署（VM、防火牆、IAM 與小組協作）——**雙寫從這一章開始運轉** | `gcloud`、Console、`docker-compose-all.yml` |
+| 15 | BigQuery 資料倉儲（OLTP → OLAP、raw/stage/app 三層、Looker Studio）| `crawler/tasks_crawler_finmind.py`、`crawler/bigquery.py` |
+| 16 | 系統搬家：多台 VM 與 Cloud SQL（Secret Manager、Spanner 試用）| `docker-compose-local.yml` + `.env` 三行 |
 | 17 | 每日資料線：Airflow 排程與 Composer | `airflow/dags/stock_crawler_etl_bigquery_dag.py` |
 
 ### 補充教材
@@ -146,6 +148,7 @@ stock-crawler/
 | 補充G | .env 與環境變數：${} 替換 vs env_file 注入、三層哲學、三個坑 | 手冊10-13（Docker Compose 段）| `docker-compose-dotenv-demo.yml`、`.env.dotenv-demo.example` |
 | 補充H | 對外服務：API 上雲與 Cloud Run（image 倉庫、發佈流程、revision 換版）| 手冊16-17 之後 | `api/main.py`、`api/Dockerfile` |
 | 補充I | CI 與 CD：GitHub Actions 從自動測試到自動部署 | 手冊17 與補充H 之後 | `.github/workflows/ci.yml`、`api/Dockerfile` |
+| 補充J | 從一支爬蟲到分散式：六步拆解（整條架構的演進脈絡）| 全課程之後回顧，或開課前導覽 | `example/evolution/` |
 
 ---
 
@@ -268,7 +271,7 @@ docker network rm my_network
 
 ### 方式三：docker-compose-all.yml（全服務整合，課程手冊 13）
 
-11 個容器一次啟動：基礎服務 + Celery Worker + **Airflow**（Postgres/init/webserver/scheduler）+ **Metabase**。
+13 個服務一次啟動：基礎服務（RabbitMQ/Flower/MySQL/phpMyAdmin）+ Celery Worker ×2 + **Airflow**（Postgres/init/webserver/scheduler）+ **Metabase** + MongoDB/mongo-express。其中 `airflow-init` 是一次性初始化，跑完 `Exited (0)` 退場，所以穩定後看到的是 12 個 Up。
 
 ```bash
 # 前置：先 build Airflow image（一次即可）
@@ -515,22 +518,29 @@ docker buildx build -f with.env.Dockerfile --platform linux/arm64 -t your-docker
 docker push your-dockerhub-user/stock_crawler:latest
 ```
 
-## 進階：BigQuery / GCP（課程手冊 14）
+## 進階：BigQuery / GCP（課程手冊 14~17）
+
+**雙寫的開關是一個環境變數，程式不用改任何一行**：`GCP_PROJECT_ID` 有值就寫 BigQuery，沒值就只寫 MySQL 並印「BQ 未設定，略過雲端寫入」。
 
 ```bash
-# GCP 登入
-gcloud auth application-default login
-
-# 設定 GCP project（替換成你的 project ID）
+# ① 憑證：程式跑在 GCP 外面（自己的電腦）才需要金鑰
+gcloud auth application-default login          # 或 export GOOGLE_APPLICATION_CREDENTIALS=金鑰路徑
 gcloud config set project your-project-id
+#   跑在 GCE VM 上不需要任何金鑰——建機時給 --scopes=cloud-platform，
+#   程式庫會自動向 metadata server 取得 VM 身分（課程手冊 14 Part F）
 
-# 使用前：取消 crawler/config.py 與 crawler/bigquery.py 中 GCP 設定的註解
+# ② 打開雙寫：把專案 ID 寫進 .env，compose 插值會帶進容器
+echo "GCP_PROJECT_ID=$(gcloud config get-value project)" >> .env
 
-# MySQL → BigQuery 同步（在 Airflow 容器內或 Python 3.10~3.12 環境執行）
-uv run --env-file .env crawler/stock_sync_mysql_to_bigquery.py
-
-# 在 BigQuery 建分析 View / Table
+# ③ 重算 BigQuery 的 stage／app 分析層（第 17 章的 DAG 也是呼叫這支）
 uv run --env-file .env crawler/stock_bigquery_data_transform.py
+
+# ④ backfill：把「開始雙寫之前」的歷史資料整批補進 BigQuery
+#    drop_table + replace，從 MySQL 整份覆蓋到 BQ，MySQL 一筆都不動
+BQ_DATASET=raw uv run --env-file .env crawler/stock_sync_mysql_to_bigquery.py
+
+# 選配：Spanner（第 16 章）——設了才寫，主鍵 upsert
+#   在 .env 加 SPANNER_INSTANCE=你的instance名，重跑 up 即可
 
 # 舊版輔助腳本
 uv run --env-file .env crawler/upload_taiwan_stock_price_to_bigquery.py
