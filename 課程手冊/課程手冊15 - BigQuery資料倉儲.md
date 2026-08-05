@@ -23,7 +23,7 @@
 1. 說得出 OLTP（交易型）和 OLAP（分析型）資料庫的差別，以及同一筆股價在 MySQL 和 BigQuery 裡各自的用途。
 2. 說得出 BigQuery 憑什麼算資料倉儲：欄式儲存與 InnoDB 列式的差別各自適合什麼查詢、儲存與運算分離帶來什麼。
 3. 逐行看懂爬蟲的雙寫程式碼：怎麼寫進 raw 層、沒設定時怎麼降級、失敗時為什麼不能擋住 MySQL。
-4. 用三個現場實驗說出 BigQuery 非它不可的地方：dry run 量出欄式儲存的掃描量差、Time Travel 救回誤刪、BQML 一句 SQL 跑回歸。
+4. 用三個現場實驗說出 BigQuery 非它不可的地方：dry run 量出欄式儲存的掃描量差、Time Travel 救回誤刪、BQML 一句 SQL 跑回歸——並說得出 BQML 的資料切分怎麼設、新資料進來時模型會不會跟著變。
 5. 用 SQL 從 raw 整理出 stage（去重）、再算出 app 的成品表（移動平均、每日彙總），說得出每一層的職責與排錯路徑。
 6. 說得出 BigQuery Studio 六項功能（筆記本、資料畫布、資料準備、管道、連線、排程查詢）各自做什麼，以及哪些是 MySQL 生態做不到的。
 7. （Step 5，Bonus）用 Looker Studio 接 app 層，拼出計分卡＋均線疊圖＋走勢＋成交量的四區塊儀表板。
@@ -461,10 +461,137 @@ bq query --use_legacy_sql=false \
 +-----------------+--------------+------------+
 ```
 
-兩個誠實的提醒：
+**先別急著相信這個 r²。** 上面那句 `CREATE MODEL` 沒有指定任何切分方式，而 r² 高達 0.9986——先查一下模型到底怎麼訓練的：
 
-- 預測結果同一天出現三次？**raw 層有重複列**（append 的天性），模型把重複資料當三筆看——分析要用乾淨資料，這正是下一步 stage 層存在的理由。順勢進 Step 3
-- 除了線性迴歸，BQML 內建的還有邏輯迴歸、K-means 分群、PCA，以及股價這種時間序列真正對得上的 `ARIMA_PLUS`（`time_series_id_col='stock_id'` 一句就能對每支股票各建一個模型），全部同樣是純 SQL
+```bash
+bq query --use_legacy_sql=false \
+  "SELECT training_run, iteration, loss, eval_loss FROM ML.TRAINING_INFO(MODEL lab.close_model)"
+```
+
+```
++--------------+-----------+-------------------+-----------+
+| training_run | iteration |       loss        | eval_loss |
++--------------+-----------+-------------------+-----------+
+|            0 |         0 | 28.41698273996841 |      NULL |
++--------------+-----------+-------------------+-----------+
+```
+
+**`eval_loss` 是 `NULL`——這個模型根本沒有評估集。** 原因是 BQML 的預設切分規則 `AUTO_SPLIT`：
+
+| 訓練資料筆數 | AUTO_SPLIT 的行為 |
+|---|---|
+| **< 500 列** | **全部當訓練資料，不切分** |
+| 500 ～ 50,000,000 列 | 隨機抽 20% 當評估集（上限 10,000 列） |
+| > 50,000,000 列 | 固定抽 10,000 列當評估集 |
+
+2330 只有三百多個交易日，落在第一格。所以 `ML.EVALUATE` 沒有評估集可用時，量的是**模型在自己讀過的資料上的表現**——這個數字只能說明「模型有把訓練資料學起來」，說不出它對沒看過的資料好不好。這是初學 ML 最常見的誤讀，而 BQML 因為預設值太貼心，反而讓人不容易察覺。
+
+**怎麼指定切分：四個選項**
+
+| `data_split_method` | 怎麼切 | 適合 |
+|---|---|---|
+| `AUTO_SPLIT`（預設） | 依資料量自動決定，見上表 | 快速試 |
+| `RANDOM` | 隨機抽指定比例 | 列與列之間獨立的資料 |
+| `SEQ` | 依 `data_split_col` 排序，**排在後面的當評估集** | **時間序列**——用過去預測未來 |
+| `CUSTOM` | 自己準備一個 BOOL 欄位，`TRUE` 的那些當評估集 | 要精確控制哪幾筆當測試 |
+| `NO_SPLIT` | 全部拿去訓練 | 已經另外準備了測試集 |
+
+股價是時間序列，**不能用隨機切**——隨機切等於「拿明天的資料去預測昨天」，測出來的分數會虛高。正確做法是 `SEQ` 依日期切，前 80% 訓練、後 20% 評估：
+
+```bash
+bq query --use_legacy_sql=false \
+  "CREATE OR REPLACE MODEL lab.close_model_seq
+   OPTIONS(model_type='linear_reg', input_label_cols=['close'],
+           data_split_method='SEQ',          -- 依欄位排序切
+           data_split_col='date',            -- 用日期排
+           data_split_eval_fraction=0.2) AS  -- 後 20% 當評估集
+   SELECT open, max, min, Trading_Volume, close, date
+   FROM raw.TaiwanStockPrice WHERE stock_id='2330'"
+```
+
+> `data_split_col` 指定的欄位**會被排除在特徵之外**，不會拿 `date` 本身去預測。
+
+再查一次訓練資訊，這次 `eval_loss` 有值了——切分確實生效：
+
+```
+| training_run | iteration | loss   | eval_loss |
+|            0 |         0 | 27.534 |    32.596 |
+```
+
+`eval_loss`（32.596）比 `loss`（27.534）高是正常的：模型在沒讀過的資料上表現本來就會差一點。兩個模型的評估數字並排看：
+
+| 模型 | 切分 | mae | r² | 這個數字的意思 |
+|------|------|-----|-----|---------------|
+| `close_model` | AUTO_SPLIT（349 列 → 不切） | 4.15 | 0.9985 | 在**訓練資料**上的表現 |
+| `close_model_seq` | SEQ by date，後 20% 評估 | 4.382 | 0.9912 | 在**沒看過的未來資料**上的表現 |
+
+差距不大，因為「同一天的開高低」跟收盤本來就幾乎連動——這是**示範機制**（模型建在倉儲裡、SQL 就能訓練與預測），不是能拿去交易的模型。但流程要對：**先有正確的切分，評估數字才有意義。**
+
+**新資料進來會怎麼樣？**
+
+這是最容易誤會的地方。答案是：**模型是「訓練那一刻的快照」，raw 之後多了多少資料，它都不知道。** 新資料有三種用途，前兩種不動模型、第三種才會：
+
+**① 當推論的輸入（`ML.PREDICT`）**——模型不變，只是拿新資料算答案。甚至可以餵它從沒看過的股票：
+
+```bash
+# 模型只學過 2330，拿 2317 來預測
+bq query --use_legacy_sql=false \
+  "SELECT stock_id, date, ROUND(predicted_close,2) AS pred, close AS actual
+   FROM ML.PREDICT(MODEL lab.close_model_seq,
+     (SELECT stock_id, open, max, min, Trading_Volume, close, date
+      FROM raw.TaiwanStockPrice WHERE stock_id='2317' ORDER BY date DESC LIMIT 3))"
+```
+
+```
++----------+------------+--------+--------+
+| stock_id |    date    |  pred  | actual |
++----------+------------+--------+--------+
+| 2317     | 2025-06-17 | 157.46 |  155.0 |
+| 2317     | 2025-06-16 | 157.81 |  155.0 |
+| 2317     | 2025-06-13 | 159.33 |  156.5 |
++----------+------------+--------+--------+
+```
+
+會動，是因為特徵是開高低與成交量，跟股票代號無關——模型學的是「這四個數字怎麼推出收盤價」這個關係。
+
+**② 當獨立的測試集（`ML.EVALUATE` 帶第二個參數）**——用完全沒進過訓練的資料驗證：
+
+```bash
+bq query --use_legacy_sql=false \
+  "SELECT ROUND(mean_absolute_error,3) AS mae, ROUND(r2_score,4) AS r2
+   FROM ML.EVALUATE(MODEL lab.close_model_seq,
+     (SELECT open, max, min, Trading_Volume, close
+      FROM raw.TaiwanStockPrice WHERE stock_id='2317'))"
+# | mae   |   r2   |
+# | 1.984 | 0.9952 |
+```
+
+> **陷阱**：2317 的 mae 1.984 看起來比 2330 的 4.382「更好」，但這是假的——mae 是**絕對誤差**，2317 股價一百多、2330 一千多，量級不同不能直接比。要跨標的比較就看 r²（無單位），或改用百分比誤差。
+
+**③ 讓模型學到新資料——只能重訓**。BQML 沒有「增量學習」，`CREATE OR REPLACE MODEL` 是整份資料重跑一次：
+
+```bash
+# 每天雙寫進來的新資料，要進到模型裡就得重訓一次
+bq query --use_legacy_sql=false \
+  "CREATE OR REPLACE MODEL lab.close_model_seq OPTIONS(...) AS SELECT ... FROM raw.TaiwanStockPrice ..."
+```
+
+所以實務上的資料線是這樣接的，跟本章的三層完全同一個形狀：
+
+```mermaid
+flowchart LR
+    R[("raw<br/>每天雙寫進來")] --> T["stage／app<br/>排程重算"]
+    R --> M["CREATE OR REPLACE MODEL<br/>週期性重訓（例如每週）"]
+    M --> P["ML.PREDICT<br/>每天對新資料推論"]
+    T --> P
+    P --> O[("預測結果表<br/>給報表用")]
+```
+
+重訓的頻率是成本與新鮮度的取捨：**推論每天做（便宜），重訓週期性做（貴）**。這件事可以直接排進上一節的排程查詢——`CREATE MODEL` 也是 DDL，排程查詢支援。
+
+**還有什麼模型可以用**：除了線性迴歸，BQML 內建邏輯迴歸、K-means 分群、PCA、boosted tree，以及股價這種時間序列真正對得上的 `ARIMA_PLUS`（`time_series_id_col='stock_id'` 一句就能對每支股票各建一個模型，而且它自己處理季節性與假日）。全部同樣是純 SQL。
+
+> 順帶一提：如果你在 raw 有重複列的狀態下跑上面的預測，會看到同一天出現好幾次——那是 append 的天性，模型把重複資料當多筆看。分析要用乾淨資料，這正是下一步 stage 層存在的理由。
 
 raw 層已經由雙寫餵好——**原封不動的原始資料，之後不改它**。接下來兩步在 BigQuery 的查詢編輯器（或 `bq query`）用 SQL 一層一步往上蓋。
 
@@ -728,9 +855,11 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 **能做什麼**：把 SQL 查詢、筆記本、資料準備作業、SQLX task 串成有先後順序與相依關係的流程，並指定時間與頻率自動執行。Dataform 那一層提供 SQLX（擴充 SQL 的語言，內含相依管理與資料品質測試）、`ref()` 函式自動推導 DAG、assertions 做唯一性與非空值檢查，並支援用 Git 協作。
 
-**操作舉例**：建一個管道，task 1 是重建 stage view 的 SQL、task 2 是重算 app 兩張表的 SQL，設定 task 2 依賴 task 1，排每天 09:05，跑一次看執行紀錄。
+**動手做：把同一套 stage/app 改用管道編排**（Console 專屬，沒有 CLI）
 
-從 Studio 首頁「新建 → 資料工程與分析 → 管道」進去，先選這個管道要用誰的身分執行（登入者的使用者憑證，或指定一個服務帳戶——又是「人的身分 vs 程式的身分」那條線），然後進到編輯畫面。上方三個入口對應它的三種能力：**執行**（立刻跑一次）、**觸發條件**（設排程）、**分享**（授權）：
+Studio 首頁「**新建 → 資料工程與分析 → 管道**」，先選這個管道用誰的身分執行——登入者的使用者憑證，或指定一個服務帳戶。這又是「人的身分 vs 程式的身分」那條線：要排成每天自動跑就該選服務帳戶，免得建立者離職後排程跟著失效。
+
+進到編輯畫面，上方三個入口對應它的三種能力：**執行**（立刻跑一次）、**觸發條件**（設排程）、**分享**（授權）：
 
 ![管道的編輯畫面](images/ch15/31-管道編輯畫面.jpg)
 
@@ -738,9 +867,48 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 ![管道的新增任務選單](images/ch15/32-管道新增任務選單.jpg)
 
-把這份選單跟第 17 章的 DAG 對照一次，界線就很清楚了：清單裡每一項都在 BigQuery 內部，沒有任何一項能「發任務給 Celery worker」。
+選「資料表」之後，它先問你**輸出成什麼型態**——這四個選項正是 Step 3/4 那個「view 還是 table」的取捨，被做成了選項：
 
-**分工要講清楚——它取代不了第 17 章的 DAG**。管道只管 BigQuery 內部的轉換，觸發不了外部系統。第 17 章那支 DAG 的六個 task 是 `start → send_crawler_tasks → wait_for_workers → create_stage_layer → create_app_layer → end`，**管道只能接手後面兩個**；前面「把任務發給 Celery worker、等 worker 消化」那一段它碰不到。
+![管道任務的四種輸出型態](images/ch15/34-管道四種輸出型態.jpg)
+
+| 選項 | 行為 | 對應本章 |
+|------|------|---------|
+| 資料表 | 每次執行從頭重建 | Step 4 的 `CREATE OR REPLACE TABLE`（app 層） |
+| 累加資料表 | 每次執行把新記錄附加上去 | raw 層的 append 語義 |
+| 查看（view） | 不存資料，查詢時才算 | Step 3 的 `CREATE OR REPLACE VIEW`（stage 層） |
+| materialized view | 存預先計算的結果 | 〈五個強項〉第四條那個折衷方案 |
+
+填完資料集與表名，畫面下方會出現一行 `definitions/stock_price_daily_pipe.sqlx`——**這就是「底層是 Dataform」的直接證據**：你在 UI 上點的每個任務，實體都是一個 SQLX 檔。建好後右邊的編輯器裡是這樣：
+
+```javascript
+config {
+  type:"view",
+  name:"stock_price_daily_pipe",
+}
+SELECT stock_id, date AS trade_date, ...   ← config 底下接你的 SQL
+```
+
+左邊「**先執行**」下拉就是宣告依賴的地方：建第二個任務（app 層的 CTAS）時，在這裡選 task 1，管道就知道要先跑 stage 再跑 app。這跟 Dataform 的 `ref()` 是同一件事的兩種介面——用 `ref()` 寫在 SQL 裡會自動推導依賴，用下拉選則是手動指定。
+
+> 編輯器預設是唯讀的，要按任務卡片上的「**開啟**」才能編輯 SQL。
+
+**它跟排程查詢差在哪——什麼時候該用誰**
+
+兩者都能「排一段 SQL 定時跑」，功能重疊，但適用的規模不同：
+
+| | 排程查詢（Scheduled Query） | 管道（Pipelines／Dataform） |
+|---|---|---|
+| 一個排程裡的 SQL | 一段（多段要用分號串成 multi-statement） | 多個任務，各自獨立 |
+| 任務之間的依賴 | **沒有**——分號串起來的是「依序執行」，不是依賴關係 | **有**——`ref()` 或「先執行」下拉明確宣告 |
+| 某一段失敗了 | 整段中止，後面的不跑，但**已經跑完的不會回復** | 只有下游任務被擋，可以只重跑失敗的那一段 |
+| 版本控制 | 沒有，SQL 存在排程設定裡 | Dataform 那層可以接 Git |
+| 資料品質檢查 | 自己在 SQL 裡寫 | 內建 assertions（唯一性、非空值） |
+| 建立方式 | CLI（`bq mk --transfer_config`）或 Console | **只有 Console** |
+| 適合的規模 | 一兩段 SQL、邏輯穩定、改動少 | 十幾張表互相依賴、需要溯源與測試 |
+
+**一句話的選法**：SQL 少、關係簡單，用排程查詢——它有 CLI、可以寫進部署腳本；**表一多、彼此有依賴、而且會常常改**，就值得搬到管道，換來依賴宣告、部分重跑與 Git。本課程的三層只有三段 SQL，排程查詢就夠用，所以動手的那一節放在排程查詢。
+
+**兩者共同的天花板：都只在 BigQuery 內部，取代不了第 17 章的 DAG。** 把「新增任務」那份選單再看一次，沒有任何一項能發任務給外部系統。第 17 章那支 DAG 的六個 task 是 `start → send_crawler_tasks → wait_for_workers → create_stage_layer → create_app_layer → end`，**管道只能接手後面兩個**；前面「把任務發給 Celery worker、等 worker 消化」那一段它碰不到。
 
 | | BigQuery 管道／Dataform | Airflow（第 10-12、17 章） |
 |---|---|---|
@@ -810,27 +978,62 @@ bq query --location=asia-east1 --use_legacy_sql=false \
 
 **多段 SQL 要有順序怎麼辦**：排程與排程之間沒有相依機制，不能宣告「B 等 A 跑完才跑」。做法是把多段 SQL 用分號串成一段 multi-statement query 送進同一個排程——它們在同一個 job 內依序執行、共享狀態、失敗即中止。把 Step 3 的 stage view 與 Step 4 的兩張 app 表串成一段，就是「raw → stage → app 一條龍」。
 
-**操作舉例**（CLI）。**必須帶 `--service_account_name`**——不帶的話指令會卡在互動式 OAuth 授權，在非互動環境永遠等不到：
+**動手做：把 Step 3 與 Step 4 排成每天自動跑**
+
+這一段不是示意，是把你手寫過的 SQL 原封不動搬進排程。三段 SQL 用分號串成一個 multi-statement query：①重建 stage view ②重算 `app.stock_trend_analysis` ③重算 `app.market_daily_summary`。
+
+**兩個必須注意的地方**，不照做會失敗：
+
+| 注意事項 | 為什麼 |
+|---|---|
+| 表名一律寫**完整三段式**（`` `專案.資料集.表` ``） | 排程執行時沒有「目前所在資料集」這個脈絡，`raw.TaiwanStockPrice` 這種寫法找不到表 |
+| 指令**必須帶 `--service_account_name`** | 不帶的話指令會卡在互動式 OAuth 授權，在非互動環境永遠等不到 |
+
+SQL 有換行和引號，直接塞進 `--params` 很容易跳脫錯誤——用檔案傳比較穩：
 
 ```bash
+# ① 把 SQL 寫成 JSON 參數檔
+cat > /tmp/sq_params.json <<'JSON'
+{"query": "CREATE OR REPLACE VIEW `你的專案ID.stage.stock_price_daily` AS SELECT stock_id, date AS trade_date, open, max, min, close, spread, Trading_Volume AS volume, Trading_money AS amount FROM (SELECT s.*, ROW_NUMBER() OVER (PARTITION BY stock_id, date ORDER BY Trading_Volume DESC) AS rn FROM `你的專案ID.raw.TaiwanStockPrice` s) WHERE rn = 1; CREATE OR REPLACE TABLE `你的專案ID.app.stock_trend_analysis` AS SELECT stock_id, trade_date, close, volume, LAG(close) OVER (PARTITION BY stock_id ORDER BY trade_date) AS prev_close, AVG(close) OVER (PARTITION BY stock_id ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) AS ma5, AVG(close) OVER (PARTITION BY stock_id ORDER BY trade_date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS ma20 FROM `你的專案ID.stage.stock_price_daily`; CREATE OR REPLACE TABLE `你的專案ID.app.market_daily_summary` AS SELECT trade_date, COUNT(DISTINCT stock_id) AS active_stocks, SUM(volume) AS total_volume, ROUND(AVG(close),2) AS avg_close, COUNTIF(spread>0) AS up_count, COUNTIF(spread<0) AS down_count FROM `你的專案ID.stage.stock_price_daily` GROUP BY trade_date;"}
+JSON
+
+# ② 建立排程（每天 20:30，收盤後）
 bq mk --transfer_config --project_id={你的專案ID} \
-  --data_source=scheduled_query --display_name="每日重算app層" \
-  --target_dataset=app --schedule="every day 20:30" \
+  --data_source=scheduled_query --display_name="每日重算 stage 與 app" \
+  --schedule="every day 20:30" --location=asia-east1 \
   --service_account_name={你的專案編號}-compute@developer.gserviceaccount.com \
-  --params='{"query": "CREATE OR REPLACE TABLE ... AS SELECT ..."}'
+  --params="$(cat /tmp/sq_params.json)"
+# Transfer configuration 'projects/.../transferConfigs/6a73db86-...' successfully created.
 ```
 
-查看設定、手動觸發一次驗證：
+不必等到明天 20:30——**手動觸發一次就能驗收**：
 
 ```bash
-bq show --transfer_config {CONFIG_NAME}       # 看 state、schedule、nextRunTime
-bq mk --transfer_run --run_time="2026-08-04T13:40:00Z" {CONFIG_NAME}
-bq ls --transfer_run --run_attempt=LATEST --max_results=1 {CONFIG_NAME}
+CFG=projects/{專案編號}/locations/asia-east1/transferConfigs/{建立時回傳的ID}
+
+bq mk --transfer_run --run_time="2026-08-05T10:00:00Z" $CFG   # 立刻跑一次
+bq --format=prettyjson ls --transfer_run --run_attempt=LATEST --max_results=1 $CFG
+#   "state": "SUCCEEDED"
+#   "errorStatus": {}
 ```
 
-Console 上不必記指令：查詢編輯器上方有「**排程**」按鈕，填表就能建。建好的排程列在 BigQuery →「已排定的查詢」，顯示排程語法、區域、目的地資料集與下次執行時間：
+跑完回頭查三層筆數，`stage` 與 `app` 就是這個排程重建的：
+
+```bash
+bq query --use_legacy_sql=false \
+  "SELECT 'raw' AS l, COUNT(*) AS n FROM raw.TaiwanStockPrice
+   UNION ALL SELECT 'stage', COUNT(*) FROM stage.stock_price_daily
+   UNION ALL SELECT 'app.trend', COUNT(*) FROM app.stock_trend_analysis
+   UNION ALL SELECT 'app.summary', COUNT(*) FROM app.market_daily_summary ORDER BY l"
+```
+
+**Console 版**：查詢編輯器上方有「**排程**」按鈕，把同一段 SQL 貼進去填表就能建。建好的排程列在 BigQuery →「已排定的查詢」，顯示排程語法、區域與下次執行時間：
 
 ![已排定的查詢清單](images/ch15/24-排程查詢清單.jpg)
+
+點進去的「**執行作業記錄**」分頁是驗收的地方——每一次執行一列，綠勾代表成功，「查看詳細資料」可以追到那次跑的 job：
+
+![排程查詢的執行紀錄](images/ch15/33-排程查詢執行紀錄成功.jpg)
 
 **兩個要知道的**：
 
@@ -879,9 +1082,9 @@ Console 上不必記指令：查詢編輯器上方有「**排程**」按鈕，�
 
 **五、BQML：一句 SQL 訓練模型**
 
-`CREATE MODEL` 訓練、`ML.EVALUATE` 評估、`ML.PREDICT` 預測（實驗三做過），資料完全不必搬出倉儲，也不用另外架訓練環境。
+`CREATE MODEL` 訓練、`ML.EVALUATE` 評估、`ML.PREDICT` 預測（實驗三做過），資料完全不必搬出倉儲，也不用另外架訓練環境。訓練／評估的切分也是 OPTIONS 裡的一個參數（`data_split_method`），不必自己寫切分邏輯；模型本身是一個可以查、可以授權、可以排程重建的 BigQuery 物件。
 
-*MySQL／Cloud SQL*：沒有 ML 語法。誠實地說，把資料拉出來用 pandas + scikit-learn 一樣能訓練——差別在你要搬資料、要維護 Python 環境、模型不在資料旁邊，而且每次重訓都得再搬一次。
+*MySQL／Cloud SQL*：沒有 ML 語法。誠實地說，把資料拉出來用 pandas + scikit-learn 一樣能訓練——差別在你要搬資料、要維護 Python 環境、模型不在資料旁邊，而且每次重訓都得再搬一次。反過來也要承認 BQML 的限制：**沒有增量訓練**（要更新只能整份重跑）、模型種類與超參數的調整空間都比不上專門的 ML 框架。它的定位是「資料已經在倉儲、想快速做出堪用模型」，不是取代 Vertex AI 或 scikit-learn。
 
 > 反過來也要記住：BigQuery **不適合**單筆低延遲讀寫（DML 有配額限制），主鍵點查也比不上 InnoDB 的毫秒級。這正是雙寫要保留 MySQL 的理由——不是誰取代誰，是各自做擅長的事。
 
@@ -1172,6 +1375,7 @@ worker log（或上面指令的輸出）會出現「資料已上傳到 BigQuery 
 - BigQuery 憑什麼算倉儲：欄式儲存（對照 InnoDB 的列式）讓分析查詢只讀被引用的欄，儲存與運算分離讓算力不必跟資料綁在同一台機器上。兩者各有適合的查詢型態，點查仍然是 InnoDB 贏。
 - 雙寫的三條設計紀律：環境變數當開關（明確降級）、分析副本失敗不擋營運主職、raw 只 append 不修改。
 - 三個實驗量出來的證據：掃描量隨引用欄位變化（`SELECT *` → 單欄 → `COUNT(*)`）、Time Travel 七天版本回溯、BQML 一句 SQL 訓練與預測。
+- BQML 的兩個關鍵觀念：**預設的 `AUTO_SPLIT` 在資料少於 500 列時不切分**（`eval_loss` 是 NULL，那個 r² 量的是訓練資料），時間序列要用 `SEQ` 依日期切；**模型是訓練當下的快照**——新資料可以當推論輸入或測試集，但要讓模型學到它只能重訓。
 - 省錢兩開關：少引用欄位（欄式儲存）＋分區過濾；`LIMIT` 不減少掃描量，`COUNT(*)` 靠中繼資料連掃都不用掃。
 - 三層 raw／stage／app：爬蟲餵 raw，SQL 蓋 stage（去重 view）與 app（成品表），排錯照層走。
 - BigQuery Studio 的六項功能：筆記本、資料畫布、資料準備作業（對照你手寫的 stage SQL）、管道（只管倉儲內部，取代不了第 17 章的 DAG）、連線（`EXTERNAL_QUERY` 讀 Cloud SQL 活資料）、排程查詢（SQL 排得動，爬蟲排不動）。
