@@ -179,7 +179,7 @@ flowchart TB
         W15["爬蟲 worker<br/>（雙寫：MySQL＋BigQuery）"] -->|每次抓取落地| BQ15[("BigQuery<br/>raw → stage → app 三層")] --> LS15["Looker Studio<br/>BI 儀表板"]
     end
     subgraph S16["第 16 章：拆成多台，資料庫換託管，密碼交給 Secret Manager 保管"]
-        VM1["VM1（infra）<br/>RabbitMQ、Flower"] -->|任務| VM2["VM2（worker）<br/>爬蟲"] -->|寫入| SQL16[("Cloud SQL<br/>託管 MySQL")]
+        VM1["VM1（infra）<br/>Airflow、RabbitMQ、Flower"] -->|任務| VM2["VM2（worker）<br/>爬蟲"] -->|雙寫| SQL16[("Cloud SQL<br/>託管 MySQL")]
     end
     subgraph SG["補充H（選讀）：對外開門"]
         U(("使用者")) -->|HTTPS| CR["Cloud Run stock-api<br/>固定網址、自動擴縮"] -.->|查詢| SQLG[("Cloud SQL")]
@@ -723,7 +723,7 @@ cp .env.example .env
 
 **H-1b 安裝 uv 與 Python 環境**
 
-容器裡的程式不需要這一步（image 自帶環境），但**直接在 VM 上跑 Python 程式**的場景會一路用到：第 15 章要在 VM 上執行 BigQuery 分析層的程式、平常排錯也常臨時跑個腳本。跟 F-4 裝 Docker 一樣，這是 VM 的一次性環境準備——重演第 2 章在自己電腦做過的事：
+容器裡的程式不需要這一步（image 自帶環境），但**直接在 VM 上跑 Python 程式**的場景會一路用到：平常排錯要臨時跑個腳本、第 15 章的本機補充版也用得到。跟 F-4 裝 Docker 一樣，這是 VM 的一次性環境準備——重演第 2 章在自己電腦做過的事：
 
 ```bash
 # ① 安裝 uv（官方安裝腳本，裝到 ~/.local/bin）
@@ -775,6 +775,7 @@ sudo -E docker compose -f docker-compose-all.yml up -d --build --scale metabase=
 ```
 
 - 第一行把**專案 ID 塞進環境變數**再執行 up（`sudo -E` 讓 sudo 保留這個變數），compose 檔會把它轉交給 worker 容器。為什麼需要它：這套系統的爬蟲是**雙寫**的——每次抓完資料，同一份會寫進 MySQL，**同時**寫一份到 BigQuery（GCP 的資料倉儲服務）。worker 靠 `GCP_PROJECT_ID` 知道要寫進哪個專案；前面 1-13 章在本機沒設這個變數，worker 就印一行「BQ 未設定，略過雲端寫入」只寫 MySQL。BigQuery 那份是幹嘛用的，第 15 章詳細介紹——這一章先知道「雲端上的爬蟲會多寫一份」就夠
+- 這裡用「指令前綴」把變數帶進去；第 16 章之後改成寫在各機器自己的 `.env` 裡——**兩種都是餵給同一個 compose 插值**，shell 環境與 `.env` 它都吃
 - **這個變數在程式碼裡的完整路徑**（打開檔案就能對照，一行程式都不用改）：
   1. `docker-compose-all.yml`：worker 服務的 environment 有一行 `GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}`——compose 的變數插值，把「up 當下 shell 環境的值」轉交給容器；shell 沒設就給空字串
   2. `crawler/config.py`：`GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")`——程式從容器的環境變數讀進來，沒有就是空字串（第 6 章 config 集中管理的老規矩）
@@ -910,7 +911,7 @@ nc -vz -w 5 {VM外部IP} 22
 3306 的逾時跟 8080 的 succeeded 對照，就是防火牆在工作的樣子。注意逾時不是「MySQL 沒在跑」——MySQL 容器好好地開著，是流量根本到不了它。
 
 
-**Part J：發任務——七步驟的下半場（從 Airflow 出發）**
+### Part J：發任務——從 Airflow 出發
 
 門開了，接著把 H-4 沒做完的驗證做完。發任務的方式從這章起固定走 **Airflow**——它本來就在系統裡（第 10 章起的編排層），之後 16、17 章的雲端操作全部從它出發。
 

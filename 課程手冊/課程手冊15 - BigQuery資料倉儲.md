@@ -253,11 +253,11 @@ gcloud compute ssh stock-crawler-vm --zone=asia-east1-b
 # MySQL 那份（雙寫①）
 sudo docker exec mysql mysql -uroot -p1234 -N -e "SELECT COUNT(*) FROM mydb.TaiwanStockPrice;"
 
-# BigQuery 那份（雙寫②）——第 14 章 H-4 Step 8 驗過同一件事
+# BigQuery 那份（雙寫②）——第 14 章 Part J Step 7 驗過同一件事
 bq query --use_legacy_sql=false "SELECT COUNT(*) AS cnt FROM raw.TaiwanStockPrice"
 ```
 
-兩邊都是 0 的話：照第 14 章 H-3 把整套系統 up 起來（記得指令前的 `GCP_PROJECT_ID=...` 注入），跑一次 producer 灌資料。
+兩邊都是 0 的話：照第 14 章 H-3 把整套系統 up 起來（記得指令前的 `GCP_PROJECT_ID=...` 注入），再從 Airflow 觸發 `stock_crawler_producer_dag` 灌資料（第 14 章 Part J 的做法）。
 
 > 沒跟到第 14 章、想在自己電腦上把整條流程做完的話，看本章最後的〈補充：在本機雙寫（金鑰用法）〉——程式同一支，差別只在憑證怎麼給。
 

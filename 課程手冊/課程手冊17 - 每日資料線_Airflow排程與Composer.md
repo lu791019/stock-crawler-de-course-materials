@@ -93,6 +93,9 @@ gcloud compute instances list
 # 5. 用新 IP 重跑授權網路
 gcloud sql instances patch stock-mysql \
   --authorized-networks={VM1外部IP}/32,{VM2外部IP}/32
+
+# 6. 確認 VM2 的 worker 跟著回來了（compose 的 restart 政策會自動拉起）
+gcloud compute ssh stock-crawler-vm2 --zone=asia-east1-b --command='sudo docker ps --format "{{.Names}}"'
 ```
 
 第 2 步是舊識：**存取範圍（scopes）**是 VM 機器層的舊式閘門——就算 IAM 角色有權限，scopes 沒開放的操作一樣做不了（第 14 章 Part F 講過）。照著課程建機的話兩台 VM 都帶著 `cloud-platform`，這裡查一下就好。**輸出不是 `cloud-platform` 的話**（例如 VM 是在加上 `--scopes` 參數之前建的），要趁停機補改——scopes 只能在停機狀態下修改：
@@ -491,7 +494,7 @@ Console 的核對位置：Compute Engine → VM 執行個體 → 點 VM 名稱 �
 
 **T-2 Airflow 的 admin/admin 要換掉**
 
-課程沿用預設帳密，防線是 8080 只對白名單 IP 開；團體專案的白名單有全組的 IP，Web 介面被看到的面變大了。用 Airflow CLI 改（在 VM1 上執行，一條指令）：
+課程沿用預設帳密，防線是 8081 只對白名單 IP 開；團體專案的白名單有全組的 IP，Web 介面被看到的面變大了。用 Airflow CLI 改（在 VM1 上執行，一條指令）：
 
 ```bash
 sudo docker exec airflow-webserver airflow users reset-password -u admin -p '{全組共用的強密碼}'
@@ -504,7 +507,7 @@ sudo docker exec airflow-webserver airflow users reset-password -u admin -p '{�
 
 ![Airflow 新密碼登入成功](images/ch17/05-Airflow新密碼登入成功.jpg)
 
-不想下指令的話，UI 介面也能改：登入後點右上角**使用者頭像 → Your Profile**（或直接開 `http://{VM1外部IP}:8080/users/userinfo/`），個人資料頁左下角有「**Reset my password**」按鈕：
+不想下指令的話，UI 介面也能改：登入後點右上角**使用者頭像 → Your Profile**（或直接開 `http://{VM1外部IP}:8081/users/userinfo/`），個人資料頁左下角有「**Reset my password**」按鈕：
 
 ![Airflow 個人資料頁](images/ch17/07-Airflow個人資料頁ResetPassword按鈕.jpg)
 

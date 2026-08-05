@@ -13,6 +13,7 @@
 | Compute Engine（GCE） | GCP 服務 | 開第二台 VM，worker 獨立成一台機器 |
 | VPC 內部網路 | GCP 服務 | 跨 VM 用內部 IP 互連，`default-allow-internal` 預設放行 |
 | Cloud SQL Studio | Console 功能 | 在 Console 直接查 Cloud SQL 裡的資料表 |
+| Airflow | 既有工具 | 留在 VM1 上，本章的發任務都從它觸發（第 14 章 Part J 的做法延續） |
 | Cloud Spanner | GCP 服務 | 開 90 天免費試用機體驗分散式資料庫，與 Cloud SQL 對照 |
 | gcloud CLI | 指令工具 | 建實例、設授權網路、建 secret 並授權 |
 | compose 插值＋`.env` | 既有工具 | 只改 `.env` 三行，就把同一套系統接上新的後端 |
@@ -61,7 +62,7 @@ flowchart LR
     BEFORE ==>|搬家| AFTER
 ```
 
-- **VM1（既有的 stock-crawler-vm）**：收斂成 infra 角色——排程與訊息的中樞，只跑 Airflow、RabbitMQ、Flower。發任務從這章起固定由 **Airflow 觸發**（第 14 章 H-4 的做法延續），不再手動跑 producer
+- **VM1（既有的 stock-crawler-vm）**：收斂成 infra 角色——排程與訊息的中樞，只跑 Airflow、RabbitMQ、Flower。發任務從這章起固定由 **Airflow 觸發**（第 14 章 Part J 的做法延續），不再手動跑 producer
 - **VM2（本章新開）**：只跑兩個 worker——爬蟲的勞力工作獨立成一台，之後要加速就再開 VM3、VM4（第 7 章 `--scale` 的跨機器版）
 - **Cloud SQL**：取代 MySQL 容器。程式端只改 `MYSQL_HOST`——第 6 章把設定集中在 config 的做法，效果在這裡顯現
 - **BigQuery 完全不在搬家清單上**：雙寫的分析半邊憑 VM 身分直寫 BigQuery，跟 MySQL 在哪一台毫無關係——第 15 章「兩個命運」對照表的分工，在搬家這天兌現
@@ -138,7 +139,7 @@ SSH 進 VM2，重演第 14 章的環境準備（裝 Docker → clone → build w
 ```bash
 gcloud compute ssh stock-crawler-vm2 --zone=asia-east1-b
 
-curl -fsSL https://get.docker.com | sudo sh
+curl -fsSL https://get.docker.com | sudo sh   # 官方一鍵腳本；逐步安裝版見第 14 章 F-4
 sudo usermod -aG docker $USER
 git clone https://github.com/lu791019/stock-crawler-de-course-materials.git stock-crawler
 cd stock-crawler && cp .env.example .env
@@ -146,6 +147,8 @@ sudo docker compose -f docker-compose-local.yml build worker_twse worker_tpex
 ```
 
 到這裡兩台機器都就位了：VM1 是中樞、VM2 是勞力。worker 還沒啟動——它要連的資料庫還不存在，下一步先把資料庫生出來。
+
+> **那 VM1 上舊 MySQL 容器裡的資料呢？** 留在原本的 volume 裡不動（Part A 的 `down` 只停容器，不刪 volume）。**Cloud SQL 從空的開始**——爬蟲重跑一次就會把資料寫進去，課程不搬舊資料。真實系統的資料庫搬遷要用 Database Migration Service 或 dump/import，是另一個題目。BigQuery 那半邊完全不受影響，raw 層從第 14 章累積至今的資料都還在。
 
 ### Part C：建立 Cloud SQL 實例
 
@@ -297,7 +300,7 @@ sudo docker exec {容器名} env | grep MYSQL_PASSWORD
 # MYSQL_PASSWORD={新密碼}     ← 值來自 Secret Manager 的 latest
 ```
 
-一個要記住的行為（VM 上驗證過的結果）：**`docker restart` 拿不到新密碼**——環境變數是容器「建立」時由 compose 插值寫入的，restart 只是重開同一個容器；要拿新版本就重跑上面的注入 up（compose 偵測到環境變數變了會自動重建容器）：
+一個要記住的行為：**`docker restart` 拿不到新密碼**——環境變數是容器「建立」時由 compose 插值寫入的，restart 只是重開同一個容器；要拿新版本就重跑上面的注入 up（compose 偵測到環境變數變了會自動重建容器）：
 
 ```bash
 sudo docker restart {容器名}   # ← 容器內 MYSQL_PASSWORD 還是舊值
@@ -371,7 +374,7 @@ secret 的值跟預設一樣是 1234 時看不出來源——照 D-4 的輪替�
 
 ### Part F：跨機器端到端——從 Airflow 出發
 
-發任務照第 14 章 H-4 的方式：**VM1 的 Airflow 觸發 producer DAG**。瀏覽器開 `http://{VM1外部IP}:8081`（防火牆規則第 14 章開過、規則綁標籤不用重設；IP 換了網址跟著換），unpause `stock_crawler_producer_dag` 後按 ▶ 觸發；或在 VM1 上用指令：
+發任務照第 14 章 Part J 的方式：**VM1 的 Airflow 觸發 producer DAG**。瀏覽器開 `http://{VM1外部IP}:8081`（防火牆規則第 14 章開過、規則綁標籤不用重設；IP 換了網址跟著換），unpause `stock_crawler_producer_dag` 後按 ▶ 觸發；或在 VM1 上用指令：
 
 ```bash
 # 在 VM1 上
@@ -510,7 +513,7 @@ MYSQL_PASSWORD=$(gcloud secrets versions access latest --secret=mysql-password) 
 回 VM1 的 Airflow 再觸發一次 `stock_crawler_producer_dag`，VM2 的 worker log 會多一行：
 
 ```
-資料已 upsert 到 Spanner 表 'TaiwanStockPrice'，共 349 筆記錄
+資料已 upsert 到 Spanner 表 'TaiwanStockPrice'，共 XXX 筆記錄
 ```
 
 查 Spanner 裡的筆數（在你自己的電腦或 VM 都可以）：
@@ -595,7 +598,7 @@ gcloud spanner instances update stock-spanner-trial --processing-units=200
 |----|-----------|---------|------|------|
 | 密碼的值 | 1234 前提消失 | 建實例用強密碼（已建的用 set-password 換） | 開專案者 | T-1 |
 | 網路白名單 | 組員要不要直連 DB | 不加組員 IP——查資料走 VM 或 Studio | 全組約定 | T-2 |
-| Secret 授權 | 要不要授權每個人 | 不用重做——授權綁 VM 服務帳戶 | 開專案者（Part B 已做） | T-3 |
+| Secret 授權 | 要不要授權每個人 | 不用重做——授權綁 VM 服務帳戶 | 開專案者（Part D 的 D-2 已做） | T-3 |
 | 密碼輪替 | 退組／外流要換密碼 | versions add 新版本＋SQL 端同步 | 開專案者 | T-4 |
 
 **T-1 建實例就用強密碼，不用 1234**
@@ -625,7 +628,7 @@ sudo docker run --rm mysql:8.0 mysql -h{CloudSQL IP} -uroot -p1234 -N -e "SELECT
 # ERROR 1045 (28000): Access denied for user 'root'
 ```
 
-另外，Part A 建實例時密碼寫在指令裡，指令歷史查得到——開專案者換完密碼記得 `history -c`，或者本來就用 `set-password` 換過一輪，歷史裡的舊密碼就失效了。
+另外，Part C 建實例時密碼寫在指令裡，指令歷史查得到——開專案者換完密碼記得 `history -c`，或者本來就用 `set-password` 換過一輪，歷史裡的舊密碼就失效了。
 
 Console 也能核對使用者清單：SQL → 實例 → 左側「**使用者**」，會列出 root 和 studio 兩個帳戶（改密碼也可以從每列右側的三點選單「變更密碼」做，跟 `set-password` 等效）：
 
@@ -699,7 +702,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 
 - [ ] `gcloud sql instances list` 看得到 stock-mysql，STATUS 是 RUNNABLE（收工後 STOPPED）
 - [ ] 授權網路含兩台 VM 的外部 IP；mydb 資料庫存在
-- [ ] VM1 只跑 rabbitmq＋flower；VM2 只跑兩個 worker
+- [ ] VM1 只跑 Airflow 三容器＋rabbitmq＋flower；VM2 只跑兩個 worker
 - [ ] VM2 worker log 有 `Connected to amqp://...{VM1內部IP}` 與 `ready`
 - [ ] VM1 發任務後，Cloud SQL 的 `mydb.TaiwanStockPrice` 查得到資料，**且 BigQuery 的 `raw.TaiwanStockPrice` 筆數同步增加**（雙寫兩邊都活著）
 - [ ] Spanner 試用 instance 存在（READY）且 `TaiwanStockPrice` 有爬蟲寫入的資料；兩個實驗跑過：線上加欄位、調 PU 被免費版拒絕
@@ -709,7 +712,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 
 1. 為什麼 VM2 連 RabbitMQ 用內部 IP、連 Cloud SQL 卻用外部 IP？（提示：Cloud SQL 不在你的 VPC 裡——它是 Google 託管專案裡的機器。進階解法叫「私人服務存取」，課程不會用到但值得知道名字）
 2. 如果爬蟲量變大，下一台該加的是 VM3 跑更多 worker，還是把 VM1 換大台？這跟第 7 章 `--scale` 的水平擴充是同一題嗎？
-3. 建立 Cloud SQL 時密碼 1234 寫在指令裡，Part B 把它移進 Secret Manager 之後，這個密碼還有哪些地方留著明碼？（提示：查一下 `history`）
+3. 建立 Cloud SQL 時密碼 1234 寫在指令裡，Part D 把它移進 Secret Manager 之後，這個密碼還有哪些地方留著明碼？（提示：查一下 `history`）
 4. 密碼輪替時，正在執行的 worker 用的還是它啟動時讀到的舊密碼。什麼時候才會真的換成新密碼？這對「舊密碼何時可以停用」有什麼影響？
 
 ## 練習
@@ -735,7 +738,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 | 換了密碼但容器沒生效 | 只做了 `docker restart`——環境變數在容器建立時就固定了 | 重跑注入 up，compose 會重建容器 |
 | 搬家後 Cloud SQL 有資料、BigQuery 沒新增 | `.env` 漏了 `GCP_PROJECT_ID`（worker 印「BQ 未設定，略過雲端寫入」），或 VM2 建機時沒給 `--scopes=cloud-platform` | 補 `.env` 的變數重跑 up；scopes 要停機後 `gcloud compute instances set-service-account {VM} --scopes=cloud-platform` 補 |
 | Spanner 建試用機被拒：limited to 1 per project lifecycle | 這個專案開過（也許已刪掉）免費 instance——刪除不會退還額度 | 免費體驗一個專案只有一次；要再玩只能換專案或開付費 instance |
-| Spanner 調 PU 報 cannot be set for free instances | 免費試用版算力固定 | 正常——這正是免費版與付費版的界線（S-3 實驗②） |
+| Spanner 調 PU 報 cannot be set for free instances | 免費試用版算力固定 | 正常——這正是免費版與付費版的界線（S-4 實驗②） |
 
 ## 本章總結
 
