@@ -167,6 +167,10 @@ sudo docker compose -f docker-compose-local.yml build worker_twse worker_tpex
 gcloud services enable sqladmin.googleapis.com
 ```
 
+同一件事的 Console 版：「≡ → API 和服務 → 程式庫」搜尋 Cloud SQL Admin API，點進去按「啟用」。啟用後這一頁會顯示綠勾「API 已啟用」——CLI 跑完回來看，狀態是同一個：
+
+![SQL Admin API 已啟用](images/ch16/18-Console_SQLAdminAPI已啟用.jpg)
+
 **C-2 建立實例**：
 
 ```bash
@@ -219,6 +223,14 @@ patch 的結果在 Console 看得到：≡ → SQL → stock-mysql → 左側「
 
 ![授權網路頁](images/ch16/02-授權網路兩台VM外部IP.jpg)
 
+「新增網路」按下去就是 patch 指令的表單版——名稱自取（例如 `vm1`）、「IP 範圍」填 `{VM外部IP}/32`，按「完成」再按頁面底部的「儲存」，效果跟 `--authorized-networks` 相同：
+
+![新增網路面板](images/ch16/19-Console新增網路面板.jpg)
+
+`databases create` 的 Console 版：SQL → stock-mysql → 左側「**資料庫**」——清單會多出 `mydb` 這一列（類型「使用者」，跟系統自帶的四個區分開；上方的「建立資料庫」按鈕就是同一條指令的表單版）：
+
+![資料庫頁](images/ch16/20-Console資料庫頁mydb.jpg)
+
 ### Part D：把資料庫密碼交給 Secret Manager 保管
 
 上一步建立 Cloud SQL 時，密碼 `1234` 直接寫在指令裡。這在本機沒問題（第 1 到 13 章都是這樣用的），但資料已經上雲，密碼的處理方式也該跟著調整。原因有三個：
@@ -267,6 +279,10 @@ gcloud secrets add-iam-policy-binding mysql-password \
   --role="roles/secretmanager.secretAccessor"
 ```
 
+專案編號在 Console 首頁也查得到：≡ → 資訊主頁，「專案資訊」卡列著專案名稱、**專案編號**、專案 ID 三項——`projects describe` 撈的就是中間那格：
+
+![專案資訊卡](images/ch16/16-Console專案資訊卡專案編號.jpg)
+
 跟第 15 章的授權比較，差別在**範圍**：
 
 | | 第 15 章 | 這裡 |
@@ -279,7 +295,11 @@ gcloud secrets add-iam-policy-binding mysql-password \
 
 要注意的是，VM 的預設服務帳戶雖然掛著 Editor 這個涵蓋很廣的角色，但 **Editor 不包含讀取 secret 內容的權限**。不做這一步授權，程式讀 secret 會被 403 拒絕。
 
-同一件事的 Console 版：Secret Manager → `mysql-password` → 「**權限**」分頁 → 「**授予存取權**」，新增主體填 `{專案編號}-compute@developer.gserviceaccount.com`、角色搜尋選「**Secret Manager 密鑰存取者**」後儲存。授權完成後這一頁會多出那一列：
+同一件事的 Console 版：Secret Manager → `mysql-password` → 「**權限**」分頁 → 「**授予存取權**」，新增主體填 `{專案編號}-compute@developer.gserviceaccount.com`、角色搜尋選「**Secret Manager 密鑰存取者**」（描述寫著「可存取密鑰的酬載」——正是 `secretAccessor` 的中文名）後儲存：
+
+![授予存取權面板](images/ch16/17-Console授予存取權面板.jpg)
+
+授權完成後這一頁會多出那一列：
 
 ![Secret Manager 權限頁](images/ch16/09-SecretManager權限頁SA存取者.jpg)
 
@@ -806,6 +826,7 @@ gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-eas
 | 換了密碼但容器沒生效 | 只做了 `docker restart`，或 `.env` 還是舊值（沒重新取出） | 重跑 D-4 的 ①②③，compose 偵測到值變了會重建容器 |
 | 搬家後 Cloud SQL 有資料、BigQuery 沒新增 | `.env` 漏了 `GCP_PROJECT_ID`（worker 印「BQ 未設定，略過雲端寫入」），或 VM2 建機時沒給 `--scopes=cloud-platform` | 補 `.env` 的變數重跑 up；scopes 要停機後 `gcloud compute instances set-service-account {VM} --scopes=cloud-platform` 補 |
 | Spanner 建試用機被拒：limited to 1 per project lifecycle | 這個專案開過（也許已刪掉）免費 instance——刪除不會退還額度 | 免費體驗一個專案只有一次；要再玩只能換專案或開付費 instance |
+| Spanner 寫入失敗：Invalid CreateSession（`projects//instances/...`） | worker image 裡是舊版程式——compose 會把沒設的 `SPANNER_PROJECT_ID` 注入成空字串，舊版 config.py 不會回退到 `GCP_PROJECT_ID` | VM2 上 `git pull` 拉最新版、重新 build worker 再 up |
 | Spanner 調 PU 報 cannot be set for free instances | 免費試用版算力固定 | 正常——這正是免費版與付費版的界線（S-4 實驗②） |
 
 ## 本章總結
