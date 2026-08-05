@@ -342,7 +342,11 @@ BigQuery 按**掃描量**計費（每月有免費額度，課程的資料量用�
 2. **NULL 計 0 bytes**。算式能精準吻合，同時也說明這一欄沒有 NULL；換一份資料重算對不上時，第一個要檢查的就是 NULL。
 3. **按需計費有每查詢 10 MB 的下限**。所以這個查詢的實際計費是 10 MB，不是 310 KB——掃描量的比例關係跟帳單金額不是同一件事。
 
-還有一個反直覺的點順手試掉：`SELECT * FROM raw.TaiwanStockPrice LIMIT 10` 的掃描量跟不加 `LIMIT` 完全一樣。`LIMIT` 限制的是回傳幾列，不是讀取多少資料——**要減少掃描量只有兩條路：少引用欄位，或用 `WHERE` 過濾掉分區**。
+還有一個反直覺的點順手試掉：`SELECT * FROM raw.TaiwanStockPrice LIMIT 10` 的掃描量跟不加 `LIMIT` 完全一樣——左下角還是①那個數字：
+
+![dry run：加了 LIMIT 掃描量不變](images/ch15/29-dryrunLIMIT不減少.jpg)
+
+`LIMIT` 限制的是回傳幾列，不是讀取多少資料——**要減少掃描量只有兩條路：少引用欄位，或用 `WHERE` 過濾掉分區**。
 
 > 計入的是「查詢引用到的所有欄」，不只 `SELECT` 清單裡的那幾欄。`SELECT close FROM t WHERE stock_id='2330'` 會同時算上 `close` 與 `stock_id` 兩欄。
 
@@ -670,7 +674,13 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 **操作舉例**：建一個筆記本，第一個 cell 用 SQL 查 `app.stock_trend_analysis` 並篩出 2330，第二個 cell 用 Python 把 `close`、`ma5`、`ma20` 畫成三線圖。整段流程沒有下載任何 CSV、沒有發任何金鑰——這是 Step 5 之外的另一條「看圖」路徑。
 
-**要知道的**：runtime 是一台計費的 VM，而且屬於單一使用者，不能多人共用同一個執行環境。本機 Jupyter 接 MySQL 也做得到同樣的分析，所以筆記本是方便，不構成「非 BigQuery 不可」的理由。
+**使用前提**：Studio 首頁點「筆記本」，第一次會先要你選一個「程式碼資產的預設儲存區域」（選 `asia-east1`，跟本章的 dataset 同區），接著停在啟用畫面——筆記本要另外啟用 API 才能用：
+
+![筆記本的啟用畫面](images/ch15/30-筆記本啟用畫面.jpg)
+
+畫面上那句「以 Colab Enterprise 為基礎建構而成」就是它的來歷。
+
+**要知道的**：runtime 是一台計費的 VM，而且屬於單一使用者，不能多人共用同一個執行環境。本機 Jupyter 接 MySQL 也做得到同樣的分析，所以筆記本是方便，不構成「非 BigQuery 不可」的理由——這也是它不排進必做步驟的原因。
 
 ### 資料畫布（Data Canvas）
 
@@ -714,6 +724,16 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 **能做什麼**：把 SQL 查詢、筆記本、資料準備作業、SQLX task 串成有先後順序與相依關係的流程，並指定時間與頻率自動執行。Dataform 那一層提供 SQLX（擴充 SQL 的語言，內含相依管理與資料品質測試）、`ref()` 函式自動推導 DAG、assertions 做唯一性與非空值檢查，並支援用 Git 協作。
 
 **操作舉例**：建一個管道，task 1 是重建 stage view 的 SQL、task 2 是重算 app 兩張表的 SQL，設定 task 2 依賴 task 1，排每天 09:05，跑一次看執行紀錄。
+
+從 Studio 首頁「新建 → 資料工程與分析 → 管道」進去，先選這個管道要用誰的身分執行（登入者的使用者憑證，或指定一個服務帳戶——又是「人的身分 vs 程式的身分」那條線），然後進到編輯畫面。上方三個入口對應它的三種能力：**執行**（立刻跑一次）、**觸發條件**（設排程）、**分享**（授權）：
+
+![管道的編輯畫面](images/ch15/31-管道編輯畫面.jpg)
+
+「新增任務」的選單就是它能串的東西——宣告來源、用 SQL 建表或 view、資料準備工作、資料品質測試、查詢、筆記本：
+
+![管道的新增任務選單](images/ch15/32-管道新增任務選單.jpg)
+
+把這份選單跟第 17 章的 DAG 對照一次，界線就很清楚了：清單裡每一項都在 BigQuery 內部，沒有任何一項能「發任務給 Celery worker」。
 
 **分工要講清楚——它取代不了第 17 章的 DAG**。管道只管 BigQuery 內部的轉換，觸發不了外部系統。第 17 章那支 DAG 的六個 task 是 `start → send_crawler_tasks → wait_for_workers → create_stage_layer → create_app_layer → end`，**管道只能接手後面兩個**；前面「把任務發給 Celery worker、等 worker 消化」那一段它碰不到。
 

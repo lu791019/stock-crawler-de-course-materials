@@ -628,7 +628,10 @@ sudo systemctl status docker    # active (running)，且 enabled
 4. 左側點「**OS 和儲存空間**」→「變更」，跳出「開機磁碟」視窗：作業系統選 Ubuntu、版本選 24.04 LTS（= `--image-family`），開機磁碟類型維持「已平衡的永久磁碟」，大小填 20GB（= `--boot-disk-size`），按「選取」
 
 ![開機磁碟視窗：Ubuntu 24.04 與 20GB](images/ch14/44-Console-開機磁碟Ubuntu與20GB.jpg)
-5. 左側「安全性」分類裡有「身分與 API 存取權」：服務帳戶維持預設，「存取範圍」選「**允許所有 Cloud API 的完整存取權**」——這就是 CLI 的 `--scopes=cloud-platform`
+5. 左側「**安全性**」分類裡有「身分及 API 存取權」：服務帳戶維持預設的 `Compute Engine default service account`，「存取權範圍」三個選項選中間的「**允許所有 Cloud API 的完整存取權**」——這就是 CLI 的 `--scopes=cloud-platform`。預設是第一個「允許預設存取權」，也就是前面說的「BigQuery 會被擋下」的那個範圍
+
+![建立 VM 表單的安全性分類：存取權範圍](images/ch14/58-建立VM表單安全性存取範圍.jpg)
+
 6. 其餘分類維持預設。**這裡示範到此為止就好，按「取消」離開**——機器已經用 CLI 建過，再按「建立」會多開一台、多花一份錢
 7. 表單最下方還有一個「**等效程式碼**」按鈕：Console 會把你在表單上點的所有設定翻譯成一條 gcloud 指令——這正是「介面和指令是同一件事的兩種寫法」的直接證明，也是從介面學指令的捷徑
 
