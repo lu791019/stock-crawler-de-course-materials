@@ -226,7 +226,11 @@ printf "1234" | gcloud secrets create mysql-password \
   --data-file=- --replication-policy=automatic
 ```
 
-建立成功後，Console 的「≡ → 安全性 → Secret Manager」清單會出現 `mysql-password`；點進去的「版本」分頁此時只有版本 1（D-4 之後這頁會累積出輪替軌跡，見後面的版本清單截圖）。
+建立成功後，Console 的「≡ → 安全性 → Secret Manager」清單會出現 `mysql-password`。注意清單只列**名稱與屬性**（位置、加密方式、建立時間），**看不到密碼的值**——要看值得點進去、展開特定版本，而且那個動作會留下稽核紀錄：
+
+![Secret Manager 密鑰清單](images/ch16/13-SecretManager密鑰清單.jpg)
+
+點進去的「版本」分頁此時只有版本 1（D-4 之後這頁會累積出輪替軌跡，見後面的版本清單截圖）。
 
 **D-2 授權兩台 VM 讀取這顆 secret**：
 

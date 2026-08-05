@@ -231,7 +231,9 @@ gcloud composer environments create stock-composer \
 gcloud composer environments list --locations=asia-east1
 ```
 
-STATE 從 `CREATING` 變成 `RUNNING` 才算建好。
+STATE 從 `CREATING` 變成 `RUNNING` 才算建好。建好之後 Console 上（≡ →「Composer」，選單裡的名稱是「**代管 Airflow**」）看得到這一列——服務版本 3、Airflow 版本、以及右邊三個入口：**Airflow 網頁伺服器**（C-3 那個網址）、**DAG 清單**、**DAGs 資料夾**（就是下一步要上傳的那個 bucket）：
+
+![Composer 環境清單](images/ch17/09-Composer環境清單.jpg)
 
 **這裡有一個要先知道的限制：建立中的環境刪不掉。**
 
@@ -306,10 +308,12 @@ gcloud composer environments run stock-composer --location=asia-east1 dags list-
 # 先看映像內建了什麼（pandas、PyMySQL、SQLAlchemy、google-cloud-bigquery 都在，loguru 不在）
 gcloud composer environments list-packages stock-composer --location=asia-east1
 
-# 補裝——這又是一次環境更新，要等幾分鐘
+# 補裝——這又是一次環境更新，指令要等它跑完（**十幾分鐘**，不是幾秒）
 gcloud composer environments update stock-composer --location=asia-east1 \
   --update-pypi-package=loguru
 ```
+
+補套件為什麼要等這麼久：Composer 3 的環境跑在 GKE 上，加一個套件等於重建映像再滾動更新所有元件，跟自架環境改一行 `pyproject.toml` 重 build 的量級完全不同。指令跑完前 `environments describe` 的 STATE 會停在 `UPDATING`。
 
 更新完成後重跑 `dags list`，`stock_bigquery_etl_dag` 出現，代表 `crawler` 匯入成功。這一步是託管環境的第一課：**「環境裡有什麼套件」不再由你的 Dockerfile 決定**——先查清單、缺的用它的介面補、每補一次等一次更新。
 
@@ -431,7 +435,13 @@ gcloud composer environments run stock-composer --location=asia-east1 \
 
 六個 task 全部 `success`，回頭用 Part B 的三層查詢驗證：raw 又多了一輪雙寫、`app.stock_trend_analysis` 是 Composer 那次 run 重算的——**同一支 DAG、同一份 crawler、同一個 Cloud SQL 與 BigQuery，換的只是誰在跑 scheduler**。
 
-也可以直接開 C-3 查到的網頁介面，用 UI 觸發與觀察，操作方式跟自架的完全相同。
+也可以直接開 C-3 查到的網頁介面（要用你的 Google 帳號登入一次），用 UI 觸發與觀察，操作方式跟自架的完全相同——連版面都一樣，差別只在頁尾多一行 `Environment Name`：
+
+![Composer 上的 DAG 六個 task 全綠](images/ch17/11-Composer-DAG六task全綠.jpg)
+
+左側的格狀圖順便把 C-6 那組對照收在同一張畫面裡：**授權前**那次 run 的 `send_crawler_tasks` 是紅色 failed（連不到 VM1 的 5672），它下游四個 task 全是橘色的 upstream_failed；**授權後**這次整排綠。「網路沒開」在 Airflow 上長這個樣子：
+
+![授權前後兩次 run 的對照](images/ch17/10-Composer-Airflow介面兩次run對照.jpg)
 
 #### C-8 刪除環境（連同臨時防火牆規則）
 
