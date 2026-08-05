@@ -243,7 +243,11 @@ printf "1234" | gcloud secrets create mysql-password \
   --data-file=- --replication-policy=automatic
 ```
 
-建立成功後，Console 的「≡ → 安全性 → Secret Manager」清單會出現 `mysql-password`。注意清單只列**名稱與屬性**（位置、加密方式、建立時間），**看不到密碼的值**——要看值得點進去、展開特定版本，而且那個動作會留下稽核紀錄：
+同一件事的 Console 版：「≡ → 安全性 → Secret Manager」→ 上方「**+ 建立密鑰**」，名稱填 `mysql-password`、往下捲到「密鑰值」欄填 `1234`，其餘（類型、複製政策、加密）全部維持預設，按「**建立密鑰**」：
+
+![Console 建立密鑰表單](images/ch16/14-Console建立密鑰表單.jpg)
+
+建立成功後，清單會出現 `mysql-password`。注意清單只列**名稱與屬性**（位置、加密方式、建立時間），**看不到密碼的值**——要看值得點進去、展開特定版本，而且那個動作會留下稽核紀錄：
 
 ![Secret Manager 密鑰清單](images/ch16/13-SecretManager密鑰清單.jpg)
 
@@ -275,7 +279,7 @@ gcloud secrets add-iam-policy-binding mysql-password \
 
 要注意的是，VM 的預設服務帳戶雖然掛著 Editor 這個涵蓋很廣的角色，但 **Editor 不包含讀取 secret 內容的權限**。不做這一步授權，程式讀 secret 會被 403 拒絕。
 
-授權結果在 Console 的核對位置：Secret Manager → `mysql-password` → 「**權限**」分頁——服務帳戶掛「Secret Manager 密鑰存取者」：
+同一件事的 Console 版：Secret Manager → `mysql-password` → 「**權限**」分頁 → 「**授予存取權**」，新增主體填 `{專案編號}-compute@developer.gserviceaccount.com`、角色搜尋選「**Secret Manager 密鑰存取者**」後儲存。授權完成後這一頁會多出那一列：
 
 ![Secret Manager 權限頁](images/ch16/09-SecretManager權限頁SA存取者.jpg)
 
@@ -291,6 +295,12 @@ gcloud compute ssh stock-crawler-vm --zone=asia-east1-b
 gcloud secrets versions access latest --secret=mysql-password
 # 1234
 ```
+
+`versions access` 的 Console 版：點進 `mysql-password` → 「**版本**」分頁 → 版本 1 那列右側「**⋮**」→「**查看密鑰值**」，對話框直接顯示這一版的值：
+
+![Console 查看密鑰值](images/ch16/15-Console查看密鑰值.jpg)
+
+注意這個動作跟 CLI 的 `versions access` 一樣會留在稽核紀錄裡——「誰在什麼時候讀過密碼」查得到，這是 Secret Manager 相對 `.env` 手抄密碼的關鍵差異。
 
 **D-4 部署時取出——密碼從 Secret Manager 寫進 `.env`**：
 
