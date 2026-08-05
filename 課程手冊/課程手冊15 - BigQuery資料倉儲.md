@@ -429,7 +429,7 @@ MySQL 這邊要做到同一件事：得有人事先設好備份、然後把備�
 倉儲的算力還能直接拿來做機器學習（BigQuery ML），不用把資料搬出去、不用另外架訓練環境。先開一個放實驗品的 dataset，然後用 `CREATE MODEL` 對 2330 訓練一個線性回歸——用當天的開盤、最高、最低、成交量預測收盤價：
 
 ```bash
-bq mk --dataset --location=US {你的專案ID}:lab
+bq mk --dataset --location=asia-east1 {你的專案ID}:lab
 
 bq query --use_legacy_sql=false \
   "CREATE OR REPLACE MODEL lab.close_model
@@ -476,10 +476,10 @@ raw 層已經由雙寫餵好——**原封不動的原始資料，之後不改�
 
 ### Step 3：整理出 stage 層——去重與統一欄名
 
-先建 stage 的 dataset（在你自己的電腦或 VM 跑都可以，location 要跟 raw 同區）：
+先建 stage 的 dataset（在你自己的電腦或 VM 跑都可以，`--location` 要跟 raw 同區——課程一律用 `asia-east1`，跟 VM、Cloud SQL 放在一起）：
 
 ```bash
-bq mk --dataset --location=US {你的專案ID}:stage
+bq mk --dataset --location=asia-east1 {你的專案ID}:stage
 ```
 
 同一支股票同一天若有重複列（雙寫 append 跑過幾次就疊幾層——實驗三的預測結果已經讓你看到它了），留成交量最大的那筆；順手把欄位名整理成一致的小寫：
@@ -499,7 +499,7 @@ FROM (
 ### Step 4：建 app 層——給報表用的成品表
 
 ```bash
-bq mk --dataset --location=US {你的專案ID}:app
+bq mk --dataset --location=asia-east1 {你的專案ID}:app
 ```
 
 從 stage 算出兩張成品表——趨勢分析（LAG 抓前一天收盤、視窗函數算 MA5/MA20）與大盤每日摘要：
@@ -751,7 +751,7 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 **能做什麼**：建好連線之後，用 `EXTERNAL_QUERY()` 把一段 SQL 送到外部資料庫執行，結果以暫存表回到 BigQuery。對本章的意義很直接——**第 16 章之後 MySQL 那份資料住在 Cloud SQL，BigQuery 不必等任何 ETL，可以直接讀它此刻的內容**。
 
-**操作舉例**（全程 CLI）。下面的指令要有一台 Cloud SQL 實例才跑得動——第 16 章建的 `stock-mysql`（`asia-east1`、資料庫 `mydb`）就是它，做完第 16 章再回來試。
+**操作舉例**（全程 CLI）。下面的指令要有一台 Cloud SQL 實例才跑得動——第 16 章建的 `stock-mysql`（`asia-east1`、資料庫 `mydb`）就是它，做完第 16 章再回來試。本章的 dataset 建在 `asia-east1`，跟它同區，所以連線與 JOIN 都成立（理由見下面的限制）。
 
 ① 建立連線，`instanceId` 的格式是「專案ID:區域:實例名」：
 
@@ -786,8 +786,8 @@ bq query --location=asia-east1 --use_legacy_sql=false \
 
 **限制要記住**：
 
-- **連線必須與 Cloud SQL 實例同區**。連線建在 `US`、實例在 `asia-east1` 的話，建立當下就被擋下：`Cloud SQL instance must be in the same multi-region as the connection`
-- **跨區 JOIN 會失敗**。本章主線的 dataset 建在 `US`，連線在 `asia-east1`；在 asia-east1 執行的 `EXTERNAL_QUERY` 要 JOIN `raw` 表會回 `Not found: Dataset {專案ID}:raw was not found in location asia-east1`。要 JOIN，兩邊得在同一個位置——這就是雲端「資料落地區域」的實際後果
+- **連線必須與 Cloud SQL 實例同區**。實例在 `asia-east1`，連線就要建在 `asia-east1`；建在別的位置當下就被擋下：`Cloud SQL instance must be in the same multi-region as the connection`
+- **要 JOIN BigQuery 的表，dataset 也得在同一區**。本章的 dataset 建在 `asia-east1`（跟 VM、Cloud SQL 同區），所以上面那個對帳查詢成立。若 dataset 當初建在別的位置（例如 `US`），同一句 SQL 會回 `Not found: Dataset {專案ID}:raw was not found in location asia-east1`——**資源放同一區不只是延遲考量，它決定了哪些查詢寫得出來**
 - **`--dry_run` 對 federated query 無效**：官方載明執行前無法計算會處理多少 bytes。實驗一教的「先問價再跑」，到這裡失效
 - **唯讀**，不支援 DML 與 DDL；查詢速度取決於 Cloud SQL 那台機器，不會有倉儲的平行加速
 - Cloud SQL 實例剛從停用喚醒、狀態還在 MAINTENANCE 時，查詢會回 `MysqlErrorCode(2013): Lost connection to MySQL server during query`——不是設定錯，等實例回到 RUNNABLE 再跑

@@ -29,7 +29,9 @@ def create_dataset_if_not_exists(dataset_id: str = DATASET_ID):
         client.get_dataset(dataset_ref)
     except Exception:
         dataset = bigquery.Dataset(dataset_ref)
-        dataset.location = "US"
+        # 跟 VM／Cloud SQL 同區（手冊14 起資源都在 asia-east1）；
+        # 同區才能用 federated query 一句 SQL 同時查 Cloud SQL 與 BigQuery（手冊15）
+        dataset.location = os.environ.get("BQ_LOCATION", "asia-east1")
         client.create_dataset(dataset)
         print(f"Created dataset {dataset_id}")
 
