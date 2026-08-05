@@ -769,15 +769,21 @@ compose-all 裡三個 Airflow 容器用的 `stock-airflow:latest` 是課程自�
 
 **H-3 全套啟動（雲端不跑 Metabase）**
 
+先把專案 ID 寫進 `.env`（H-1 複製好的那個檔案），再啟動：
+
 ```bash
-GCP_PROJECT_ID=$(gcloud config get-value project) \
-sudo -E docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
+# 在 VM 的 ~/stock-crawler
+echo "GCP_PROJECT_ID=$(gcloud config get-value project)" >> .env
+tail -1 .env                    # 確認寫進去的是你的專案 ID
+
+sudo docker compose -f docker-compose-all.yml up -d --build --scale metabase=0
 ```
 
-- 第一行把**專案 ID 塞進環境變數**再執行 up（`sudo -E` 讓 sudo 保留這個變數），compose 檔會把它轉交給 worker 容器。為什麼需要它：這套系統的爬蟲是**雙寫**的——每次抓完資料，同一份會寫進 MySQL，**同時**寫一份到 BigQuery（GCP 的資料倉儲服務）。worker 靠 `GCP_PROJECT_ID` 知道要寫進哪個專案；前面 1-13 章在本機沒設這個變數，worker 就印一行「BQ 未設定，略過雲端寫入」只寫 MySQL。BigQuery 那份是幹嘛用的，第 15 章詳細介紹——這一章先知道「雲端上的爬蟲會多寫一份」就夠
-- 這裡用「指令前綴」把變數帶進去；第 16 章之後改成寫在各機器自己的 `.env` 裡——**兩種都是餵給同一個 compose 插值**，shell 環境與 `.env` 它都吃
+- **為什麼要這個變數**：這套系統的爬蟲是**雙寫**的——每次抓完資料，同一份會寫進 MySQL，**同時**寫一份到 BigQuery（GCP 的資料倉儲服務）。worker 靠 `GCP_PROJECT_ID` 知道要寫進哪個專案；前面 1-13 章在本機沒設這個變數，worker 就印一行「BQ 未設定，略過雲端寫入」只寫 MySQL。BigQuery 那份是幹嘛用的，第 15 章詳細介紹——這一章先知道「雲端上的爬蟲會多寫一份」就夠
+- **為什麼寫在 `.env` 而不是打在指令前面**：兩種 compose 都吃（它的插值同時讀 shell 環境與同目錄的 `.env`），但寫進 `.env` 只要做一次，之後每次 `up` 都自動生效。打在指令前面的話，哪一次忘了帶，worker 就靜靜地只寫 MySQL——**它不會報錯，只會在 log 裡印一行略過訊息**，很容易到了第 15 章才發現 BigQuery 沒資料。第 16 章 VM2 的連線設定、第 17 章 Airflow 的專案 ID 都沿用這個做法
+- **例外是密碼**：第 16 章的資料庫密碼**不會**寫進 `.env`，改用指令前綴從 Secret Manager 取出（`MYSQL_PASSWORD=$(gcloud secrets ...) sudo -E docker compose ...`）。差別在機密與否——專案 ID 到處看得到，密碼不能落地成檔案
 - **這個變數在程式碼裡的完整路徑**（打開檔案就能對照，一行程式都不用改）：
-  1. `docker-compose-all.yml`：worker 服務的 environment 有一行 `GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}`——compose 的變數插值，把「up 當下 shell 環境的值」轉交給容器；shell 沒設就給空字串
+  1. `docker-compose-all.yml`：worker 服務的 environment 有一行 `GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}`——compose 的變數插值，把 `.env`（或 shell 環境）裡的值轉交給容器；兩邊都沒設就給空字串
   2. `crawler/config.py`：`GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")`——程式從容器的環境變數讀進來，沒有就是空字串（第 6 章 config 集中管理的老規矩）
   3. `crawler/tasks_crawler_finmind.py`：`upload_data_to_bigquery_raw()` 函式開頭 `if not GCP_PROJECT_ID:` ——空字串就印「BQ 未設定，略過雲端寫入」直接返回，MySQL 那份照寫。這段程式碼第 15 章會逐行拆解
 - `--build` 順便建好兩個 crawler worker 的 image；其餘 image 自動從 Docker Hub 拉。第一次啟動約 3-5 分鐘

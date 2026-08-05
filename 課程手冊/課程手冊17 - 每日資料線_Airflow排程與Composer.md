@@ -110,7 +110,7 @@ gcloud compute instances set-service-account stock-crawler-vm \
 
 ### Part A：讓 Airflow 多一個身分——會寫 BigQuery 的排程者
 
-Airflow 從第 16 章 Part A 起就在 VM1 上跑著（發任務的中樞）。本章它多了一個工作：**自己動手重算 BigQuery 分析層**（transform task）——所以要補給它一個東西：`GCP_PROJECT_ID`。兩個學員步驟：
+Airflow 從第 16 章 Part A 起就在 VM1 上跑著（發任務的中樞）。本章它多了一個工作：**自己動手重算 BigQuery 分析層**（transform task）——這需要 `GCP_PROJECT_ID`，而第 14 章 H-3 已經把它寫進 VM1 的 `.env`，這裡確認一下就好。兩個學員步驟：
 
 **A-1 確認 image 還在**（第 14 章 H-2 build 過的那顆）：
 
@@ -122,18 +122,18 @@ sudo docker images | grep stock-airflow
 
 > 看不到的話（例如跑過 `docker system prune -af` 清理磁碟，它會把「沒有容器在用」的 image 全部清掉），重 build：`sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .`（約 10 分鐘）。等待的時間可以先讀「先搞懂」的 Composer 對照表。
 
-**A-2 用 `.env` 給 Airflow 專案 ID，重跑 up**（第 16 章 Part E 的同一招——compose-all 的 Airflow 服務也有 `GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}` 插值）：
+**A-2 確認 Airflow 拿得到專案 ID**（第 14 章 H-3 就寫進 VM1 的 `.env` 了；compose-all 的 Airflow 服務同樣有 `GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}` 插值）：
 
 ```bash
-# 在 VM1 的 ~/stock-crawler：.env 加一行
-echo "GCP_PROJECT_ID={你的專案ID}" >> .env
+# 在 VM1 的 ~/stock-crawler：先確認 .env 裡有這一行（第 14 章 H-3 寫進去的）
+grep GCP_PROJECT_ID .env
+# 沒有的話補上：echo "GCP_PROJECT_ID=$(gcloud config get-value project)" >> .env
 
-# 重跑 up，Airflow 容器重建後就帶著這個變數
+# 確認 Airflow 容器真的拿到了
+sudo docker exec airflow-scheduler env | grep GCP_PROJECT_ID
+# 沒印出來就重跑 up 讓容器重建（環境變數是容器建立時寫入的，restart 不會更新）
 sudo docker compose -f docker-compose-all.yml up -d \
   rabbitmq flower airflow-postgres airflow-init airflow-webserver airflow-scheduler
-
-# 驗證
-sudo docker exec airflow-scheduler env | grep GCP_PROJECT_ID
 ```
 
 注意這裡**沒有** `GOOGLE_APPLICATION_CREDENTIALS` 這個變數。第 15 章在本機需要金鑰檔，是因為你的筆電對 GCP 來說沒有身分；VM 本身有服務帳戶這個身分，Google 的程式庫會自動採用。**在 VM 上執行的程式不需要金鑰檔**，這跟第 16 章 worker 讀 Secret Manager 是同一個機制。

@@ -114,7 +114,7 @@ sudo docker ps --format '{{.Names}}\t{{.Status}}'
 #（airflow-init 跑完 Exited(0) 退場）
 ```
 
-同一份 repo、同一批 compose 檔——**機器的「角色」由你 up 哪些服務決定**。VM1 從「全能機」變「排程與訊息中樞」，只花兩條指令。注意這次 up **沒有帶** `GCP_PROJECT_ID` 注入：VM1 上不再跑 worker，發任務的 Airflow 只把任務丟進佇列、自己不寫資料庫，用不到這個變數（第 17 章 Airflow 要自己重算 BigQuery 分析層時才需要）。
+同一份 repo、同一批 compose 檔——**機器的「角色」由你 up 哪些服務決定**。VM1 從「全能機」變「排程與訊息中樞」，只花兩條指令。VM1 的 `.env` 不用動——第 14 章 H-3 寫進去的 `GCP_PROJECT_ID` 還在，Airflow 容器會拿到它（本章的 Airflow 只發任務用不到，第 17 章要自己重算 BigQuery 分析層時就派上用場）。
 
 ### Part B：開 VM2 並準備 worker
 
