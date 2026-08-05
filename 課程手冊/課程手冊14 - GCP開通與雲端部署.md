@@ -1329,6 +1329,48 @@ Console 建立時的三個對應點選：區域選 us-west1、機器類型在 E2
 
 **課程其他服務的「試用後」狀況**：BigQuery 有永久免費層（10GB 儲存＋每月 1TB 查詢，第 15 章的用量遠在額度內）、Looker Studio 本來就免費——**資料倉儲和 BI 這條線試用結束照樣能用**；Cloud SQL 沒有免費層（第 16 章的實例試用後留著就會扣試用外的錢，記得停用或刪除）。
 
+## 補充：磁碟空間——清理與擴充
+
+F-2 開的 20GB 磁碟，隨著課程推進會被三類東西吃掉：image（全套超過 10GB）、**build cache（每跑一次 `--build` 就疊一層，不清會累積好幾 GB）**、停掉的容器與沒人用的 volume。用到 90% 以上時，`up --build` 會在 `uv sync` 或 exporting 階段報：
+
+```
+No space left on device (os error 28)
+```
+
+磁碟滿還有連鎖症狀：正在寫檔的服務會留下壞掉的狀態——例如 RabbitMQ 寫 `.erlang.cookie` 失敗後，之後每次啟動都報 `eacces` 起不來，要把容器砍掉重建（`sudo docker rm -f rabbitmq` 後重新 `up`）才會好。
+
+**第一步永遠是清理**，不用花錢：
+
+```bash
+df -h /                            # 先看用量
+sudo docker system df              # 看空間被誰吃掉
+
+sudo docker builder prune -af      # 清 build cache——通常回收最多
+sudo docker container prune -f     # 清停掉的容器
+sudo docker image prune -f         # 清沒有 tag 的 image
+```
+
+三條 prune 都不會動到**運行中的容器**與**具名 volume**（MySQL 的資料在 `mysql-data` 這類具名 volume 裡，不受影響）。清完之後養成習慣：每次 `--build` 成功後順手 `builder prune -af`，空間就不會不知不覺見底——代價只是下次 build 慢幾分鐘。
+
+**清理救不回來，才擴充磁碟。** GCE 的磁碟可以在 VM 開機狀態下直接放大（只能放大、不能縮小）：
+
+```bash
+# ① 放大磁碟（開機中也能執行；磁碟名稱預設同 VM 名稱）
+gcloud compute disks resize stock-crawler-vm --zone=asia-east1-b --size=40GB
+
+# ② SSH 進 VM，看檔案系統認到新大小了沒
+df -h /
+```
+
+`df` 已經顯示 40G 就完成了——Ubuntu 的 cloud-init 在多數情況會自動擴展分割區。還停在 19G 的話，手動擴展再確認一次：
+
+```bash
+sudo growpart /dev/sda 1     # 把分割區撐大到磁碟新邊界
+sudo resize2fs /dev/sda1     # 讓檔案系統長到分割區大小
+df -h /                      # 40G
+```
+
+費用：磁碟費按容量計，開關機都收——20GB 約每月 NT$25，40GB 約 NT$50。對照「費用的四個事實」第 3 點，這仍是全課程最小的一筆開銷。
 
 ## 檢查：這一章做完的狀態
 
@@ -1369,6 +1411,7 @@ Console 建立時的三個對應點選：區域選 us-west1、機器類型在 E2
 | 瀏覽器連 Web 介面轉圈圈到逾時 | 防火牆沒開該 port，或 IP 不在 source-ranges 裡 | 檢查規則的 port 清單與 `curl -4 ifconfig.me` 的目前 IP |
 | 原本連得上的 Web 介面，換個地方（或隔天）突然逾時 | 你的對外 IP 換了，規則裡還是舊 IP | `curl -4 ifconfig.me` 查新 IP，`gcloud compute firewall-rules update allow-stock-web --source-ranges={新IP}/32` |
 | 停機再開機後原網址連不上 | 外部 IP 換了 | `gcloud compute instances list` 查新 IP |
+| `up --build` 報 `No space left on device` | 磁碟滿——build cache 與 image 累積 | 見〈補充：磁碟空間——清理與擴充〉；清完若服務起不來（如 RabbitMQ 報 eacces），砍掉該容器重新 up |
 
 ## 本章總結
 
