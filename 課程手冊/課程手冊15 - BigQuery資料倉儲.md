@@ -806,13 +806,38 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 **操作舉例**：建一個筆記本，第一個 cell 用 SQL 查 `app.stock_trend_analysis` 並篩出 2330，第二個 cell 用 Python 把 `close`、`ma5`、`ma20` 畫成三線圖。整段流程沒有下載任何 CSV、沒有發任何金鑰——這是 Step 5 之外的另一條「看圖」路徑。
 
-**使用前提**：Studio 首頁點「筆記本」，第一次會先要你選一個「程式碼資產的預設儲存區域」（選 `asia-east1`，跟本章的 dataset 同區），接著停在啟用畫面——筆記本要另外啟用 API 才能用：
+**動手做：兩分鐘畫出 2330 的均線圖**
+
+① Studio 首頁點「**筆記本**」。第一次會先要你選「程式碼資產的預設儲存區域」（選 `asia-east1`，跟本章的 dataset 同區），接著停在啟用畫面——筆記本要另外啟用 API：
 
 ![筆記本的啟用畫面](images/ch15/30-筆記本啟用畫面.jpg)
 
-畫面上那句「以 Colab Enterprise 為基礎建構而成」就是它的來歷。
+畫面上那句「以 Colab Enterprise 為基礎建構而成」就是它的來歷。按下「啟用 API」（免費，只有實際跑 runtime 才計費），或用指令一次開好：
 
-**要知道的**：runtime 是一台計費的 VM，而且屬於單一使用者，不能多人共用同一個執行環境。本機 Jupyter 接 MySQL 也做得到同樣的分析，所以筆記本是方便，不構成「非 BigQuery 不可」的理由——這也是它不排進必做步驟的原因。
+```bash
+gcloud services enable aiplatform.googleapis.com --project={你的專案ID}
+```
+
+② 啟用後進到編輯器。左邊是 cell、右邊是 Gemini 面板：
+
+![筆記本編輯器與 Gemini 面板](images/ch15/36-筆記本編輯器與Gemini面板.jpg)
+
+③ 在 cell 裡貼上這四行——**沒有金鑰、沒有連線字串**，`bigquery.Client()` 直接用你登入的身分：
+
+```python
+from google.cloud import bigquery
+sql = "SELECT trade_date, close, ma5, ma20 FROM `你的專案ID.app.stock_trend_analysis` WHERE stock_id='2330' AND ma20 IS NOT NULL ORDER BY trade_date"
+df = bigquery.Client(project='你的專案ID').query(sql).to_dataframe()
+df.plot(x='trade_date', y=['close','ma5','ma20'], figsize=(10,4), title='2330 close vs MA5 vs MA20')
+```
+
+④ 按 cell 左邊的 ▶。第一次執行右下角會顯示「**正在分配執行階段**」——它在開那台 runtime VM，要等一兩分鐘；之後每次執行就只有幾秒。跑完直接在 cell 下方出圖：
+
+![筆記本的執行結果：2330 收盤與均線](images/ch15/35-筆記本執行結果MA三線圖.jpg)
+
+Step 5 的 Looker Studio 是「給別人看的儀表板」，這裡是「自己分析時的工作檯」——同一份 app 層資料，兩種用途。
+
+**要知道的**：runtime 是一台計費的 VM，而且屬於單一使用者，不能多人共用同一個執行環境；閒置一段時間會自動關閉。本機 Jupyter 接 MySQL 也做得到同樣的分析，所以筆記本是方便，不構成「非 BigQuery 不可」的理由。
 
 ### 資料畫布（Data Canvas）
 
@@ -820,13 +845,30 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 
 **能做什麼**：用自然語言搜尋資料資產、由自然語言產生 SQL、用自然語言描述要什麼圖並產生視覺化。關鍵是**它產生的 SQL 看得到也可以編輯**——節點裡就是一段 SQL，改完再往下接，不是黑盒子。定位是探索階段的加速器，正式產線的邏輯仍然要落到 SQL 檔或 Dataform。
 
-**操作舉例**：在畫布輸入「找出 stage.stock_price_daily 裡 2330 最近 30 個交易日的收盤價，畫成折線圖」，看它產生的 SQL，再跟 Step 4 手寫的視窗函數版本並列比較。結論通常是：自然語言適合探索，複雜的視窗函數還是自己寫。
-
-**使用前提**：第一次點進去看到的是啟用畫面——要先啟用資料畫布 API，而且專案必須已啟用 Gemini in BigQuery（由管理員在專案層級開啟，Gemini 的計價獨立於 BigQuery）：
+**使用前提**：沒開 Gemini 之前，點進去看到的是啟用畫面，做不出任何節點：
 
 ![資料畫布的啟用畫面](images/ch15/26-資料畫布啟用畫面.jpg)
 
-課堂上沒有開這兩項，畫布就停在這一頁，做不出任何節點——這也是它不排進必做步驟的原因。另外它對 BigQuery ML、nested／repeated 欄位、複雜型別的自然語言支援不佳，也不支援 geomap 視覺化。
+兩個 API 要開（都免費，實際用到 Gemini 產生內容時才計費）：
+
+```bash
+gcloud services enable geminidataanalytics.googleapis.com --project={你的專案ID}
+gcloud services enable cloudaicompanion.googleapis.com --project={你的專案ID}
+```
+
+**動手做**：開好之後回到「資料畫布 → 建立資料畫布」，左下角出現「向 Canvas Assistant 提問」。點開它——**它會先讀你專案裡的表，然後自己提出問題**：
+
+![Canvas Assistant 讀懂 schema 後主動提問](images/ch15/38-CanvasAssistant讀懂schema提問.jpg)
+
+注意中間那一題：「On which dates did the 5-day moving average (`ma5`) cross above the 20-day moving average (`ma20`) for each stock?」——**沒有人告訴它 ma5、ma20 是移動平均**，它是從 Step 4 建的欄位名推出來的，而且問的正好是技術分析的黃金交叉。這就是「Gemini 看得到你的 schema」的意思。
+
+指定資料來源（勾 `app.stock_trend_analysis`）之後，畫布上就會長出第一個節點——表本身，帶完整的結構定義，下方兩個按鈕是接下一個節點用的：
+
+![資料畫布上的表節點](images/ch15/37-資料畫布表節點.jpg)
+
+這就是 DAG 式分析的起點：從表節點接查詢、再接視覺化，每一步都是畫面上的一個框。
+
+**要知道的**：Assistant 對中文提問的穩定度不如英文（實際操作時遇過中文 prompt 直接回錯誤、換英文就正常）。另外它對 BigQuery ML、nested／repeated 欄位、複雜型別的自然語言支援不佳，也不支援 geomap 視覺化。定位很明確：**探索階段的加速器**，正式產線的邏輯仍然要落到 SQL 檔或 Dataform。
 
 ### 資料準備作業（Data Preparation）
 
@@ -845,7 +887,11 @@ BigQuery 的 Console 查詢介面只能看表格結果、畫不了儀表板—�
 | 型別轉換 | Gemini 建議的型別轉換 |
 | `CREATE OR REPLACE VIEW` | 指定目的地表 + 排程重整 |
 
-**操作舉例**：對 `raw.TaiwanStockPrice` 開一個資料準備作業，用去重操作以 `stock_id + date` 為鍵去重，把 `Trading_Volume` 改名為 `volume`，輸出到一張新表，再跟 Step 3 的 view 對筆數——兩邊應該一致。
+**動手做**：Studio 首頁「新建 → 資料工程與分析 → 資料準備」，在搜尋框打 `TaiwanStockPrice`，清單會列出所有同名的表（raw 與 stock 兩個 dataset 都有），選 raw 那個按「**新增為來源**」。進到編輯器後，右側「步驟」面板就是 Gemini 給的六種操作：
+
+![資料準備編輯器與 Gemini 建議面板](images/ch15/39-資料準備編輯器與Gemini建議.jpg)
+
+用「篩選」「Aggregate」「轉換」把 Step 3 那段 SQL 一步步點出來，最後用「**目的地**」指定輸出表，再跟 Step 3 的 view 對筆數——兩邊應該一致。整個過程沒有寫 SQL，但做的是同一件事。
 
 **要知道的**：來源與目的地 dataset 必須在同一個 location；Gemini 只看 10k 筆樣本，可能沒涵蓋整份資料的複雜度；而且**它沒有版本控制**。最後這一點正是產線仍然把轉換邏輯寫成程式碼的理由——第 17 章用 DAG 維護 stage/app，那些 SQL 就在 Git 裡，改了什麼、誰改的、要回到哪一版都查得到。
 
@@ -890,7 +936,20 @@ SELECT stock_id, date AS trade_date, ...   ← config 底下接你的 SQL
 
 左邊「**先執行**」下拉就是宣告依賴的地方：建第二個任務（app 層的 CTAS）時，在這裡選 task 1，管道就知道要先跑 stage 再跑 app。這跟 Dataform 的 `ref()` 是同一件事的兩種介面——用 `ref()` 寫在 SQL 裡會自動推導依賴，用下拉選則是手動指定。
 
-> 編輯器預設是唯讀的，要按任務卡片上的「**開啟**」才能編輯 SQL。
+> 編輯器預設是唯讀的，要按任務卡片上的「**開啟**」才能編輯 SQL。**只改 `config` 底下那一行提示文字**，不要動 config 區塊本身——它的引號被改壞的話，任務型態會從 `table` 跳回別的型態。
+
+填好 SQL 後按上方「**執行管道 → 執行所有工作**」，跳出「已順利開始執行管道」。切到「**執行次數**」分頁看結果：
+
+![管道的執行紀錄](images/ch15/40-管道執行紀錄成功.jpg)
+
+綠勾、8 秒完成。回頭用 `bq` 驗收它真的建出表了：
+
+```bash
+bq query --use_legacy_sql=false \
+  "SELECT COUNT(*) AS n, COUNT(DISTINCT stock_id) AS stocks FROM lab.pipe_stage_dedup"
+```
+
+筆數會跟 Step 3 的 `stage.stock_price_daily` 一模一樣——**同一段去重邏輯，一個寫在 SQL 檔裡、一個包成管道任務**。
 
 **它跟排程查詢差在哪——什麼時候該用誰**
 
