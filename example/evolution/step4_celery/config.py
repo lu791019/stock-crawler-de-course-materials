@@ -15,7 +15,8 @@ END_DATE = os.environ.get("END_DATE", "2025-06-17")
 FINMIND_URL = os.environ.get("FINMIND_URL", "https://api.finmindtrade.com/api/v4/data")
 FINMIND_DATASET = os.environ.get("FINMIND_DATASET", "TaiwanStockPrice")
 
-# 怎麼存: STORAGE 決定要用哪一個 repository 實作, 值是 csv 或 mysql
+# 怎麼存: STORAGE 決定要用哪些 repository 實作, 可用值是 csv 與 mysql
+# 用逗號分隔可以同時寫多個目標, 例如 STORAGE=csv,mysql
 STORAGE = os.environ.get("STORAGE", "csv")
 
 # CSV 的輸出目錄

@@ -7,20 +7,29 @@
 
 | 路徑 | 步驟 | 內容 |
 |---|---|---|
-| `step0_single_file.py` | Step 0 | 單體版，三個職責寫在同一個函式裡 |
-| `step1_functions.py` | Step 1 | 同一支檔案內拆成三個函式 |
-| `step2_modules/` | Step 2 | 拆成 config、client、repository、main 四支檔案 |
+| `step0_single_file.py` | Step 0 | 單體版，抓與存寫在同一個函式裡，沒有整理階段 |
+| `step1_functions.py` | Step 1 | 同一支檔案內拆成抓、整理、存三個函式 |
+| `step2_modules/` | Step 2 | 三個函式各自獨立成檔案，設定抽到 config |
 | `step3_task/` | Step 3 | 任務參數化，多了 task 與 producer |
 | `step4_celery/` | Step 4 | 接上 Celery 與 RabbitMQ，多了 worker |
 | `step5_airflow/` | Step 5 | Airflow DAG，定時發任務 |
 
-Step 2 到 Step 4 各自都有 `config.py`、`client.py`、`repository.py`，內容刻意重複，
+三個階段與檔案的對應：
+
+| 階段 | Step 1 的函式 | Step 2 之後的檔案 |
+|---|---|---|
+| 抓資料 | `fetch_stock_price()` | `client.py` |
+| 整理資料 | `transform()` | `transformer.py` |
+| 存資料 | `save()` | `repository.py` |
+
+Step 2 到 Step 4 各自都有 `config.py`、`client.py`、`transformer.py`、`repository.py`，內容刻意重複，
 目的是讓你可以直接比對兩個步驟之間改了什麼：
 
 ```bash
-diff step2_modules/client.py step3_task/client.py     # 沒有輸出代表完全沒改
-diff step3_task/task.py step4_celery/task.py          # 差異只有裝飾器與 import
-diff step3_task/producer.py step4_celery/producer.py  # 差異只有 .delay()
+diff step2_modules/client.py step3_task/client.py       # 沒有輸出代表完全沒改
+diff step2_modules/transformer.py step4_celery/transformer.py  # 只有檔頭說明不同
+diff step3_task/task.py step4_celery/task.py            # 差異只有裝飾器與 import
+diff step3_task/producer.py step4_celery/producer.py    # 差異只有 .delay()
 ```
 
 ## 執行指令
@@ -36,11 +45,14 @@ uv run python example/evolution/step2_modules/main.py
 uv run python example/evolution/step3_task/producer.py
 ```
 
-Step 2 換成寫入 MySQL（先啟動 MySQL 容器）：
+Step 1 要同時寫入 MySQL，把檔案裡的 `WRITE_MYSQL` 改成 `True`（先啟動 MySQL 容器）。
+
+Step 2 之後改用環境變數決定儲存目標，不必改程式碼：
 
 ```bash
 docker compose -f docker-compose-local.yml up -d mysql
 STORAGE=mysql uv run python example/evolution/step2_modules/main.py
+STORAGE=csv,mysql uv run python example/evolution/step2_modules/main.py
 ```
 
 Step 4 需要 RabbitMQ，並且要開兩個終端機視窗：

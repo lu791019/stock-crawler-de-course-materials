@@ -5,7 +5,7 @@ Step 0 把設定寫死在函式裡, Step 1 搬到模組最上方, 這裡再往�
 改用 os.environ.get() 讀環境變數, 讀不到才用預設值。
 這樣同一份程式在本機、在容器、在雲端都不用改任何一行, 只換環境變數。
 
-這個檔案的寫法與課程正式版 crawler/config.py 完全相同。
+這個檔案的寫法與課程正式版 crawler/config.py 相同。
 """
 import os
 
@@ -18,8 +18,9 @@ END_DATE = os.environ.get("END_DATE", "2025-06-17")
 FINMIND_URL = os.environ.get("FINMIND_URL", "https://api.finmindtrade.com/api/v4/data")
 FINMIND_DATASET = os.environ.get("FINMIND_DATASET", "TaiwanStockPrice")
 
-# 怎麼存: STORAGE 決定要用哪一個 repository 實作, 值是 csv 或 mysql
-# 這個開關是 Step 2 的驗收重點——換值不用改 client 的任何一行
+# 怎麼存: STORAGE 決定要用哪些 repository 實作, 可用值是 csv 與 mysql
+# 用逗號分隔可以同時寫多個目標, 例如 STORAGE=csv,mysql
+# 這個開關是 Step 2 的驗收重點——換值不用改 client 與 transformer 的任何一行
 STORAGE = os.environ.get("STORAGE", "csv")
 
 # CSV 的輸出目錄
