@@ -192,6 +192,40 @@ gcloud sql instances create stock-mysql \
 | `--root-password` | `1234` | **刻意跟 `.env.example` 的預設一致**——這是等一下「程式一行都不用改帳密」的關鍵 |
 
 - **建立要等約 10 分鐘**（Google 在幫你準備一台帶備份機制的資料庫伺服器），比開 VM 慢很多是正常的
+
+**同一件事的 Console 版**（跟第 14 章建 VM 一樣，建議先用表單看懂每個欄位，實際建立用指令）。入口：「≡ → SQL」→ 藍色「**建立執行個體**」下拉 → 「**新增執行個體**」：
+
+![Console 建立執行個體下拉](images/ch16/21-Console建立執行個體下拉.jpg)
+
+首頁還有「沙箱／開發／正式環境」三張快速建立卡，預設值（MySQL 8.4、大機型）與課程不符，**不要用快速卡**，走「新增執行個體」的完整表單。下一頁選擇資料庫引擎，按「**選擇「MySQL」**」：
+
+![選擇資料庫引擎](images/ch16/22-Console選擇資料庫引擎MySQL.jpg)
+
+表單的預設值幾乎每一項都跟課程要的不同，逐項對照著改（每一項都對應 CLI 的一個參數）：
+
+| 表單欄位 | 預設值 | 要改成 | 對應 CLI 參數 |
+|---------|--------|--------|--------------|
+| 選擇 Cloud SQL 版本 | Enterprise Plus | **Enterprise** | （tier 隱含） |
+| 資料庫版本 | MySQL 8.4 | **MySQL 8.0** | `--database-version` |
+| 執行個體 ID | 空 | `stock-mysql` | 第一個參數 |
+| 區域 | us-central1（愛荷華州） | **asia-east1（台灣）** | `--region` |
+| 可用區可用性 | 多可用區 | **單一可用區** | （課程規格不支援多可用區） |
+| 機器設定 → 機器家族 | 一般用途 - 專屬核心 | **一般用途 - 共用核心** | `--tier` |
+| 機器規格 | 1 vCPU，1.7 GB | **1 vCPU，0.614 GB** | `--tier=db-f1-micro` |
+
+![表單上半：版本選擇與資料庫版本](images/ch16/23-Console建立表單版本選擇.jpg)
+
+兩個表單才看得到的地方：
+
+- **密碼欄的政策提示**：表單要求至少 8 個字元、含大小寫英文字母、數字和非英數字元——填課程的 `1234` 會出現紅字。這是表單的前端檢查，`gcloud` 的 `--root-password` 沒有這一關（課程主線用 CLI 就是 `1234`）。用表單建立的話，按「產生」讓它生一組合規密碼，再照 Part D 的做法交給 Secret Manager 保管。
+- **右側「摘要」與「費用估算」即時更新**：每改一個欄位，右側的機型、區域和每小時費用馬上跟著變——這就是第 14 章說的「介面能看到所有選項和即時費用」。全部照表改完，摘要的「機型」列會顯示 `db-f1-micro`，每小時費用估算約 US$0.07：
+
+![區域與密碼政策](images/ch16/24-Console建立表單區域與密碼政策.jpg)
+
+![共用核心 db-f1-micro 與摘要](images/ch16/25-Console建立表單共用核心f1micro.jpg)
+
+表單填完按最下方的「建立執行個體」就等於那條 `gcloud sql instances create`。**CLI 和表單擇一**——已經用指令建好的人，表單看到這裡按「取消」離開即可，不要建出第二顆。
+
 - 完成後查狀態與 IP：
 
 ```bash
@@ -316,6 +350,8 @@ gcloud secrets versions access latest --secret=mysql-password
 # 1234
 ```
 
+在 VM1 或 VM2 驗都可以——兩台掛的是同一個 Compute Engine 預設服務帳戶，一台通過就代表授權對兩台都生效。
+
 `versions access` 的 Console 版：點進 `mysql-password` → 「**版本**」分頁 → 版本 1 那列右側「**⋮**」→「**查看密鑰值**」，對話框直接顯示這一版的值：
 
 ![Console 查看密鑰值](images/ch16/15-Console查看密鑰值.jpg)
@@ -324,10 +360,12 @@ gcloud secrets versions access latest --secret=mysql-password
 
 **D-4 部署時取出——密碼從 Secret Manager 寫進 `.env`**：
 
-程式讀密碼的方式**維持原樣**：`config.py` 的 `MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "1234")`，只認環境變數。要換的是 **`.env` 裡那個值從哪裡來**——不再手打密碼，用指令當場向 Secret Manager 取出、寫進 `.env`（跟第 14 章 H-3 寫 `GCP_PROJECT_ID` 同一套做法）：
+程式讀密碼的方式**維持原樣**：`config.py` 的 `MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "1234")`，只認環境變數。要換的是 **`.env` 裡那個值從哪裡來**——不再手打密碼，用指令當場向 Secret Manager 取出、寫進 `.env`（跟第 14 章 H-3 寫 `GCP_PROJECT_ID` 同一套做法）。
+
+**這套動作在哪台機器做？判斷方式：哪台機器的容器要連 MySQL，就在哪台做。** 本章的答案是**只有 VM2**——要連 Cloud SQL 的是 VM2 上的 worker；VM1 上的 Airflow、RabbitMQ、Flower 都不連 MySQL，**VM1 不用做這一步**。所以這裡先把三個步驟講清楚，實際執行的位置在 Part E：VM2 完成 `.env` 接線後，緊接著就是這套 ①②③。
 
 ```bash
-# 在 VM 的 ~/stock-crawler
+# 在 VM2 的 ~/stock-crawler
 # ① 先刪掉既有的 MYSQL_PASSWORD 行——第一次執行時檔案裡沒有這行，這條只是讓重跑安全
 sed -i '/^MYSQL_PASSWORD=/d' .env
 
@@ -335,8 +373,9 @@ sed -i '/^MYSQL_PASSWORD=/d' .env
 #    $(...) 會先執行括號裡的指令、把輸出當值寫進去
 echo "MYSQL_PASSWORD=$(gcloud secrets versions access latest --secret=mysql-password)" >> .env
 
-# ③ 啟動——compose 的插值會從 .env 讀到密碼
-sudo docker compose -f docker-compose-local.yml up -d
+# ③ 啟動（或重建）需要這個密碼的容器——compose 的插值會從 .env 讀到密碼
+#    本章要起的是 worker（--no-deps 的理由見 Part E；密碼輪替後重跑的也是這一條）
+sudo docker compose -f docker-compose-local.yml up -d --no-deps worker_twse worker_tpex
 ```
 
 這個做法的分工：**Secret Manager 是密碼的唯一真實來源，`.env` 是部署那一刻取出的落地值**。程式一行不改、不裝任何 SDK；取出動作用的是「執行指令的機器」的身分——在 VM 上就是 D-2 授權的服務帳戶。整個流程你**沒有手打過密碼**：不經鍵盤、不經聊天室，指令歷史裡也只有 `$(...)` 這串文字，不是密碼的值。`.env` 本身在 `.gitignore` 裡（第 14 章步驟 6 的規矩），不會進 repo。
@@ -350,7 +389,7 @@ printf "{新密碼}" | gcloud secrets versions add mysql-password --data-file=-
 # Created version [10] of the secret [mysql-password].
 ```
 
-**（SSH 進跑服務的 VM）** 重跑 D-4 的 ①②③（刪舊行 → 取出寫入 → up），容器就會拿到新值。驗證直接看容器的環境變數：
+**（SSH 進 VM2——跑 worker 的機器）** 重跑 D-4 的 ①②③（刪舊行 → 取出寫入 → up），容器就會拿到新值。哪幾台要重跑，判斷方式跟 D-4 相同：哪台的容器連 MySQL 就重跑哪台——本章只有 VM2。驗證直接看容器的環境變數：
 
 ```bash
 sudo docker exec {容器名} env | grep MYSQL_PASSWORD
@@ -398,7 +437,7 @@ tail -3 .env    # 核對寫進去的值
 
 一句話總結這個設計：**同一份 compose 檔走遍本機和雲端，每台機器的連線目標由它自己的 `.env` 決定**——第 6 章「設定集中管理」的完整版。四個值的**來源**值得注意：兩個 HOST 抄自 `instances list`、專案 ID 問 `gcloud config`、密碼向 Secret Manager 要——**沒有一個值是憑記憶手打的**，這就是設定管理的紀律：每個值都有可查證的出處。
 
-第四行是密碼——在 VM2 重做一次 D-4 的取出寫入，然後啟動 worker：
+第四行是密碼——D-4 講好的 ①②③ 在這裡實際執行（本章唯一要連 MySQL 的機器就是 VM2）：
 
 ```bash
 sed -i '/^MYSQL_PASSWORD=/d' .env
@@ -476,7 +515,25 @@ bq query --use_legacy_sql=false "SELECT COUNT(*) AS cnt FROM raw.TaiwanStockPric
 
 ![Flower 跨機](images/ch16/04-Flower跨機兩worker各Succeeded1.jpg)
 
-**用 Console 的圖形介面查資料——Cloud SQL Studio**：≡ → SQL → stock-mysql → 左側「Cloud SQL Studio」。這裡有個坑：登入對話框的使用者下拉裡，**root 是灰色不可選的**（顯示「不支援 'root'@'%'」）——Studio 不開放 root 帳號登入，這是它的安全限制。解法是先用 gcloud 建一個一般使用者（`--host=%` 要明確給，不給的話 host 是空值，Studio 一樣拒收）：
+**用 Console 的圖形介面查資料——Cloud SQL Studio**：≡ → SQL → **點執行個體名稱 stock-mysql 進入詳情頁** → 左側選單的「Cloud SQL Studio」。
+
+**找不到 Cloud SQL Studio？三種情況逐一排查**：
+
+1. **你還在執行個體清單頁**。清單頁的左側選單只有「開始使用／執行個體／備份」三項，**沒有** Cloud SQL Studio——它是執行個體層級的功能，要先點執行個體名稱進入詳情頁，左側選單才會變成「總覽／Cloud SQL Studio／設定／…／使用者／資料庫」這一組：
+
+![實例詳情頁左側選單](images/ch16/26-Console實例詳情左側選單與停止.jpg)
+
+2. **執行個體停止中**。選單項目還在，但點進去會顯示「**這個執行個體並未執行，因此您目前無法存取 Cloud SQL Studio。**」，「驗證」按鈕也是灰的。收工停用實例之後回來想查資料就會遇到這個畫面——先把實例啟動（`gcloud sql instances patch stock-mysql --activation-policy=ALWAYS`，或詳情頁上方的「啟動」按鈕），等狀態變回 RUNNABLE 再進 Studio：
+
+![停止狀態的 Studio](images/ch16/28-Studio實例停止無法存取.jpg)
+
+3. **執行個體已刪除**。清單是空的，自然沒有東西可點——本章結尾刪過實例的人，要先回 C-2 重建。
+
+進得去之後還有一個坑：登入對話框的使用者下拉裡，**root 是灰色不可選的**（顯示「不支援 'root'@'%'」）——Studio 不開放 root 帳號登入，這是它的安全限制：
+
+![Studio 登入 root 不可選](images/ch16/27-Studio登入root不可選.jpg)
+
+解法是先用 gcloud 建一個一般使用者（`--host=%` 要明確給，不給的話 host 是空值，Studio 一樣拒收）：
 
 ```bash
 gcloud sql users create studio --instance=stock-mysql --password=1234 --host=%
@@ -777,6 +834,10 @@ gcloud sql instances patch stock-mysql --activation-policy=NEVER
 # 兩台 VM 一起停
 gcloud compute instances stop stock-crawler-vm stock-crawler-vm2 --zone=asia-east1-b
 ```
+
+Cloud SQL 停止的 Console 版：SQL → 點 stock-mysql 進詳情頁 → 上方按鈕列的「**停止**」（跟「編輯／匯入／匯出／重新啟動／刪除」並排，見 Part F 那張詳情頁截圖）。VM 停止的 Console 版在第 14 章「用 Console 停機／開機」補充段。
+
+提醒：停用 Cloud SQL 之後，Cloud SQL Studio 會顯示「這個執行個體並未執行」而無法查資料（Part F 排查清單第 2 項）——這是正常現象，不是壞掉。
 
 | 資源 | 停了之後 | 還會收的錢 |
 |------|---------|-----------|
