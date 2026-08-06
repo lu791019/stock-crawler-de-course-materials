@@ -107,6 +107,16 @@ flowchart LR
 > | VM2 外部 IP | Part B 建好後 | 同上 | ______ |
 > | Cloud SQL IP | Part C 建好後 | `gcloud sql instances list` | ______ |
 
+開工還有一件事：**把 VM1 上的課程 repo 對齊最新版**。課程 repo 會持續修正程式與 DAG，這一步保證你接下來操作的是修正過的版本：
+
+```bash
+gcloud compute ssh stock-crawler-vm --zone=asia-east1-b
+cd ~/stock-crawler
+git pull
+```
+
+本章只需要 pull、不需要 rebuild：VM1 的 Airflow 容器是把 `dags/` 與 `crawler/` 從 VM 磁碟**掛載**進去的，pull 完新程式碼直接生效；而 VM1 的 worker 容器在 Part A 就會收掉，不會再用。VM2 是 Part B 才 clone 的，天生就是最新版。「掛載 pull 即生效、烤進 image 要 rebuild」這條規則的完整版在第 15 章 Step 0。
+
 ### Part A：VM1 收斂成 infra 角色
 
 第 14 章的 VM1 一台裝全部；搬家的第一步是把它**收斂成中樞**——排程（Airflow）、佇列（RabbitMQ）、監控（Flower）留下，勞力（worker）與資料（MySQL）搬走：

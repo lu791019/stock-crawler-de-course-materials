@@ -257,14 +257,40 @@ FROM vw_stock_price_daily
 
 ## 一步一步
 
-### Step 0：確認雙寫的資料已經落地
+### Step 0：同步 repo、確認雙寫的資料已經落地
 
-本章不需要「把資料搬進 BigQuery」——第 14 章 H-3 起，爬蟲每次抓取就同時寫兩邊了。開始前 SSH 進 VM，確認兩邊都有筆數：
+開始前先把 VM 上的課程 repo 對齊最新版——課程 repo 會持續修正程式與 DAG，上次 clone 到現在可能已經有更新：
 
 ```bash
 # SSH 進 VM（VM 停機中先 start）
 gcloud compute ssh stock-crawler-vm --zone=asia-east1-b
 
+cd ~/stock-crawler
+git pull
+```
+
+`git pull` 顯示 `Already up to date.` 就直接往下走。**有更新**的話，要分兩半處理，因為兩類容器拿程式碼的方式不同：
+
+| 容器 | 程式碼怎麼進容器 | pull 之後要做什麼 |
+|------|----------------|-----------------|
+| Airflow 三容器 | `dags/` 與 `crawler/` 從 VM 磁碟**掛載**進去 | 不用做——pull 完即生效 |
+| worker（crawler_twse / crawler_tpex） | build 時 `COPY` **烤進 image** | 要 rebuild + up 重建才生效 |
+
+worker 的重建三步（只在 pull 有更新時做）：
+
+```bash
+# 先清舊的 build 快取騰空間——磁碟緊的機器不做這步，build 到一半會爆
+sudo docker builder prune -af
+
+sudo docker compose -f docker-compose-all.yml build crawler_twse crawler_tpex
+sudo docker compose -f docker-compose-all.yml up -d --no-deps crawler_twse crawler_tpex
+```
+
+`up -d` 而不是 `restart`：環境變數與程式碼都是容器建立時定下來的，restart 只是重開同一個容器，拿不到新東西。
+
+接著確認雙寫的資料。本章不需要「把資料搬進 BigQuery」——第 14 章 H-3 起，爬蟲每次抓取就同時寫兩邊了。確認兩邊都有筆數：
+
+```bash
 # MySQL 那份（雙寫①）
 sudo docker exec mysql mysql -uroot -p1234 -N -e "SELECT COUNT(*) FROM mydb.TaiwanStockPrice;"
 

@@ -96,6 +96,27 @@ gcloud sql instances patch stock-mysql \
 
 # 6. 確認 VM2 的 worker 跟著回來了（compose 的 restart 政策會自動拉起）
 gcloud compute ssh stock-crawler-vm2 --zone=asia-east1-b --command='sudo docker ps --format "{{.Names}}"'
+
+# 7. 同步課程 repo（兩台都要 pull；生效方式不同，見下）
+gcloud compute ssh stock-crawler-vm --zone=asia-east1-b --command='cd ~/stock-crawler && git pull'
+gcloud compute ssh stock-crawler-vm2 --zone=asia-east1-b --command='cd ~/stock-crawler && git pull'
+```
+
+第 7 步兩台的後續動作不一樣，取決於程式碼怎麼進容器（第 15 章 Step 0 的同一條規則）：
+
+| 機器 | 程式碼怎麼進容器 | pull 之後 |
+|------|----------------|----------|
+| VM1 | Airflow 容器**掛載** `dags/` 與 `crawler/` | 不用做，pull 完即生效 |
+| VM2 | worker image 用 `COPY` **烤進去** | pull 顯示有更新時，要 rebuild + up 重建 |
+
+VM2 有更新時的重建（SSH 進 VM2 執行）：
+
+```bash
+cd ~/stock-crawler
+sudo docker builder prune -af    # 先清舊 build 快取騰空間，磁碟緊的機器尤其要做
+sudo docker compose -f docker-compose-local.yml build worker_twse worker_tpex
+sudo docker compose -f docker-compose-local.yml up -d --no-deps worker_twse worker_tpex
+sudo docker logs crawler_twse --tail 3    # 要看到 ready.
 ```
 
 第 2 步是舊識：**存取範圍（scopes）**是 VM 機器層的舊式閘門——就算 IAM 角色有權限，scopes 沒開放的操作一樣做不了（第 14 章 Part F 講過）。照著課程建機的話兩台 VM 都帶著 `cloud-platform`，這裡查一下就好。**輸出不是 `cloud-platform` 的話**（例如 VM 是在加上 `--scopes` 參數之前建的），要趁停機補改——scopes 只能在停機狀態下修改：
