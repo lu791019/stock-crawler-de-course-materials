@@ -218,7 +218,7 @@ gcloud sql instances create stock-mysql \
 | 表單欄位 | 預設值 | 要改成 | 對應 CLI 參數 |
 |---------|--------|--------|--------------|
 | 選擇 Cloud SQL 版本 | Enterprise Plus | **Enterprise** | （tier 隱含） |
-| 資料庫版本 | MySQL 8.4 | **MySQL 8.0** | `--database-version` |
+| 資料庫版本 | MySQL 8.4 | **MySQL 8.0**（必改，理由見下） | `--database-version` |
 | 執行個體 ID | 空 | `stock-mysql` | 第一個參數 |
 | 區域 | us-central1（愛荷華州） | **asia-east1（台灣）** | `--region` |
 | 可用區可用性 | 多可用區 | **單一可用區** | （課程規格不支援多可用區） |
@@ -226,6 +226,8 @@ gcloud sql instances create stock-mysql \
 | 機器規格 | 1 vCPU，1.7 GB | **1 vCPU，0.614 GB** | `--tier=db-f1-micro` |
 
 ![表單上半：版本選擇與資料庫版本](images/ch16/23-Console建立表單版本選擇.jpg)
+
+**資料庫版本必須改回 MySQL 8.0，這不是喜好問題**：8.4 的 root 帳號用 `caching_sha2_password` 認證外掛，worker 的 pymysql 走非加密連線時會直接被拒（`Access denied`）——而且用 mysql 官方 client 測試會通（它預設走 TLS），兩邊結果矛盾，非常難排查。8.0 的 root 是 `mysql_native_password`，課程整條非加密連線路徑都以它為前提。
 
 兩個表單才看得到的地方：
 
@@ -931,6 +933,7 @@ Cloud SQL 停止的 Console 版：SQL → 點 stock-mysql 進詳情頁 → 上�
 | worker 錯誤訊息裡出現 `%7B...%7D` | `.env` 裡抄進了佔位符的大括號（`%7B`/`%7D` 是 `{`/`}` 的 URL 編碼），`.env` 不驗值、寫錯不報錯 | 照 Part E 的 `$(gcloud ...)` 指令重寫該行（先 sed 刪舊行），再 up 重建 |
 | invalid literal for int() 之類的連線字串解析錯 | 密碼含 `@` `:` 等 URL 分隔符（Console 產生的密碼常見） | `git pull` 拉最新程式（已做 URL 編碼）重 build；或照 D-4 三步把密碼換成純英數字 |
 | 修好之後 Flower 還是看到 FAILURE | Flower 列的是歷史紀錄，舊失敗不會消失 | 認時間戳：重新觸發 DAG，看「新」任務的狀態 |
+| 密碼三邊都一致、mysql client `SELECT 1` 過，worker 仍 Access denied | 實例是 MySQL 8.4（Console 表單預設）——root 用 caching_sha2_password，pymysql 非加密連線被拒；mysql client 走 TLS 所以測起來是通的 | `gcloud sql instances list` 看 DATABASE_VERSION；是 8.4 就照 C-2 的 CLI 重建成 8.0（`SELECT user,host,plugin FROM mysql.user` 可看到外掛差異） |
 | 建實例卡很久 | Cloud SQL 建立本來就要約 10 分鐘 | `gcloud sql instances list` 看 STATUS 從 PENDING_CREATE 變 RUNNABLE |
 | Unknown database 'mydb' | 忘了建資料庫 | `gcloud sql databases create mydb --instance=stock-mysql` |
 | VM2 上莫名多一個 rabbitmq 容器 | up 沒加 `--no-deps`，depends_on 連帶啟動 | `docker rm -f rabbitmq`，之後 up 記得加 `--no-deps` |
