@@ -934,6 +934,7 @@ Cloud SQL 停止的 Console 版：SQL → 點 stock-mysql 進詳情頁 → 上�
 | invalid literal for int() 之類的連線字串解析錯 | 密碼含 `@` `:` 等 URL 分隔符（Console 產生的密碼常見） | `git pull` 拉最新程式（已做 URL 編碼）重 build；或照 D-4 三步把密碼換成純英數字 |
 | 修好之後 Flower 還是看到 FAILURE | Flower 列的是歷史紀錄，舊失敗不會消失 | 認時間戳：重新觸發 DAG，看「新」任務的狀態 |
 | 密碼三邊都一致、mysql client `SELECT 1` 過，worker 仍 Access denied | 實例是 MySQL 8.4（Console 表單預設）——root 用 caching_sha2_password，pymysql 非加密連線被拒；mysql client 走 TLS 所以測起來是通的 | `gcloud sql instances list` 看 DATABASE_VERSION；是 8.4 就照 C-2 的 CLI 重建成 8.0（`SELECT user,host,plugin FROM mysql.user` 可看到外掛差異） |
+| 刪實例被拒 `The instance is protected` | Console 建立的實例預設開啟刪除保護（CLI 建的沒有） | `gcloud sql instances patch {實例名} --no-deletion-protection` 後再刪 |
 | 建實例卡很久 | Cloud SQL 建立本來就要約 10 分鐘 | `gcloud sql instances list` 看 STATUS 從 PENDING_CREATE 變 RUNNABLE |
 | Unknown database 'mydb' | 忘了建資料庫 | `gcloud sql databases create mydb --instance=stock-mysql` |
 | VM2 上莫名多一個 rabbitmq 容器 | up 沒加 `--no-deps`，depends_on 連帶啟動 | `docker rm -f rabbitmq`，之後 up 記得加 `--no-deps` |
