@@ -364,6 +364,22 @@ gcloud secrets versions access latest --secret=mysql-password
 
 在 VM1 或 VM2 驗都可以——兩台掛的是同一個 Compute Engine 預設服務帳戶，一台通過就代表授權對兩台都生效。
 
+上面驗的是「讀得到 secret」。還差一個驗證把環閉合：**secret 裡存的值，真的登得進資料庫嗎？**照課程主線（CLI 建實例、密碼 1234）兩邊必然一致；但只要有任何一邊是手動輸入的（例如用 Console 表單建實例、密碼是表單產生的），「資料庫的密碼」和「secret 存的值」就是**兩次獨立的複製**，對不上的機率不低——而且不驗的話，這個錯要到 Part F 發任務時才會以 `Access denied` 爆出來，離錯誤源頭隔了整整兩個 Part。在 VM 上驗：
+
+```bash
+# 用 secret 的值直接登入 Cloud SQL——證明「保管的密碼」和「資料庫的密碼」是同一個
+sudo docker run --rm mysql:8.0 mysql -h{CloudSQL IP} -uroot \
+  -p"$(gcloud secrets versions access latest --secret=mysql-password)" -N -e "SELECT 1;"
+# 1
+```
+
+回 `1` 就是閉環了。回 `Access denied` 代表兩邊的值不同——用一條指令把資料庫端改成 secret 的值對齊（以 secret 為準，因為 `.env` 之後都從它取）：
+
+```bash
+gcloud sql users set-password root --host=% --instance=stock-mysql \
+  --password="$(gcloud secrets versions access latest --secret=mysql-password)"
+```
+
 `versions access` 的 Console 版：點進 `mysql-password` → 「**版本**」分頁 → 版本 1 那列右側「**⋮**」→「**查看密鑰值**」，對話框直接顯示這一版的值：
 
 ![Console 查看密鑰值](images/ch16/15-Console查看密鑰值.jpg)
@@ -392,16 +408,23 @@ sudo docker compose -f docker-compose-local.yml up -d --no-deps worker_twse work
 
 這個做法的分工：**Secret Manager 是密碼的唯一真實來源，`.env` 是部署那一刻取出的落地值**。程式一行不改、不裝任何 SDK；取出動作用的是「執行指令的機器」的身分——在 VM 上就是 D-2 授權的服務帳戶。整個流程你**沒有手打過密碼**：不經鍵盤、不經聊天室，指令歷史裡也只有 `$(...)` 這串文字，不是密碼的值。`.env` 本身在 `.gitignore` 裡（第 14 章步驟 6 的規矩），不會進 repo。
 
-**換密碼＝新增版本＋重新取出＋up。** 團隊環境密碼會需要輪替（組員退出專題、密碼外流）。流程兩步，**注意在不同機器執行**：
+**換密碼＝改三個地方：secret、資料庫本身、容器。** 團隊環境密碼會需要輪替（組員退出專題、密碼外流）。三個地方缺一不可——secret 是保管處、資料庫是驗證方、容器是使用方，只改其中一兩個，worker 寫資料庫就會 `Access denied`。流程三步，**注意在不同機器執行**：
 
-**（在你自己的電腦）** 新增一個版本——`versions add` 是新增版本，`latest` 會自動指向最新這一版。新密碼**只用大小寫英文字母和數字**（用長度補強度，例如 16 碼）：`@` 和 `:` 是連線字串的分隔符、`$` 會被 compose 插值展開，密碼裡帶著它們，worker 一寫資料庫就會噴連線字串解析錯誤：
+**（在你自己的電腦）第一步**：新增 secret 版本——`versions add` 是新增版本，`latest` 會自動指向最新這一版。新密碼**只用大小寫英文字母和數字**（用長度補強度，例如 16 碼）：`@` 和 `:` 是連線字串的分隔符、`$` 會被 compose 插值展開，密碼裡帶著它們，worker 一寫資料庫就會噴連線字串解析錯誤：
 
 ```bash
 printf "{新密碼}" | gcloud secrets versions add mysql-password --data-file=-
 # Created version [10] of the secret [mysql-password].
 ```
 
-**（SSH 進 VM2——跑 worker 的機器）** 重跑 D-4 的 ①②③（刪舊行 → 取出寫入 → up），容器就會拿到新值。哪幾台要重跑，判斷方式跟 D-4 相同：哪台的容器連 MySQL 就重跑哪台——本章只有 VM2。驗證直接看容器的環境變數：
+**（在你自己的電腦）第二步**：資料庫本身的密碼也換成同一個值——直接向 Secret Manager 取，不重打第二次（重打就又是兩次獨立輸入，回到可能對不上的老路）：
+
+```bash
+gcloud sql users set-password root --host=% --instance=stock-mysql \
+  --password="$(gcloud secrets versions access latest --secret=mysql-password)"
+```
+
+**（SSH 進 VM2——跑 worker 的機器）第三步**：重跑 D-4 的 ①②③（刪舊行 → 取出寫入 → up），容器就會拿到新值。哪幾台要重跑，判斷方式跟 D-4 相同：哪台的容器連 MySQL 就重跑哪台——本章只有 VM2。驗證直接看容器的環境變數：
 
 ```bash
 sudo docker exec {容器名} env | grep MYSQL_PASSWORD
@@ -497,7 +520,7 @@ sudo docker exec crawler_twse env | grep MYSQL_PASSWORD
 
 這裡看到的值如果**跟 `.env` 對不上**，代表容器是用舊版 `.env` 建的（環境變數在容器建立那一刻凍結，之後改 `.env` 不會自己生效，`docker restart` 也不會）——回去重跑上面的 `up -d`，compose 會偵測到值變了、自動重建容器。
 
-secret 的值跟預設一樣是 1234 時看不出來源——照 D-4 的輪替流程加一個好辨識的版本（例如 `sm-test-42`）、重跑 ①②③、再看一次 env，值變了就證明是 Secret Manager 來的；測完記得把版本換回來。
+secret 的值跟預設一樣是 1234 時看不出來源——照 D-4 的輪替**三步**（新增版本 `sm-test-42` → 資料庫 set-password 同步換 → 重跑 ①②③）走一輪，再看一次 env，值變了就證明是 Secret Manager 來的。注意三步要走完整：只換 secret 不換資料庫，測試期間 worker 寫資料庫會 `Access denied`。測完照同一套三步把密碼換回 1234。
 
 > 對照：第 12 章教過「compose 檔 `environment:` 寫死的值會蓋過 env_file」——當時的結論是 environment 優先。現在 environment 這一側自己變成了插值，值的來源反轉成「`.env` → 插值 → 容器」，這正是插值跟 env_file 的差別：env_file 是「另一個給值的來源（會被 environment 蓋掉）」，插值是「environment 自己開的洞」。
 
@@ -904,7 +927,10 @@ Cloud SQL 停止的 Console 版：SQL → 點 stock-mysql 進詳情頁 → 上�
 |------|------|------|
 | worker 連 Cloud SQL 逾時 | VM 重開後外部 IP 換了，授權網路還是舊 IP | `instances list` 查新 IP → 重跑 `sql instances patch --authorized-networks` |
 | worker 連不上 RabbitMQ | `.env` 的內部 IP 抄錯，或 VM1 的 rabbitmq 沒起 | 核對 `instances list` 的 INTERNAL_IP；VM1 `docker ps` |
-| Access denied for user 'root' | Cloud SQL root 密碼跟 `.env` 對不上 | 建實例時 `--root-password=1234`；或 `gcloud sql users set-password` 重設 |
+| Access denied for user 'root' | 資料庫的密碼、secret 的值、容器的值三者有人不一樣（常見於 Console 建實例＋手動存密鑰＝兩次獨立輸入） | 照 D-3 的閉環驗證定位：先用 secret 的值直連 `SELECT 1`——不過就 `set-password` 以 secret 為準對齊；過了但 worker 仍失敗就比對容器 env 與 secret，重跑 D-4 ①②③ |
+| worker 錯誤訊息裡出現 `%7B...%7D` | `.env` 裡抄進了佔位符的大括號（`%7B`/`%7D` 是 `{`/`}` 的 URL 編碼），`.env` 不驗值、寫錯不報錯 | 照 Part E 的 `$(gcloud ...)` 指令重寫該行（先 sed 刪舊行），再 up 重建 |
+| invalid literal for int() 之類的連線字串解析錯 | 密碼含 `@` `:` 等 URL 分隔符（Console 產生的密碼常見） | `git pull` 拉最新程式（已做 URL 編碼）重 build；或照 D-4 三步把密碼換成純英數字 |
+| 修好之後 Flower 還是看到 FAILURE | Flower 列的是歷史紀錄，舊失敗不會消失 | 認時間戳：重新觸發 DAG，看「新」任務的狀態 |
 | 建實例卡很久 | Cloud SQL 建立本來就要約 10 分鐘 | `gcloud sql instances list` 看 STATUS 從 PENDING_CREATE 變 RUNNABLE |
 | Unknown database 'mydb' | 忘了建資料庫 | `gcloud sql databases create mydb --instance=stock-mysql` |
 | VM2 上莫名多一個 rabbitmq 容器 | up 沒加 `--no-deps`，depends_on 連帶啟動 | `docker rm -f rabbitmq`，之後 up 記得加 `--no-deps` |
