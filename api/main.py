@@ -14,6 +14,7 @@ Stock Price API — 用 FastAPI 把 MySQL 裡的股價開成 REST API
     http://localhost:8000/docs
 """
 import os
+from urllib.parse import quote_plus  # 密碼含 URL 特殊符號時先編碼
 
 import pandas as pd                                    # 查詢結果 → DataFrame → JSON
 from fastapi import FastAPI, HTTPException, Query      # 框架本體、標準錯誤回應、查詢參數驗證
@@ -41,12 +42,12 @@ app = FastAPI(
 if MYSQL_UNIX_SOCKET:
     # Cloud Run: 走 unix socket, URL 的 host:port 留空、socket 路徑放 query string
     _db_url = (
-        f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@/{MYSQL_DATABASE}"
+        f"mysql+pymysql://{MYSQL_ACCOUNT}:{quote_plus(MYSQL_PASSWORD)}@/{MYSQL_DATABASE}"
         f"?unix_socket={MYSQL_UNIX_SOCKET}"
     )
 else:
     # 本機 / VM: 走 TCP, 跟第 5 章以來完全相同
-    _db_url = f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
+    _db_url = f"mysql+pymysql://{MYSQL_ACCOUNT}:{quote_plus(MYSQL_PASSWORD)}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
 
 engine = create_engine(_db_url)
 

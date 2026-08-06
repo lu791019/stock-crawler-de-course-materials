@@ -2,6 +2,8 @@
 MySQL 工具模組
 提供 MySQL 的 View 建立、資料查詢等操作功能
 """
+from urllib.parse import quote_plus
+
 import pandas as pd
 from sqlalchemy import create_engine, text
 
@@ -11,7 +13,8 @@ MYSQL_DATABASE = "mydb"
 
 
 def _get_engine():
-    address = f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
+    # quote_plus: 密碼含 @ : % 等 URL 特殊符號時先編碼, 否則連線字串會被切歪
+    address = f"mysql+pymysql://{MYSQL_ACCOUNT}:{quote_plus(MYSQL_PASSWORD)}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
     return create_engine(address)
 
 

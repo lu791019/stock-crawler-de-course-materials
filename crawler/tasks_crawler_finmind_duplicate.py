@@ -1,3 +1,5 @@
+from urllib.parse import quote_plus
+
 import pandas as pd
 import requests
 from sqlalchemy import create_engine  # 建立資料庫連線的工具（SQLAlchemy）
@@ -14,7 +16,8 @@ def upload_data_to_mysql_duplicate(df: pd.DataFrame):
     # 定義資料庫連線字串（MySQL 資料庫）
     # 格式：mysql+pymysql://使用者:密碼@主機:port/資料庫名稱
     # 上傳到 mydb, 同學可切換成自己的 database
-    address = f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/mydb"
+    # quote_plus: 密碼含 @ : % 等 URL 特殊符號時先編碼, 否則連線字串會被切歪
+    address = f"mysql+pymysql://{MYSQL_ACCOUNT}:{quote_plus(MYSQL_PASSWORD)}@{MYSQL_HOST}:{MYSQL_PORT}/mydb"
 
     # 建立 SQLAlchemy 引擎物件
     engine = create_engine(address)

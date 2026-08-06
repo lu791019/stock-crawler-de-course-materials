@@ -1,3 +1,5 @@
+from urllib.parse import quote_plus  # 密碼含 @ : % 等符號時要先做 URL 編碼才能進連線字串
+
 import pandas as pd
 import requests
 from sqlalchemy import create_engine  # 建立資料庫連線的工具（SQLAlchemy）
@@ -46,7 +48,9 @@ def upload_data_to_mysql(df: pd.DataFrame):
     # 定義資料庫連線字串（MySQL 資料庫）
     # 格式：mysql+pymysql://使用者:密碼@主機:port/資料庫名稱
     # 上傳到 mydb, 同學可切換成自己的 database
-    address = f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/mydb"
+    # 密碼要先 quote_plus 做 URL 編碼：連線字串裡 @ 分隔「帳密」與「主機」、: 分隔「主機」與「port」,
+    # 密碼本身含這些符號時（強密碼常見）會把字串切歪, 出現 invalid literal for int() 之類的解析錯誤
+    address = f"mysql+pymysql://{MYSQL_ACCOUNT}:{quote_plus(MYSQL_PASSWORD)}@{MYSQL_HOST}:{MYSQL_PORT}/mydb"
 
     # 建立 SQLAlchemy 引擎物件
     engine = create_engine(address)

@@ -96,7 +96,9 @@ flowchart LR
 | E | `.env` 三行接線 | 前面的 IP 與位址到齊，worker 才知道要連去哪 |
 | F | 跨機器端到端驗收 | 零件都就位，最後跑一次完整閉環 |
 
-> 本章的 IP 每個人都不同。做到哪、抄到哪，後面指令照抄你自己的值：
+> 本章的 IP 每個人都不同。做到哪、抄到哪，後面指令照抄你自己的值。
+>
+> 指令裡的 `{...}` 是佔位符：**換值時大括號要一起刪掉**，`{VM1外部IP}/32` 換完是 `35.229.140.166/32`，不是 `{35.229.140.166}/32`。它跟 compose 檔裡的 `${變數:-預設值}` 是兩回事——後者是 compose 的插值語法，原樣保留不要改（Part E 會講）。
 >
 > | 值 | 什麼時候拿到 | 查法 | 你的值 |
 > |----|------------|------|--------|
@@ -217,7 +219,7 @@ gcloud sql instances create stock-mysql \
 
 兩個表單才看得到的地方：
 
-- **密碼欄的政策提示**：表單要求至少 8 個字元、含大小寫英文字母、數字和非英數字元——填課程的 `1234` 會出現紅字。這是表單的前端檢查，`gcloud` 的 `--root-password` 沒有這一關（課程主線用 CLI 就是 `1234`）。用表單建立的話，按「產生」讓它生一組合規密碼，再照 Part D 的做法交給 Secret Manager 保管。
+- **密碼欄的政策提示**：表單要求至少 8 個字元、含大小寫英文字母、數字和非英數字元——填課程的 `1234` 會出現紅字。這是表單的前端檢查，`gcloud` 的 `--root-password` 沒有這一關（課程主線用 CLI 就是 `1234`）。用表單建立的話**不要按「產生」**——產生的密碼常含 `@`、`:`、`%`、`$` 這類符號，`@` 和 `:` 是資料庫連線字串的分隔符、`$` 會被 compose 的插值展開，兩邊都會出問題。自己輸入一組**只含大小寫英文字母和數字**的長密碼（例如 16 碼英數字，長度補足強度），再照 Part D 的做法交給 Secret Manager 保管。
 - **右側「摘要」與「費用估算」即時更新**：每改一個欄位，右側的機型、區域和每小時費用馬上跟著變——這就是第 14 章說的「介面能看到所有選項和即時費用」。全部照表改完，摘要的「機型」列會顯示 `db-f1-micro`，每小時費用估算約 US$0.07：
 
 ![區域與密碼政策](images/ch16/24-Console建立表單區域與密碼政策.jpg)
@@ -382,7 +384,7 @@ sudo docker compose -f docker-compose-local.yml up -d --no-deps worker_twse work
 
 **換密碼＝新增版本＋重新取出＋up。** 團隊環境密碼會需要輪替（組員退出專題、密碼外流）。流程兩步，**注意在不同機器執行**：
 
-**（在你自己的電腦）** 新增一個版本——`versions add` 是新增版本，`latest` 會自動指向最新這一版：
+**（在你自己的電腦）** 新增一個版本——`versions add` 是新增版本，`latest` 會自動指向最新這一版。新密碼**只用大小寫英文字母和數字**（用長度補強度，例如 16 碼）：`@` 和 `:` 是連線字串的分隔符、`$` 會被 compose 插值展開，密碼裡帶著它們，worker 一寫資料庫就會噴連線字串解析錯誤：
 
 ```bash
 printf "{新密碼}" | gcloud secrets versions add mysql-password --data-file=-
@@ -422,20 +424,34 @@ worker 在 compose 檔裡的連線目標長這樣（打開 `docker-compose-local
 
 `${變數:-預設值}` 是 compose 的**插值**：up 的當下，**同目錄的 `.env`（或 shell 環境）有設這個變數就用設的值，沒設就用預設值**。預設值全是「大家都在同一台」的容器名——所以 1 到 13 章在本機什麼都不用設，行為就是同機互連。
 
-現在 RabbitMQ 在別台、MySQL 在 Cloud SQL，**把 VM2 的 `.env` 打開，告訴它新目標在哪**（B 段 `cp .env.example .env` 複製好的檔案裡，這三行本來就以註解形式等在那裡，打開改值即可）：
+現在 RabbitMQ 在別台、MySQL 在 Cloud SQL，**用指令把三個連線目標寫進 VM2 的 `.env`**。B 段 `cp .env.example .env` 複製好的檔案裡有三行對應的註解在說明這件事——**它們只是說明，不要打開來手動改值**（手動改最容易把佔位符的大括號留在檔案裡，而 `.env` 不會報錯，要到 worker 起來連不上才發現）。照下面的指令做：
 
 ```bash
-# 在 VM2 的 ~/stock-crawler 下，把三個連線目標寫進 .env（第 14 章 H-3 的同一套做法）：
-echo "RABBITMQ_HOST={VM1內部IP}" >> .env       # 例：10.140.0.2——同 VPC 用內部 IP
-echo "MYSQL_HOST={CloudSQL IP}" >> .env        # 例：35.229.208.220
-echo "GCP_PROJECT_ID=$(gcloud config get-value project)" >> .env   # 雙寫的 BigQuery 半邊（第 15 章讀碼段⓪）
+# 在 VM2 的 ~/stock-crawler 下，把三個連線目標寫進 .env（第 14 章 H-3 的同一套做法）。
 
-tail -3 .env    # 核對寫進去的值
+# ⓪ 先刪掉既有的三行——第一次執行時檔案裡沒有這些行，這條只是讓重跑安全
+#    （.env 裡同名變數出現多次時，compose 用最後一行的值；別依賴這個行為，重跑前刪乾淨）
+sed -i '/^RABBITMQ_HOST=/d; /^MYSQL_HOST=/d; /^GCP_PROJECT_ID=/d' .env
+
+# 三行都用 $(...) 直接向 GCP 查值，不手抄——手抄 IP 的兩種典型失誤這裡都不會發生：
+# 佔位符的大括號沒刪乾淨（{IP} 會原樣寫進檔案）、內外部 IP 抄錯顆
+
+# ① VM1 內部 IP——同 VPC 互連用內部 IP（networkIP 就是內部那顆，不會拿錯）
+echo "RABBITMQ_HOST=$(gcloud compute instances describe stock-crawler-vm --zone=asia-east1-b --format='value(networkInterfaces[0].networkIP)')" >> .env
+
+# ② Cloud SQL 的 IP——instances list 表格裡 PRIMARY_ADDRESS 同一個值
+echo "MYSQL_HOST=$(gcloud sql instances describe stock-mysql --format='value(ipAddresses[0].ipAddress)')" >> .env
+
+# ③ 雙寫的 BigQuery 半邊（第 15 章讀碼段⓪）
+echo "GCP_PROJECT_ID=$(gcloud config get-value project)" >> .env
+
+tail -3 .env    # 核對：三行都該是實際的值，不該出現 { } 或空值
+# RABBITMQ_HOST=10.140.0.2      ← 內部 IP 是 10.x 開頭；出現 35.x 開頭代表抓到外部 IP，回頭檢查指令
+# MYSQL_HOST=35.229.208.220
+# GCP_PROJECT_ID=你的專案ID
 ```
 
-`.env.example` 的模板裡這三行以註解形式存在——`echo` 直接補在檔尾即可，compose 只認沒被註解的行。
-
-一句話總結這個設計：**同一份 compose 檔走遍本機和雲端，每台機器的連線目標由它自己的 `.env` 決定**——第 6 章「設定集中管理」的完整版。四個值的**來源**值得注意：兩個 HOST 抄自 `instances list`、專案 ID 問 `gcloud config`、密碼向 Secret Manager 要——**沒有一個值是憑記憶手打的**，這就是設定管理的紀律：每個值都有可查證的出處。
+一句話總結這個設計：**同一份 compose 檔走遍本機和雲端，每台機器的連線目標由它自己的 `.env` 決定**——第 6 章「設定集中管理」的完整版。四個值的**來源**值得注意：兩個 HOST 問 Compute Engine 與 Cloud SQL 的 API、專案 ID 問 `gcloud config`、密碼向 Secret Manager 要——**沒有一個值是手打的，連抄都不用抄**，這就是設定管理的紀律：每個值都有可查證的出處，而且由指令自己去查。開工值表上的 IP 仍然要抄——那是給防火牆 patch 和瀏覽器網址用的；寫進 `.env` 的值則一律用指令取，兩者分工不同。
 
 第四行是密碼——D-4 講好的 ①②③ 在這裡實際執行（本章唯一要連 MySQL 的機器就是 VM2）：
 
@@ -468,6 +484,8 @@ sudo docker exec crawler_twse env | grep -E "RABBITMQ_HOST|MYSQL_HOST|GCP_PROJEC
 sudo docker exec crawler_twse env | grep MYSQL_PASSWORD
 # MYSQL_PASSWORD={secret 目前的值}
 ```
+
+這裡看到的值如果**跟 `.env` 對不上**，代表容器是用舊版 `.env` 建的（環境變數在容器建立那一刻凍結，之後改 `.env` 不會自己生效，`docker restart` 也不會）——回去重跑上面的 `up -d`，compose 會偵測到值變了、自動重建容器。
 
 secret 的值跟預設一樣是 1234 時看不出來源——照 D-4 的輪替流程加一個好辨識的版本（例如 `sm-test-42`）、重跑 ①②③、再看一次 env，值變了就證明是 Secret Manager 來的；測完記得把版本換回來。
 
@@ -748,7 +766,7 @@ gcloud spanner instances update stock-spanner-trial --processing-units=200
 
 **T-1 建實例就用強密碼，不用 1234**
 
-課程用 1234 是為了跟 `.env.example` 對齊、示範「程式一行都不用改」；團體專案沒有這個包袱，照第 14 章步驟 6 產生強密碼，建實例時直接帶入，`.env` 的 `MYSQL_PASSWORD` 也同步用它：
+課程用 1234 是為了跟 `.env.example` 對齊、示範「程式一行都不用改」；團體專案沒有這個包袱，照第 14 章步驟 6 產生強密碼，建實例時直接帶入，`.env` 的 `MYSQL_PASSWORD` 也同步用它。**強密碼的字元只用大小寫英文字母和數字，用長度補強度（16 碼以上）**——`@` 和 `:` 是資料庫連線字串的分隔符、`$` 會被 compose 插值展開，密碼帶著這些符號，worker 寫資料庫時會直接噴連線字串解析錯誤（密碼產生器的預設輸出常含這些符號，注意調整選項）：
 
 ```bash
 gcloud sql instances create {你們的實例名} \

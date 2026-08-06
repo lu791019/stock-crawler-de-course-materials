@@ -15,6 +15,7 @@ Stock Price API（ORM 版）— 與 api/main.py 完全相同的四支端點，�
     http://localhost:8001/docs
 """
 from datetime import date as date_type   # 跟欄位名 date 撞名，改個名字避開
+from urllib.parse import quote_plus       # 密碼含 URL 特殊符號時先編碼
 from decimal import Decimal              # MySQL 的 DECIMAL 欄位對應 Python 的 Decimal
 
 from fastapi import FastAPI, HTTPException, Query
@@ -38,7 +39,7 @@ app = FastAPI(
 
 # 連線池跟 SQL 版一模一樣 —— ORM 是疊在 engine 上面的一層，不是取代它
 engine = create_engine(
-    f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
+    f"mysql+pymysql://{MYSQL_ACCOUNT}:{quote_plus(MYSQL_PASSWORD)}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
 )
 
 
