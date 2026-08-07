@@ -503,11 +503,13 @@ gcloud composer environments update stock-composer --location=asia-east1 \
 
 漏掉 `GCP_PROJECT_ID` 的話，`config.py` 拿到空字串，兩個 transform task 會因為表名少了專案段（`` `.stage.stock_price_daily` ``）而報 SQL 語法錯誤——task 紅掉，補上環境變數重觸發即可。（雙寫那半邊不受 Composer 的變數影響：實際寫入的是 VM2 的 worker，它讀的是自己 `.env` 裡的專案 ID。）
 
-#### C-6 讓 Composer 連得到 Cloud SQL
+#### C-6 讓 Composer 連得到 Cloud SQL 與 RabbitMQ（開兩扇門）
 
-Cloud SQL 的授權網路認的是來源 IP，所以要先知道 Composer 的工作節點對外時用哪個 IP。這個值 `describe` 查不到，用一支一次性的 DAG 問出來：
+先一句話講清楚這一步在做什麼：**Composer 是你 VPC 外面的「外人」**，而 DAG 要連的兩個服務都只對認識的 IP 開門——Cloud SQL 的 3306 認授權網路、VM1 RabbitMQ 的 5672 認防火牆規則。自架 Airflow 沒這個問題（它就在 VM1 上）；換 Composer 執行，來源 IP 變成一個你不知道的值。所以這一步三個動作：**① 問出 Composer 的 IP → ② 把它加進兩張門禁名單 → ③ 驗證門真的開了**。
 
-這支 DAG 有三個 task：第一個問出對外 IP，後兩個分別試連 Cloud SQL 的 3306 與 VM1 RabbitMQ 的 5672——雙寫版的 DAG 兩條路都要通。
+**為什麼 IP 要用「問」的**：Public IP 環境的對外連線走 Google **自動配發**的公有 IP——`environments describe` 沒有這個欄位，Console 環境頁也看不到。官方要「可預知的固定 IP」的做法是把環境接進自己的 VPC 改 Private IP，超出本示範的範圍。也因為是自動配發，**這顆 IP 不保證永遠不變**——示範環境活不過一小時無妨，真實系統要走 Private IP 的路。
+
+**動作①：用探測 DAG 讓 Composer 自己說出 IP**。這支一次性 DAG 有三個 task：第一個開 `ifconfig.me` 問自己的對外 IP，後兩個分別對 Cloud SQL 的 3306 與 RabbitMQ 的 5672 做純 TCP 連線測試——它同時就是動作③要重複使用的驗證工具。
 
 ```python
 # probe_network_dag.py：查 Composer 的對外 IP，並測試 Cloud SQL 與 RabbitMQ 連線
@@ -577,21 +579,29 @@ gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:
   --limit=1 --freshness=10m --format="value(textPayload)"
 ```
 
-拿到 IP 之後做兩件事。①加進 Cloud SQL 授權網路，做法跟第 16 章給兩台 VM 授權完全一樣：
+第一次的結果會長這樣——IP 到手，兩個連線測試都不通（門還沒開，這是預期結果，不是壞掉）：
+
+```
+EGRESS_IP={Composer對外IP}
+TCP_CONNECT=FAIL TimeoutError: timed out
+MQ_CONNECT=FAIL TimeoutError: timed out
+```
+
+**動作②：拿這個 IP 開兩扇門。** 門一是 Cloud SQL 的授權網路，做法跟第 16 章給兩台 VM 授權完全一樣：
 
 ```bash
 gcloud sql instances patch stock-mysql \
   --authorized-networks={Composer對外IP}/32,{VM1外部IP}/32,{VM2外部IP}/32
 ```
 
-②開一條**只對 Composer IP 放行 5672** 的防火牆規則，讓 `send_crawler_tasks` 發得進 VM1 的 RabbitMQ（第 14 章「5672 不對公網」的原則沒有破——來源限縮在單一 IP，而且示範完就刪）：
+門二是**只對 Composer IP 放行 5672** 的防火牆規則，讓 `send_crawler_tasks` 發得進 VM1 的 RabbitMQ。第 14 章「5672 不對公網」的原則沒有破——來源限縮在單一 IP，而且示範完就刪（C-8 一併收掉）：
 
 ```bash
 gcloud compute firewall-rules create allow-composer-rabbitmq \
   --allow=tcp:5672 --source-ranges={Composer對外IP}/32 --target-tags=stock-web
 ```
 
-授權前後各觸發一次探測 DAG，`TCP_CONNECT` 與 `MQ_CONNECT` 會從 `FAIL TimeoutError` 變成 `OK`——兩條路都通了，才輪到主線 DAG。
+**動作③：重跑探測 DAG 當驗證。** 再觸發一次 `probe_network_dag`、重讀兩條 log，`TCP_CONNECT` 與 `MQ_CONNECT` 從 `FAIL TimeoutError` 變成 `OK`——兩扇門都開了，才輪到 C-7 的主線 DAG。這就是探測 DAG 的第二個用途：**同一支工具，第一次問路，之後每次驗收**；日後懷疑網路又不通（例如 IP 被重新配發），重跑它一次就有答案。
 
 > 重新觸發之後如果讀到的還是上一次的結果，是 Cloud Logging 還沒收到新 log。`--freshness` 縮短到 `2m` 再讀一次，或等一分鐘。
 
