@@ -55,7 +55,7 @@ flowchart TD
 
 ## 一步一步
 
-> 指令裡的 `{...}` 是佔位符，換值時大括號要一起刪（第 16 章開工段的同一條慣例）。本章 C-6 的探測 DAG 是 Python 檔，裡面的佔位符同樣要換乾淨再上傳。
+> 指令裡的 `{...}` 是佔位符，換值時大括號要一起刪（第 16 章開工段的同一條慣例）。本章 C-6 的探測 DAG 是 Python 檔，裡面的 `{VM1內部IP}` 佔位符同樣要換乾淨再上傳。
 
 開工前先喚醒系統。照第 16 章收工段的 SOP，外加一步驗證：
 
@@ -272,7 +272,7 @@ bq query --nouse_legacy_sql \
 
 把 Part B 剛跑過的 `stock_bigquery_etl_dag` 原封不動搬到 Composer 上執行一次，用來對照託管與自架的差別。**做完立刻刪除環境**，它按小時計費。
 
-> 雙寫版的 DAG 第一個 task 要發任務到 VM1 的 RabbitMQ——Composer 跑在 Google 託管的環境裡，不在你的 VPC 內，所以除了 Cloud SQL 的授權網路（C-6），**RabbitMQ 的 5672 也要對 Composer 的對外 IP 開一條防火牆規則**（C-6 一併處理，示範完刪掉）。這是「託管服務在你網路外面」帶來的第二個網路功課。
+> 雙寫版的 DAG 第一個 task 要發任務到 VM1 的 RabbitMQ——Composer 跑在 Google 託管的環境裡，本來不在你的 VPC 內。這個網路功課用「**建立環境時掛上你的 VPC**」（C-2 的 `--network`/`--subnetwork` 兩個參數）一次解決：掛上之後 Composer 打過來的流量走你子網路的**內部 IP**，`default-allow-internal` 天生放行——不用查它的對外 IP、不用開任何防火牆。C-6 只剩驗證。
 
 #### Composer：託管版的 Airflow
 
@@ -352,8 +352,11 @@ gcloud composer environments create stock-composer \
   --image-version=composer-3-airflow-2 \
   --environment-size=small \
   --service-account={專案編號}-compute@developer.gserviceaccount.com \
+  --network=default --subnetwork=default \
   --async
 ```
+
+`--network=default --subnetwork=default` 是本章的關鍵參數：**把環境掛進你的 VPC**（Composer 會在你的專案建立一個 network attachment，並在子網路裡保留 4 個 IP）。掛上之後，DAG 連你 VPC 裡的服務（VM1 的 RabbitMQ）走**內部網路**，跟 VM2 連 VM1 是同一條路——這讓 C-6 的網路功課幾乎消失。不帶這兩個參數的話，Composer 從公網連進來、來源 IP 是 Google 自動配發且查不到的值，就得走「探測 IP＋開防火牆白名單」的繞路（C-6 附註）。
 
 `--async` 讓指令立刻返回，環境在背景建立，需要 20-30 分鐘——它在準備一整套跑在 GKE 上的 Airflow。查進度：
 
@@ -374,12 +377,17 @@ gcloud composer environments list --locations=asia-east1
 | 映像檔版本 | `composer-3-airflow-2.x`（安全） | 保持 **airflow-2** 開頭的 | `--image-version` |
 | 服務帳戶 | 需選擇 | Compute Engine 預設服務帳戶 | `--service-account` |
 | 環境資源 | 小 | 保持「小」 | `--environment-size=small` |
+| 網路設定 | 未掛 VPC | 選 `default` 網路與子網路 | `--network` / `--subnetwork` |
 
 **映像檔版本下拉是本表單最大的坑**：Airflow 3 的映像排在最上面，預設值雖然是 airflow-2，手滑選到 airflow-3 課程 DAG 一上傳就 import error（Part C 開頭的 Airflow 2/3 對照表）：
 
 ![映像版本下拉](images/ch17/13-Console映像版本下拉Airflow3陷阱.jpg)
 
 ![表單填好的樣子](images/ch17/14-Console建立表單填好.jpg)
+
+表單的「網路設定」區塊就是 `--network`/`--subnetwork` 的表單版——點「顯示網路設定」展開後，選 `default` 網路與子網路：
+
+![建立表單網路區塊](images/ch17/19-Console建立表單網路區塊.jpg)
 
 STATE 從 `CREATING` 變成 `RUNNING` 才算建好。建好之後 Console 上（≡ →「代管 Airflow」）看得到這一列——服務版本 3、Airflow 版本、以及右邊三個入口：**Airflow 網頁伺服器**（C-3 那個網址）、**DAG 清單**、**DAGs 資料夾**（就是下一步要上傳的那個 bucket）：
 
@@ -481,21 +489,17 @@ gcloud composer environments update stock-composer --location=asia-east1 \
 
 #### C-5 套用環境變數
 
-DAG 要發任務到 RabbitMQ、連 Cloud SQL、知道 BigQuery 專案，這些值在自架環境是 `.env` 給的，在 Composer 是環境設定的一部分。四個值照第 16 章 Part E 的紀律**全部用指令查、不手抄**——先取進 shell 變數（只存在這個終端機、不落地成檔案），再一次餵給 update：
+DAG 在 Composer 上需要的環境變數只有**兩個**：發任務要知道 RabbitMQ 在哪（`RABBITMQ_HOST`）、transform 要知道 BigQuery 專案（`GCP_PROJECT_ID`）。自架環境 `.env` 裡的 MYSQL_* 這裡**不用設**——用到它們的程式碼（`upload_data_to_mysql`）只在 VM2 的 worker 上執行，DAG 從頭到尾不連 MySQL。
+
+兩個值照第 16 章 Part E 的紀律用指令查、不手抄。**`RABBITMQ_HOST` 填 VM1 的內部 IP**——C-2 掛了 VPC，Composer 連過來走內部網路，跟 VM2 連 VM1 是同一顆 IP：
 
 ```bash
-# RABBITMQ_HOST 要的是 VM1 的「外部」IP——Composer 不在你的 VPC 裡，內部 IP 對它不通
-# （natIP 就是外部那顆；這點跟第 16 章 VM2 用內部 IP 相反，網路位置不同）
-VM1_IP=$(gcloud compute instances describe stock-crawler-vm --zone=asia-east1-b --format='value(networkInterfaces[0].accessConfigs[0].natIP)')
-SQL_IP=$(gcloud sql instances describe stock-mysql --format='value(ipAddresses[0].ipAddress)')
-DB_PW=$(gcloud secrets versions access latest --secret=mysql-password)
+RMQ=$(gcloud compute instances describe stock-crawler-vm --zone=asia-east1-b --format='value(networkInterfaces[0].networkIP)')
 PROJ=$(gcloud config get-value project)
 
 gcloud composer environments update stock-composer --location=asia-east1 \
-  --update-env-variables=RABBITMQ_HOST=$VM1_IP,MYSQL_HOST=$SQL_IP,MYSQL_ACCOUNT=root,MYSQL_PASSWORD=$DB_PW,MYSQL_PORT=3306,GCP_PROJECT_ID=$PROJ
+  --update-env-variables=RABBITMQ_HOST=$RMQ,GCP_PROJECT_ID=$PROJ
 ```
-
-密碼向 Secret Manager 取（第 16 章 D-4 的同一個來源），不寫死在指令裡。順帶一個提醒：`--update-env-variables` 用逗號分隔多個變數——密碼含逗號或等號會把這個參數切壞，這是「密碼只用大小寫英數字」規範的又一個理由。
 
 這是一次環境更新，要等幾分鐘，不是改完立刻生效。設定結果在環境詳情頁的「**環境變數**」分頁看得到（在這頁用「編輯」改也等效，一樣觸發環境更新）：
 
@@ -503,116 +507,57 @@ gcloud composer environments update stock-composer --location=asia-east1 \
 
 漏掉 `GCP_PROJECT_ID` 的話，`config.py` 拿到空字串，兩個 transform task 會因為表名少了專案段（`` `.stage.stock_price_daily` ``）而報 SQL 語法錯誤——task 紅掉，補上環境變數重觸發即可。（雙寫那半邊不受 Composer 的變數影響：實際寫入的是 VM2 的 worker，它讀的是自己 `.env` 裡的專案 ID。）
 
-#### C-6 讓 Composer 連得到 Cloud SQL 與 RabbitMQ（開兩扇門）
+#### C-6 驗證網路：Composer 連得到 RabbitMQ 嗎
 
-先一句話講清楚這一步在做什麼：**Composer 是你 VPC 外面的「外人」**，而 DAG 要連的兩個服務都只對認識的 IP 開門——Cloud SQL 的 3306 認授權網路、VM1 RabbitMQ 的 5672 認防火牆規則。自架 Airflow 沒這個問題（它就在 VM1 上）；換 Composer 執行，來源 IP 變成一個你不知道的值。所以這一步三個動作：**① 問出 Composer 的 IP → ② 把它加進兩張門禁名單 → ③ 驗證門真的開了**。
-
-**為什麼 IP 要用「問」的**：Public IP 環境的對外連線走 Google **自動配發**的公有 IP——`environments describe` 沒有這個欄位，Console 環境頁也看不到。官方要「可預知的固定 IP」的做法是把環境接進自己的 VPC 改 Private IP，超出本示範的範圍。也因為是自動配發，**這顆 IP 不保證永遠不變**——示範環境活不過一小時無妨，真實系統要走 Private IP 的路。
-
-**動作①：用探測 DAG 讓 Composer 自己說出 IP**。這支一次性 DAG 有三個 task：第一個開 `ifconfig.me` 問自己的對外 IP，後兩個分別對 Cloud SQL 的 3306 與 RabbitMQ 的 5672 做純 TCP 連線測試——它同時就是動作③要重複使用的驗證工具。
+C-2 掛了 VPC 之後，這一節**沒有任何門要開**——Composer 打過來的是你子網路的內部流量，`default-allow-internal` 天生放行 5672；Cloud SQL 更是從頭到尾不關 DAG 的事（連它的是 VM2 的 worker，第 16 章就授權好了）。但「應該通」和「真的通」是兩回事，用一支一次性的探測 DAG 驗證：
 
 ```python
-# probe_network_dag.py：查 Composer 的對外 IP，並測試 Cloud SQL 與 RabbitMQ 連線
+# probe_network_dag.py：驗證 Composer 經 VPC attachment 連得到 VM1 的 RabbitMQ
 from datetime import datetime
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
 
-def egress_ip():
-    import urllib.request
-
-    ip = urllib.request.urlopen("https://ifconfig.me/ip", timeout=20).read().decode()
-    print(f"EGRESS_IP={ip}")
-    return ip
-
-
-def _probe(label, host, port):
+def try_rabbitmq():
     import socket
 
     s = socket.socket()
     s.settimeout(15)
     try:
-        s.connect((host, port))
-        print(f"{label}=OK")
+        s.connect(("{VM1內部IP}", 5672))
+        print("MQ_CONNECT=OK")
     except Exception as e:
-        print(f"{label}=FAIL {type(e).__name__}: {e}")
+        print(f"MQ_CONNECT=FAIL {type(e).__name__}: {e}")
     finally:
         s.close()
 
 
-def try_mysql():
-    _probe("TCP_CONNECT", "{CloudSQL 公用 IP}", 3306)
-
-
-def try_rabbitmq():
-    _probe("MQ_CONNECT", "{VM1 外部 IP}", 5672)
-
-
 with DAG("probe_network_dag", start_date=datetime(2024, 1, 1),
          schedule_interval=None, catchup=False) as dag:
-    PythonOperator(task_id="egress_ip", python_callable=egress_ip) >> \
-        PythonOperator(task_id="try_mysql", python_callable=try_mysql) >> \
-        PythonOperator(task_id="try_rabbitmq", python_callable=try_rabbitmq)
+    PythonOperator(task_id="try_rabbitmq", python_callable=try_rabbitmq)
 ```
 
-兩個 try 都只做 TCP 連線測試，不需要帳號密碼——連得上代表網路層通了，連不上會是逾時。把網路問題跟帳號密碼問題分開驗證，排錯時才知道是哪一層出事。
+只做 TCP 連線測試、不帶帳號密碼——把「網路通不通」跟「帳密對不對」分開驗證。注意它**連線失敗 task 也不會紅**（結果印進 log，不丟例外），`OK` 或 `FAIL` 要到 log 裡看。
 
-注意這支 DAG 的設計：**連線失敗 task 也不會紅**——`_probe` 把結果印進 log 而不是丟例外，所以 UI 上兩次 run 都是綠的，`FAIL` 或 `OK` 要到 log 裡看（下面的 `gcloud logging read`）。它是量測工具，不是驗收關卡：
-
-![探測 DAG 頁面](images/ch17/18-Composer探測DAG頁.jpg)
-
-上傳、觸發，然後讀 log。**Composer 3 的任務 log 送到 Cloud Logging，不放在 bucket 裡**：
+上傳、觸發、讀 log。**Composer 3 的任務 log 送到 Cloud Logging，不放在 bucket 裡**：
 
 ```bash
+gcloud storage cp probe_network_dag.py {你的DAGs bucket}/
+
 gcloud composer environments run stock-composer --location=asia-east1 \
   dags trigger -- probe_network_dag
 
-# 三個 task 的輸出各讀一次，過濾字串要跟程式裡印的關鍵字對上
-gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"EGRESS_IP="' \
-  --limit=1 --freshness=10m --format="value(textPayload)"
-
-gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"TCP_CONNECT="' \
-  --limit=1 --freshness=10m --format="value(textPayload)"
-
 gcloud logging read 'resource.type="cloud_composer_environment" AND textPayload:"MQ_CONNECT="' \
   --limit=1 --freshness=10m --format="value(textPayload)"
+# MQ_CONNECT=OK
 ```
 
-第一次的結果會長這樣——IP 到手，兩個連線測試都不通（門還沒開，這是預期結果，不是壞掉）：
-
-```
-EGRESS_IP={Composer對外IP}
-TCP_CONNECT=FAIL TimeoutError: timed out
-MQ_CONNECT=FAIL TimeoutError: timed out
-```
-
-**動作②：拿這個 IP 開兩扇門。** 門一是 Cloud SQL 的授權網路，做法跟第 16 章給兩台 VM 授權完全一樣：
-
-```bash
-gcloud sql instances patch stock-mysql \
-  --authorized-networks={Composer對外IP}/32,{VM1外部IP}/32,{VM2外部IP}/32
-```
-
-門二是**只對 Composer IP 放行 5672** 的防火牆規則，讓 `send_crawler_tasks` 發得進 VM1 的 RabbitMQ。第 14 章「5672 不對公網」的原則沒有破——來源限縮在單一 IP，而且示範完就刪（C-8 一併收掉）：
-
-```bash
-gcloud compute firewall-rules create allow-composer-rabbitmq \
-  --allow=tcp:5672 --source-ranges={Composer對外IP}/32 --target-tags=stock-web
-```
-
-**動作③：重跑探測 DAG 當驗證。** 再觸發一次 `probe_network_dag`、重讀兩條 log，`TCP_CONNECT` 與 `MQ_CONNECT` 從 `FAIL TimeoutError` 變成 `OK`——兩扇門都開了，才輪到 C-7 的主線 DAG。這就是探測 DAG 的第二個用途：**同一支工具，第一次問路，之後每次驗收**；日後懷疑網路又不通（例如 IP 被重新配發），重跑它一次就有答案。
+`OK` 就往 C-7 走。`FAIL TimeoutError` 的話回頭檢查兩件事：C-2 建立時有沒有帶 `--network`/`--subnetwork`（環境詳情頁「環境設定」分頁看得到網路欄位）、探測 DAG 裡填的是不是 VM1 的**內部** IP（10.x 開頭）。
 
 > 重新觸發之後如果讀到的還是上一次的結果，是 Cloud Logging 還沒收到新 log。`--freshness` 縮短到 `2m` 再讀一次，或等一分鐘。
 
-**真實系統不玩「猜 IP」——Cloud SQL 這扇門有標準解法。** 業界連 Cloud SQL 的標準做法是 **Cloud SQL Connector**（Python 是 `cloud-sql-python-connector` 套件）或 Cloud SQL Auth Proxy：程式改連「執行個體連線名稱」（`專案:區域:實例`），由 Google 端的代理端點驗 **IAM 身分**、走 TLS 加密——**授權網路、防火牆、SSL 憑證三樣全都不用管**，從哪個 IP 連過來都無所謂。Airflow 還有官方的 `CloudSQLExecuteQueryOperator`（`gcpcloudsql://` 連線），Hook 會自動起一個臨時 proxy。
-
-那課程為什麼還用 IP 白名單？兩個理由：
-
-1. **程式碼一行不改的原則**：整門課的 `crawler/` 都用「host:port 連線字串」，換 Connector 要改連線建立方式、加裝套件——為了示範環境動主線程式碼不划算。真實系統從第一天就用 Connector，就沒有這個包袱。
-2. **RabbitMQ 那扇門沒有等效品**：Connector 只救 Cloud SQL——RabbitMQ 是你自己 VM 上的服務，Composer 要連它，防火牆白名單躲不掉，探測 DAG 問 IP 這一步仍然需要。
-
-一句話的取捨表：**只連 Cloud SQL → 用 Connector，整個 C-6 的 IP 功課消失；還要連自家 VM 上的服務（本課程的 RabbitMQ）→ IP 白名單跑不掉**。
+**附註——沒掛 VPC 的環境怎麼辦（舊路，並且認識標準做法）**：環境沒掛 VPC 時，Composer 從公網連進來，來源 IP 是 Google 自動配發的值，`describe` 與 Console 都查不到、也不保證固定——只能用探測 DAG 自問（加一個開 `ifconfig.me` 的 task）、再把問到的 IP 加進防火牆白名單，示範完刪規則。這條繞路就是「沒走正門」的代價。至於連 Cloud SQL 的正門則是 **Cloud SQL Connector**（`cloud-sql-python-connector`，IAM 授權＋TLS，完全不需要 IP 白名單）——本課程的 DAG 不連 Cloud SQL 所以用不上，真實系統要連就用它，不要玩 IP。
 
 #### C-7 觸發並驗證
 
@@ -635,19 +580,18 @@ gcloud composer environments run stock-composer --location=asia-east1 \
 
 ![Composer 上的 DAG 六個 task 全綠](images/ch17/11-Composer-DAG六task全綠.jpg)
 
-左側的格狀圖順便把 C-6 那組對照收在同一張畫面裡：**授權前**那次 run 的 `send_crawler_tasks` 是紅色 failed（連不到 VM1 的 5672），它下游四個 task 全是橘色的 upstream_failed；**授權後**這次整排綠。「網路沒開」在 Airflow 上長這個樣子：
+順帶認識「網路沒通」在 Airflow 上的長相（下圖來自一個沒掛 VPC、也還沒開白名單的環境）：`send_crawler_tasks` 紅色 failed（連不到 VM1 的 5672），下游四個 task 全是橘色的 upstream_failed；網路接對之後整排綠。C-6 的驗證先做，就是為了不讓主線 DAG 死在這裡：
 
 ![授權前後兩次 run 的對照](images/ch17/10-Composer-Airflow介面兩次run對照.jpg)
 
-#### C-8 刪除環境（連同臨時防火牆規則）
+#### C-8 刪除環境
 
 ```bash
 gcloud composer environments delete stock-composer --location=asia-east1 --quiet
 gcloud composer environments list --locations=asia-east1   # 清單空了才是真的停止計費
-
-# C-6 開的臨時規則一併收掉，5672 回到完全不對外
-gcloud compute firewall-rules delete allow-composer-rabbitmq --quiet
 ```
+
+環境刪除時，C-2 掛 VPC 用的 network attachment 會一併自動刪除——沒有殘留的網路資源要收。
 
 **Composer 沒有「停機」這個選項。** VM 可以 `stop`、Cloud SQL 可以設 `activation-policy=NEVER`、Cloud Run 沒流量自動縮到零——它們停下來之後資料和設定都還在，要用再開回來。Composer 只有 create、update、delete 三種操作，環境存在就計費，唯一的省錢方式是刪掉，而刪掉就什麼都不留。
 
@@ -659,7 +603,7 @@ gcloud compute firewall-rules delete allow-composer-rabbitmq --quiet
 
 **二、「環境裡有什麼」變成要透過它的介面管理。** 自架時 `docker build` 一次處理完的事——程式碼進 image、套件裝進 image、環境變數寫在 compose——在 Composer 上拆成三件獨立的事：上傳程式碼到 bucket、在設定頁裝套件、用 update 指令改環境變數。每一件都是一次操作，套件與環境變數還各自要等一次環境更新。這是託管服務的隱藏成本：省下維護機器的力氣，換來一套要學的管理介面。
 
-**三、「DAG 兩邊通用」要講得精確一點。** 編排邏輯——DAG 的結構、任務依賴、排程設定、Operator 用法——完全通用，這次連一行都沒改。要各自準備的是執行環境：程式碼怎麼進去、套件怎麼裝、連線設定怎麼給、對外 IP 怎麼授權。評估要不要換到託管服務時，會花時間的是後面那一半。
+**三、「DAG 兩邊通用」要講得精確一點。** 編排邏輯——DAG 的結構、任務依賴、排程設定、Operator 用法——完全通用，這次連一行都沒改。要各自準備的是執行環境：程式碼怎麼進去、套件怎麼裝、連線設定怎麼給、網路怎麼接（本章用掛 VPC 一次解決）。評估要不要換到託管服務時，會花時間的是後面那一半。
 
 ## 團體專案上雲：本章設定的團隊版
 
@@ -801,8 +745,7 @@ sudo docker exec airflow-webserver airflow users list
 | DAG 上傳了但 `dags list` 看不到 | DAG import 失敗——`crawler` 模組沒一起上傳，或用到映像沒有的套件（例如 loguru） | `dags list-import-errors` 看 traceback；缺模組就 `gcloud storage cp -r crawler {bucket}/dags/`、缺套件就 `--update-pypi-package` 補裝（C-4 的流程） |
 | import error 指向 `airflow.operators.python_operator` 這類路徑 | 環境映像選到 **Airflow 3**（建立表單下拉最上面就是 airflow-3 的映像），1.x 相容 import 路徑在 3 已移除 | Airflow 大版本不能原地換——刪掉環境重建，映像認明 `composer-3-airflow-2` 開頭（Part C 開頭的版本軸小節） |
 | Composer 上任務報 `Access Denied: Project your-project-id` | 沒設 `GCP_PROJECT_ID` 環境變數，`config.py` 退回預設值 | `environments update --update-env-variables=GCP_PROJECT_ID=...` |
-| Composer 上連 Cloud SQL 逾時 | 授權網路沒有 Composer 的對外 IP | 用探測 DAG 查出對外 IP（C-6），加進 `authorized-networks` |
-| Composer 上 `send_crawler_tasks` 連 RabbitMQ 逾時 | 5672 防火牆規則沒開，或 `RABBITMQ_HOST` 填了內部 IP（Composer 不在你的 VPC 裡） | 照 C-6 開 `allow-composer-rabbitmq`（來源限 Composer IP）；環境變數改 VM1 外部 IP |
+| Composer 上 `send_crawler_tasks` 連 RabbitMQ 逾時 | 環境沒掛 VPC（C-2 漏了 `--network`/`--subnetwork`），或 `RABBITMQ_HOST` 沒填 VM1 內部 IP | 環境詳情「環境設定」分頁確認網路欄位；沒掛就重建（attachment 不能事後隨意補），變數照 C-5 用內部 IP |
 | 找不到 Composer 的任務 log | Composer 3 的 log 送到 Cloud Logging，不在 bucket | `gcloud logging read 'resource.type="cloud_composer_environment"'` |
 
 ## 本章總結
@@ -810,7 +753,7 @@ sudo docker exec airflow-webserver airflow users list
 - 金鑰檔只有 GCP 外面的程式才需要；VM 上的程式用自己的服務帳戶身分，不需要金鑰
 - 雙寫讓「搬資料」的排程工作消失；每日資料線剩兩件事：觸發爬蟲雙寫、重算分析層——排程真正在養的是 app 這種不會自己更新的實體表
 - 完整資料線：排程發任務 → worker 雙寫（Cloud SQL＋BigQuery raw）→ transform 重算（stage／app）→ Looker Studio
-- Composer 是託管版 Airflow：編排邏輯兩邊通用（同一支 DAG 一行都不用改），要各自準備的是執行環境——程式碼上傳、套件安裝、連線設定、對外 IP 授權（雙寫版連 RabbitMQ 也要授權，託管服務在你的網路外面）
+- Composer 是託管版 Airflow：編排邏輯兩邊通用（同一支 DAG 一行都不用改），要各自準備的是執行環境——程式碼上傳、套件安裝、環境變數、網路（建立時掛上你的 VPC，內部互連就通，不用查 IP 開白名單）
 - Composer 沒有停機選項，只有 create／update／delete，環境存在就計費——示範完必須刪除
 - 資源清理照順序刪：費用高的先刪，關閉整個專案是最後手段（30 天內可還原）
 
