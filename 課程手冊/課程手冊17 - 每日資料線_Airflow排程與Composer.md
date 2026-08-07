@@ -53,55 +53,6 @@ flowchart TD
 | stage | view | 查詢時即時反映 raw | 不用管（DAG 仍冪等重建定義，重跑無害） |
 | app | 實體表（CTAS） | **停在上次重算的樣子** | **每日重算——排程存在的主因** |
 
-### Composer：託管版的 Airflow
-
-排程主線用的是 GCE 上自架的 Airflow 容器，跟第 10 章以來同一套 image 和 DAG。GCP 也有託管版本，叫 **Cloud Composer**。這是第 16 章「託管 vs 自架」的同一道選擇題，換到排程工具上：
-
-| | 自架 Airflow（本章主線） | Cloud Composer |
-|---|------------------------|----------------|
-| 機器與維運 | 你的 VM，你自己維護 | Google 負責（底層是 GKE） |
-| 費用 | VM 費用（已經在付，不會多花） | **最小環境每月數百美元起** |
-| 建置時間 | image build 約 10 分鐘 | 環境建置 20-30 分鐘 |
-| DAG 部署方式 | 放進 dags/ 目錄 | 上傳到指定的 Cloud Storage bucket |
-| 套件與環境變數 | 寫進 Dockerfile 與 compose，一次處理完 | 各自透過 Composer 的介面與指令設定 |
-| 不用的時候 | VM `stop` 就不計費，資料設定都留著 | **沒有停機選項，只能刪除環境** |
-| 適合的情況 | 學習、小規模、預算有限 | DAG 數量多、團隊規模大、不希望自己維護 scheduler |
-
-課程的安排：**主線用自架（學員不用額外付費），Composer 由講師示範**——Part C 會把主線這支 `stock_bigquery_etl_dag` 原封不動搬到 Composer 上跑一次，DAG 的程式碼一行都不改，示範完**立刻刪除環境**。額度充足的同學可以照 Part C 的步驟自己走一遍，做完務必刪除。
-
-先講結論，Part C 會逐步驗證：編排邏輯在兩邊通用，要各自準備的是執行環境——程式碼怎麼進去、套件怎麼裝、連線設定怎麼給。
-
-### 兩個版本軸：Composer 世代 vs Airflow 版本
-
-Composer 的版本有**兩個獨立的軸**，選版本時最容易在這裡混淆：
-
-- **Composer 世代**（第 2 代 / 第 3 代）：講的是 Google 那側的**基礎設施**怎麼架。
-- **Airflow 版本**（2 / 3）：講的是環境裡跑的**軟體**是哪一版。
-
-| | 代管 Airflow 第 2 代（Composer 2） | 代管 Airflow 第 3 代（Composer 3） |
-|---|---|---|
-| 可跑的 Airflow | 只有 Airflow 2 | **Airflow 2 或 Airflow 3**（映像檔版本決定） |
-| 基礎設施 | 跑在你專案看得到的 GKE 上 | GKE 完全由 Google 代管，你的專案裡看不到 |
-| 任務 log | 存 bucket | 送 **Cloud Logging**（C-6 讀 log 的方式因此不同） |
-| 課程用哪個 | — | 這個，映像選 `composer-3-airflow-2` |
-
-順帶一提名稱：這個產品在 Console 上已改名「**Managed Service for Apache Airflow（原為 Cloud Composer）**」，左側選單叫「代管 Airflow」——文件和指令（`gcloud composer ...`）仍沿用 Composer 這個名字，搜尋時兩個名稱都認得就好。更早還有一個 Composer 1，已淘汰，建立選單上看不到了。
-
-**課程選「第 3 代 + Airflow 2」**：世代選 3 是要新的基礎設施；Airflow 選 2 是因為**自架環境跑的就是 Airflow 2**，同一支 DAG 兩邊通用的前提是軟體同版。建立表單的映像檔版本下拉裡，**Airflow 3 的映像排在最上面**（例如 `composer-3-airflow-3.2.2`），認明 `composer-3-airflow-2` 開頭的才選——選到 Airflow 3，課程的 DAG 一上傳就會 import error。
-
-### Airflow 2 與 Airflow 3 差在哪（為什麼課程的 DAG 在 3 上會壞）
-
-Airflow 3 是 2025 年的大版本，重點放在架構重整，對 DAG 程式碼有**不相容的改動**。跟課程直接相關的四條：
-
-| 改動 | Airflow 2 的寫法（課程用的） | Airflow 3 |
-|---|---|---|
-| 排程參數 | `schedule_interval="0 20 * * 1-5"` | 參數改名 `schedule`，舊名移除 |
-| Operator import 路徑 | `from airflow.operators.python_operator import PythonOperator`（1.x 相容路徑） | 相容路徑移除，DAG 直接 import error |
-| 時間語意 | context 裡的 `execution_date` | 改名 `logical_date`，舊名移除 |
-| 任務讀資料庫 | task 行程可直連 Airflow 的 metadata DB | 拆掉直連，worker 一律走 API——自訂程式碼碰過 metadata DB 的都要改 |
-
-除了不相容改動，3 還帶來新東西：全新的 React 介面、DAG 版本管理（UI 上看得到每次部署的差異）、事件驅動排程（Dataset 改名 Asset 並擴充）。**判斷句是：新專案從 Airflow 3 開始沒問題；既有的 Airflow 2 專案（例如本課程）升級前要先盤點上表四條**——這也是為什麼 Composer 3 同時供應兩種映像，讓存量的 Airflow 2 用戶不被逼著升級。
-
 ## 一步一步
 
 > 指令裡的 `{...}` 是佔位符，換值時大括號要一起刪（第 16 章開工段的同一條慣例）。本章 C-6 的探測 DAG 是 Python 檔，裡面的佔位符同樣要換乾淨再上傳。
@@ -174,7 +125,7 @@ git pull
 sudo docker images | grep stock-airflow
 ```
 
-> 看不到的話（例如跑過 `docker system prune -af` 清理磁碟，它會把「沒有容器在用」的 image 全部清掉），重 build：`sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .`（約 10 分鐘）。等待的時間可以先讀「先搞懂」的 Composer 對照表。
+> 看不到的話（例如跑過 `docker system prune -af` 清理磁碟，它會把「沒有容器在用」的 image 全部清掉），重 build：`sudo docker build -f airflow/Dockerfile -t stock-airflow:latest .`（約 10 分鐘）。等待的時間可以先讀 Part C 開頭的 Composer 對照表。
 
 **A-2 確認 Airflow 拿得到專案 ID**（第 14 章 H-3 就寫進 VM1 的 `.env` 了；compose-all 的 Airflow 服務同樣有 `GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}` 插值）：
 
@@ -213,6 +164,76 @@ sudo docker exec airflow-scheduler airflow dags trigger stock_bigquery_etl_dag
 | `end_daily_pipeline` | 收尾訊息 | — |
 
 **注意這裡沒有「搬資料」的 task**——舊版課程在這裡放了一支 `sync_mysql_to_bigquery`（整表從 MySQL 複製進 BigQuery）；雙寫讓資料寫入當下就在 raw 了，這個搬運工作整個消失。DAG 掛著 `schedule_interval="0 20 * * 1-5"`——每個交易日 20:00 自動跑，手動觸發只是驗收用。
+
+#### 一段一段讀懂這支 DAG
+
+先解決一個容易混淆的點：**檔名與 DAG id 不同**。檔案叫 `stock_crawler_etl_bigquery_dag.py`，它定義的 `dag_id` 是 `stock_bigquery_etl_dag`——`dags list`、`dags trigger`、UI 上認的都是 **dag_id**，跟檔名無關。
+
+**① import 段——一支 DAG、兩種分工**：
+
+```python
+# 發任務用的 Celery task（發到佇列, 不在 Airflow 裡執行爬蟲——串法二）
+from crawler.tasks_crawler_finmind import crawler_finmind
+from crawler.stock_bigquery_data_transform import (
+    create_stage_layer,
+    create_app_layer,
+)
+```
+
+兩行 import 對應這支 DAG 的兩種工作方式，這是全章最重要的設計：
+
+| import 進來的 | 是什麼 | 誰執行 | 對應串法 |
+|---|---|---|---|
+| `crawler_finmind` | Celery task 物件 | **VM2 的 worker**——DAG 只把訊息發進佇列 | 第 12 章串法二（Airflow 只發任務） |
+| `create_stage_layer` / `create_app_layer` | 一般 Python 函式 | **Airflow 自己**——在 scheduler 的 task 行程裡直接對 BigQuery 下 SQL | 第 12 章串法一（Airflow 親自執行） |
+
+爬蟲用串法二，因為它量大、要水平擴充，交給 worker 池；transform 用串法一，因為它只是對 BigQuery 發幾句 SQL、真正的計算在 BigQuery 那端，Airflow 行程只是等結果，不需要 worker。**同一支 DAG 裡兩種串法並存，依工作的性質選**。
+
+**② `STOCK_IDS` 與 `send_crawler_tasks()`——producer 搬進了 DAG**：
+
+```python
+def send_crawler_tasks():
+    for stock_id in STOCK_IDS:
+        crawler_finmind.apply_async(kwargs={"stock_id": stock_id}, queue="twse")
+        print(f"已發送 {stock_id} 爬蟲任務")
+```
+
+- 這個函式就是第 16 章 producer DAG 的迴圈主體：清單（要抓什麼）＋發送（丟進佇列）。
+- 用 `apply_async(queue="twse")` 不用 `.delay()`：分流版 worker 只聽 `twse`／`tpex` 兩個佇列，`.delay()` 會把任務發到沒人消費的預設佇列，卡在 RabbitMQ 裡不動（第 12 章 producer DAG 同一個理由）。
+- 發完立刻返回——task 綠了只代表「訊息送出去了」，爬蟲成敗要看 Flower 或 worker log。
+
+**③ `default_args`——套用到每個 task 的預設值**：
+
+| 參數 | 值 | 意思 |
+|---|---|---|
+| `owner` | `data-team` | 負責團隊標記，UI 上顯示用 |
+| `start_date` | 2024-01-01 | 排程起算日——配合 `catchup=False`，不會回頭補跑 |
+| `retries` / `retry_delay` | 1 次 / 1 分鐘 | 單一 task 失敗自動重試一次 |
+| `execution_timeout` | 1 小時 | 單一 task 跑超過即視為逾時失敗 |
+
+`retries` 有一個要想清楚的地方：`send_crawler_tasks` 如果發到一半掛掉重試，**前半批任務會被重複發送**，worker 重複執行、`append` 出重複列——這不是錯誤而是這套架構的天性，靠第 6 章的去重（stage view）吸收。
+
+**④ DAG 本體參數**：
+
+| 參數 | 值 | 為什麼 |
+|---|---|---|
+| `schedule_interval` | `"0 20 * * 1-5"` | 「分 時 日 月 星期」——週一到週五 20:00（第 9 章 cron 語法）；容器時區已設 Asia/Taipei |
+| `catchup` | `False` | 不補跑 `start_date` 到現在的歷史區間——股價 API 一次抓整段，補跑只會重複 |
+| `max_active_runs` | `1` | 同時最多一個 run——避免上一輪還在寫、下一輪又開始，兩輪交錯寫入 |
+
+**⑤ 六個 task 的實作選擇**：
+
+- `start` / `end` 用 `BashOperator` 印訊息——純粹的頭尾標記，方便在 log 與 Graph 上看出一次 run 的邊界。`end` 顯式寫了 `trigger_rule="all_success"`（其實是預設值）：上游任何一個失敗，`end` 就不會跑，一眼看出這輪沒走完。
+- `wait_for_workers` 是 `sleep 90` 的固定等待——教學版的取捨。發任務是非同步的（第 1 章 `.delay()` 的老課題），DAG 必須等 worker 把資料寫完才能重算，否則 transform 算的是舊資料。固定等待的缺點是「猜時間」：等太短，這一輪的新資料沒進到 app 層（不會報錯，下一輪自然補上）；真實系統用 **sensor** 盯完成訊號（例如輪詢 raw 層的最新日期），等到條件成立才放行。
+- `create_stage_layer` 冪等重建 view——重跑一百次結果相同（第 15 章 Step 3）；`create_app_layer` CTAS 先刪後建重算實體表（第 15 章 Step 4）——**它就是這條排程存在的主因**，app 是實體表，不重算就停在昨天。
+
+**⑥ 依賴鏈**——一條直線，`>>` 讀作「做完才輪到」：
+
+```python
+start_task >> send_tasks >> wait_for_workers >> transform_stage >> transform_app >> end_task
+```
+
+stage 在 app 前面不是裝飾：app 的 SQL 讀的是 stage view，順序反了 app 會用舊定義的 stage 算。
 
 > unpause 之後 Graph 上可能突然多出一個你沒有觸發的 run。那是排程 DAG 被 unpause 時補跑的最近一期，即使 `catchup=False` 也會跑這一期，屬於正常行為。
 
@@ -253,6 +274,55 @@ bq query --nouse_legacy_sql \
 
 > 雙寫版的 DAG 第一個 task 要發任務到 VM1 的 RabbitMQ——Composer 跑在 Google 託管的環境裡，不在你的 VPC 內，所以除了 Cloud SQL 的授權網路（C-6），**RabbitMQ 的 5672 也要對 Composer 的對外 IP 開一條防火牆規則**（C-6 一併處理，示範完刪掉）。這是「託管服務在你網路外面」帶來的第二個網路功課。
 
+#### Composer：託管版的 Airflow
+
+排程主線用的是 GCE 上自架的 Airflow 容器，跟第 10 章以來同一套 image 和 DAG。GCP 也有託管版本，叫 **Cloud Composer**。這是第 16 章「託管 vs 自架」的同一道選擇題，換到排程工具上：
+
+| | 自架 Airflow（本章主線） | Cloud Composer |
+|---|------------------------|----------------|
+| 機器與維運 | 你的 VM，你自己維護 | Google 負責（底層是 GKE） |
+| 費用 | VM 費用（已經在付，不會多花） | **最小環境每月數百美元起** |
+| 建置時間 | image build 約 10 分鐘 | 環境建置 20-30 分鐘 |
+| DAG 部署方式 | 放進 dags/ 目錄 | 上傳到指定的 Cloud Storage bucket |
+| 套件與環境變數 | 寫進 Dockerfile 與 compose，一次處理完 | 各自透過 Composer 的介面與指令設定 |
+| 不用的時候 | VM `stop` 就不計費，資料設定都留著 | **沒有停機選項，只能刪除環境** |
+| 適合的情況 | 學習、小規模、預算有限 | DAG 數量多、團隊規模大、不希望自己維護 scheduler |
+
+課程的安排：**主線用自架（學員不用額外付費），Composer 由講師示範**——Part C 會把主線這支 `stock_bigquery_etl_dag` 原封不動搬到 Composer 上跑一次，DAG 的程式碼一行都不改，示範完**立刻刪除環境**。額度充足的同學可以照 Part C 的步驟自己走一遍，做完務必刪除。
+
+先講結論，Part C 會逐步驗證：編排邏輯在兩邊通用，要各自準備的是執行環境——程式碼怎麼進去、套件怎麼裝、連線設定怎麼給。
+
+#### 兩個版本軸：Composer 世代 vs Airflow 版本
+
+Composer 的版本有**兩個獨立的軸**，選版本時最容易在這裡混淆：
+
+- **Composer 世代**（第 2 代 / 第 3 代）：講的是 Google 那側的**基礎設施**怎麼架。
+- **Airflow 版本**（2 / 3）：講的是環境裡跑的**軟體**是哪一版。
+
+| | 代管 Airflow 第 2 代（Composer 2） | 代管 Airflow 第 3 代（Composer 3） |
+|---|---|---|
+| 可跑的 Airflow | 只有 Airflow 2 | **Airflow 2 或 Airflow 3**（映像檔版本決定） |
+| 基礎設施 | 跑在你專案看得到的 GKE 上 | GKE 完全由 Google 代管，你的專案裡看不到 |
+| 任務 log | 存 bucket | 送 **Cloud Logging**（C-6 讀 log 的方式因此不同） |
+| 課程用哪個 | — | 這個，映像選 `composer-3-airflow-2` |
+
+順帶一提名稱：這個產品在 Console 上已改名「**Managed Service for Apache Airflow（原為 Cloud Composer）**」，左側選單叫「代管 Airflow」——文件和指令（`gcloud composer ...`）仍沿用 Composer 這個名字，搜尋時兩個名稱都認得就好。更早還有一個 Composer 1，已淘汰，建立選單上看不到了。
+
+**課程選「第 3 代 + Airflow 2」**：世代選 3 是要新的基礎設施；Airflow 選 2 是因為**自架環境跑的就是 Airflow 2**，同一支 DAG 兩邊通用的前提是軟體同版。建立表單的映像檔版本下拉裡，**Airflow 3 的映像排在最上面**（例如 `composer-3-airflow-3.2.2`），認明 `composer-3-airflow-2` 開頭的才選——選到 Airflow 3，課程的 DAG 一上傳就會 import error。
+
+#### Airflow 2 與 Airflow 3 差在哪（為什麼課程的 DAG 在 3 上會壞）
+
+Airflow 3 是 2025 年的大版本，重點放在架構重整，對 DAG 程式碼有**不相容的改動**。跟課程直接相關的四條：
+
+| 改動 | Airflow 2 的寫法（課程用的） | Airflow 3 |
+|---|---|---|
+| 排程參數 | `schedule_interval="0 20 * * 1-5"` | 參數改名 `schedule`，舊名移除 |
+| Operator import 路徑 | `from airflow.operators.python_operator import PythonOperator`（1.x 相容路徑） | 相容路徑移除，DAG 直接 import error |
+| 時間語意 | context 裡的 `execution_date` | 改名 `logical_date`，舊名移除 |
+| 任務讀資料庫 | task 行程可直連 Airflow 的 metadata DB | 拆掉直連，worker 一律走 API——自訂程式碼碰過 metadata DB 的都要改 |
+
+除了不相容改動，3 還帶來新東西：全新的 React 介面、DAG 版本管理（UI 上看得到每次部署的差異）、事件驅動排程（Dataset 改名 Asset 並擴充）。**判斷句是：新專案從 Airflow 3 開始沒問題；既有的 Airflow 2 專案（例如本課程）升級前要先盤點上表四條**——這也是為什麼 Composer 3 同時供應兩種映像，讓存量的 Airflow 2 用戶不被逼著升級。
+
 #### C-1 啟用 API 並授權服務帳戶
 
 ```bash
@@ -291,7 +361,7 @@ gcloud composer environments create stock-composer \
 gcloud composer environments list --locations=asia-east1
 ```
 
-**同一件事的 Console 版**（表單看懂欄位、實際建立擇一即可）：≡ →「代管 Airflow」→「**建立環境**」下拉，先選**世代**——「代管 Airflow 第 3 代」（「先搞懂」版本軸小節的 Composer 3）：
+**同一件事的 Console 版**（表單看懂欄位、實際建立擇一即可）：≡ →「代管 Airflow」→「**建立環境**」下拉，先選**世代**——「代管 Airflow 第 3 代」（Part C 開頭「兩個版本軸」小節的 Composer 3）：
 
 ![建立環境入口兩代選單](images/ch17/12-Console建立環境入口兩代選單.jpg)
 
@@ -305,7 +375,7 @@ gcloud composer environments list --locations=asia-east1
 | 服務帳戶 | 需選擇 | Compute Engine 預設服務帳戶 | `--service-account` |
 | 環境資源 | 小 | 保持「小」 | `--environment-size=small` |
 
-**映像檔版本下拉是本表單最大的坑**：Airflow 3 的映像排在最上面，預設值雖然是 airflow-2，手滑選到 airflow-3 課程 DAG 一上傳就 import error（「先搞懂」的 Airflow 2/3 對照表）：
+**映像檔版本下拉是本表單最大的坑**：Airflow 3 的映像排在最上面，預設值雖然是 airflow-2，手滑選到 airflow-3 課程 DAG 一上傳就 import error（Part C 開頭的 Airflow 2/3 對照表）：
 
 ![映像版本下拉](images/ch17/13-Console映像版本下拉Airflow3陷阱.jpg)
 
@@ -710,7 +780,7 @@ sudo docker exec airflow-webserver airflow users list
 | Composer 建立回報 `FAILED_PRECONDITION: Please enable all APIs` | 只開了 `composer.googleapis.com`，還相依 `iamcredentials.googleapis.com` | 兩個一起 enable 後重下建立指令 |
 | Composer 環境刪不掉，回報 `Cannot delete environment in state CREATING` | 建立中的環境不能刪 | 等 STATE 變成 `RUNNING` 再刪；建立那 20-30 分鐘的費用無法迴避 |
 | DAG 上傳了但 `dags list` 看不到 | DAG import 失敗——`crawler` 模組沒一起上傳，或用到映像沒有的套件（例如 loguru） | `dags list-import-errors` 看 traceback；缺模組就 `gcloud storage cp -r crawler {bucket}/dags/`、缺套件就 `--update-pypi-package` 補裝（C-4 的流程） |
-| import error 指向 `airflow.operators.python_operator` 這類路徑 | 環境映像選到 **Airflow 3**（建立表單下拉最上面就是 airflow-3 的映像），1.x 相容 import 路徑在 3 已移除 | Airflow 大版本不能原地換——刪掉環境重建，映像認明 `composer-3-airflow-2` 開頭（「先搞懂」的版本軸小節） |
+| import error 指向 `airflow.operators.python_operator` 這類路徑 | 環境映像選到 **Airflow 3**（建立表單下拉最上面就是 airflow-3 的映像），1.x 相容 import 路徑在 3 已移除 | Airflow 大版本不能原地換——刪掉環境重建，映像認明 `composer-3-airflow-2` 開頭（Part C 開頭的版本軸小節） |
 | Composer 上任務報 `Access Denied: Project your-project-id` | 沒設 `GCP_PROJECT_ID` 環境變數，`config.py` 退回預設值 | `environments update --update-env-variables=GCP_PROJECT_ID=...` |
 | Composer 上連 Cloud SQL 逾時 | 授權網路沒有 Composer 的對外 IP | 用探測 DAG 查出對外 IP（C-6），加進 `authorized-networks` |
 | Composer 上 `send_crawler_tasks` 連 RabbitMQ 逾時 | 5672 防火牆規則沒開，或 `RABBITMQ_HOST` 填了內部 IP（Composer 不在你的 VPC 裡） | 照 C-6 開 `allow-composer-rabbitmq`（來源限 Composer IP）；環境變數改 VM1 外部 IP |
