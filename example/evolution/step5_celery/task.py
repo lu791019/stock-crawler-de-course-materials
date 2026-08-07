@@ -1,5 +1,5 @@
 """
-Step 4 的任務層: 與 Step 3 的 task.py 相比, 函式主體一行都沒有改。
+Step 5 的任務層: 與 Step 4 的 task.py 相比, 函式主體一行都沒有改。
 
 三處差異全部與爬蟲邏輯無關:
     1. 多 import 了 worker 裡的 app。
@@ -10,15 +10,15 @@ Step 4 的任務層: 與 Step 3 的 task.py 相比, 函式主體一行都沒有�
 crawl.delay(...) 才是把任務送進 RabbitMQ 交給 worker 執行。
 這代表 Celery 換掉的是「誰來執行、在哪裡執行」, 不是「執行什麼」。
 """
-from example.evolution.step4_celery import client, repository, transformer
-from example.evolution.step4_celery.worker import app
+from example.evolution.step5_celery import client, repository, transformer
+from example.evolution.step5_celery.worker import app
 
 
 @app.task()
 def crawl(stock_id: str, start_date: str, end_date: str):
     """處理一顆任務: 抓一支股票在一段期間的資料, 整理後存到 repository 決定的目標。
 
-    函式主體與 Step 3 完全相同。
+    函式主體與 Step 4 完全相同。
     參數必須是可以被序列化的型別（字串、數字、list、dict）,
     因為任務會被轉成訊息送進 RabbitMQ, DataFrame 或連線物件無法這樣傳遞。
     """

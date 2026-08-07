@@ -1,10 +1,10 @@
 """
-Step 4 的資料來源層（client）: 函式內容與 Step 2、Step 3 完全相同, 只有 import 那一行不同。
+Step 5 的資料來源層（client）: 函式內容與 Step 3、Step 4 完全相同, 只有 import 那一行不同。
 
 import 改寫的原因與爬蟲邏輯無關:
-    Step 2、Step 3 是用 python 直接執行檔案, Python 會把「檔案所在目錄」加進搜尋路徑,
+    Step 3、Step 4 是用 python 直接執行檔案, Python 會把「檔案所在目錄」加進搜尋路徑,
     所以寫 from config import ... 找得到同目錄的 config.py。
-    Step 4 是用 celery -A example.evolution.step4_celery.worker 啟動,
+    Step 5 是用 celery -A example.evolution.step5_celery.worker 啟動,
     Celery 以「模組路徑」載入程式, 搜尋路徑是專案根目錄, 同目錄那種寫法就找不到檔案。
     因此這裡改用完整套件路徑, 並在每一層資料夾放一個空的 __init__.py。
 
@@ -15,7 +15,7 @@ import 改寫的原因與爬蟲邏輯無關:
 import pandas as pd
 import requests
 
-from example.evolution.step4_celery.config import FINMIND_DATASET, FINMIND_URL
+from example.evolution.step5_celery.config import FINMIND_DATASET, FINMIND_URL
 
 
 def fetch_stock_price(stock_id: str, start_date: str, end_date: str) -> pd.DataFrame:

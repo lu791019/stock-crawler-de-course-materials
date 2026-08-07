@@ -1,5 +1,5 @@
 """
-Step 4 的資料儲存層（repository）: 函式內容與 Step 2、Step 3 完全相同, 只有 import 那一行不同。
+Step 5 的資料儲存層（repository）: 函式內容與 Step 3、Step 4 完全相同, 只有 import 那一行不同。
 
 import 改寫的原因與 client.py 相同: Celery 以模組路徑載入程式, 要用完整套件路徑。
 
@@ -14,7 +14,7 @@ import os
 import pandas as pd
 from sqlalchemy import create_engine
 
-from example.evolution.step4_celery.config import (
+from example.evolution.step5_celery.config import (
     CSV_OUTPUT_DIR,
     MYSQL_ACCOUNT,
     MYSQL_DATABASE,

@@ -1,5 +1,5 @@
 """
-Step 4 的資料整理層（transformer）: 與 Step 2、Step 3 完全相同, 連 import 都沒有改。
+Step 5 的資料整理層（transformer）: 與 Step 3、Step 4 完全相同, 連 import 都沒有改。
 
 這個檔案不需要 import config, 所以不受 Celery 載入方式影響。
 用 diff 比對三個步驟的 transformer.py 會沒有任何輸出。

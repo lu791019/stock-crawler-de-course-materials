@@ -1,17 +1,17 @@
 """
-Step 3 的派工層（producer）: 只負責「決定要做哪些任務」, 不負責執行細節。
+Step 4 的派工層（producer）: 只負責「決定要做哪些任務」, 不負責執行細節。
 
 這個檔案回答一個問題: 這一輪要處理哪些參數組合。
 它不知道抓資料要呼叫哪個 API, 也不知道資料會被存到哪裡。
 
 此時 producer 用一般的函式呼叫來執行任務, 整批仍在同一支程式裡循序跑完。
-Step 4 只會改這裡的一行——把 task.crawl(...) 換成 task.crawl.delay(...)。
+Step 5 只會改這裡的一行——把 task.crawl(...) 換成 task.crawl.delay(...)。
 
 執行方式:
     uv run python example/evolution/step3_task/producer.py
 
 執行結果:
-    與 Step 2 完全相同, 差別只在任務清單與任務執行已經分開在兩個檔案。
+    與 Step 3 完全相同, 差別只在任務清單與任務執行已經分開在兩個檔案。
 """
 import task
 from config import END_DATE, START_DATE, STOCK_IDS

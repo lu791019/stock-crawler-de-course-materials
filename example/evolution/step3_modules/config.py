@@ -1,8 +1,11 @@
 """
-Step 4 的設定層: 與 Step 2、Step 3 的 config.py 內容相同, 只多了 RabbitMQ 那一段。
+Step 3 的設定層: 集中管理所有「會因環境而變」的值。
 
-多出來的四個變數是給 Celery 連 broker 用的, 與爬蟲邏輯無關。
-預設值對應課程的本機 RabbitMQ 容器（rabbitmq-network.yml 啟動的那一組）。
+Step 0 把設定寫死在函式裡, Step 1 搬到模組最上方, 這裡再往前一步——
+改用 os.environ.get() 讀環境變數, 讀不到才用預設值。
+這樣同一份程式在本機、在容器、在雲端都不用改任何一行, 只換環境變數。
+
+這個檔案的寫法與課程正式版 crawler/config.py 相同。
 """
 import os
 
@@ -17,6 +20,7 @@ FINMIND_DATASET = os.environ.get("FINMIND_DATASET", "TaiwanStockPrice")
 
 # 怎麼存: STORAGE 決定要用哪些 repository 實作, 可用值是 csv 與 mysql
 # 用逗號分隔可以同時寫多個目標, 例如 STORAGE=csv,mysql
+# 這個開關是 Step 3 的驗收重點——換值不用改 client 與 transformer 的任何一行
 STORAGE = os.environ.get("STORAGE", "csv")
 
 # CSV 的輸出目錄
@@ -28,10 +32,3 @@ MYSQL_PORT = int(os.environ.get("MYSQL_PORT", 3306))
 MYSQL_ACCOUNT = os.environ.get("MYSQL_ACCOUNT", "root")
 MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "1234")
 MYSQL_DATABASE = os.environ.get("MYSQL_DATABASE", "mydb")
-
-# Step 4 新增: RabbitMQ 連線資訊, 給 Celery 當 broker 用
-# 這四個變數與爬蟲邏輯無關, 是「任務怎麼傳遞」的設定
-WORKER_ACCOUNT = os.environ.get("WORKER_ACCOUNT", "worker")
-WORKER_PASSWORD = os.environ.get("WORKER_PASSWORD", "worker")
-RABBITMQ_HOST = os.environ.get("RABBITMQ_HOST", "127.0.0.1")
-RABBITMQ_PORT = int(os.environ.get("RABBITMQ_PORT", 5672))

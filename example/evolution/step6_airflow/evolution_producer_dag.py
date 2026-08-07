@@ -1,9 +1,9 @@
 """
-Step 5: 用 Airflow 取代手動執行 producer。
+Step 6: 用 Airflow 取代手動執行 producer。
 
 這一步只換掉一件事——誰來呼叫 producer。
-    Step 4: 人在終端機下指令發任務。
-    Step 5: Airflow 到排定的時間自動發任務。
+    Step 5: 人在終端機下指令發任務。
+    Step 6: Airflow 到排定的時間自動發任務。
 
 DAG 裡的每個 task 只做一件事: 呼叫 crawl.delay() 把任務送進 RabbitMQ, 送完就結束。
 抓資料與寫資料庫仍然由 Celery worker 執行, DAG 內不搬運任何資料。
@@ -23,10 +23,10 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
 
-# 匯入 Step 4 註冊好的 Celery 任務。
+# 匯入 Step 5 註冊好的 Celery 任務。
 # 這裡匯入的是任務物件, 呼叫 .delay() 只是發送訊息, 函式本體在 worker 執行。
-from example.evolution.step4_celery.task import crawl
-from example.evolution.step4_celery.config import END_DATE, START_DATE, STOCK_IDS
+from example.evolution.step5_celery.task import crawl
+from example.evolution.step5_celery.config import END_DATE, START_DATE, STOCK_IDS
 
 default_args = {
     "owner": "data-team",                   # 負責團隊
@@ -39,7 +39,7 @@ default_args = {
 def send_one_task(stock_id: str):
     """把單支股票的爬蟲任務發送到 RabbitMQ。
 
-    這個函式是 DAG 與 Celery 之間的唯一接點, 內容與 Step 4 producer 的迴圈主體相同。
+    這個函式是 DAG 與 Celery 之間的唯一接點, 內容與 Step 5 producer 的迴圈主體相同。
     """
     crawl.delay(stock_id=stock_id, start_date=START_DATE, end_date=END_DATE)
 

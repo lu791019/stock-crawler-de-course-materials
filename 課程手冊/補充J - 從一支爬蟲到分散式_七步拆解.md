@@ -1,4 +1,4 @@
-# 補充 J：從一支爬蟲到分散式 — 六步拆解
+# 補充 J：從一支爬蟲到分散式 — 七步拆解
 
 > 你已經有一支能正常執行的爬蟲程式，它同時負責建立任務、呼叫 API、寫入資料庫。你也知道最終架構是 producer → RabbitMQ → Celery task → client → repository。這一篇處理中間那段：從第一支程式走到最終架構，一共要改幾次，每次改什麼，每次改完怎麼確認沒有改壞。
 
@@ -54,21 +54,22 @@
 
 ---
 
-## 六步全景
+## 七步全景
 
 | 步驟 | 這一步做的事 | 這一步沒有動的東西 | 驗收方式 |
 |---|---|---|---|
 | Step 0 | 起點，單體程式 | — | 程式可以執行，產生 CSV |
 | Step 1 | 同一支檔案內拆成抓、整理、存三個函式 | 檔案數量、儲存行為 | CSV 與 MySQL 的寫入結果和 Step 0 相同 |
-| Step 2 | 三個函式各自獨立成檔案，設定抽到 config | 三個函式的內容 | 只改環境變數就能換儲存目標，client 與 transformer 不動 |
-| Step 3 | 任務參數化，producer 與 task 分家 | client、transformer、repository | 輸出與 Step 2 相同，此時仍未使用 Celery |
-| Step 4 | 接上 Celery 與 RabbitMQ | 任務函式的主體 | worker log 出現 task succeeded |
-| Step 5 | Airflow 定時發任務 | 所有爬蟲相關程式 | DAG 的 task 變綠，worker log 出現任務紀錄 |
+| Step 2 | 同檔抽出一顆任務 `crawl(stock_id, start, end)` | 三個階段函式、檔案數量 | 輸出與 Step 1 相同；任務的三個可分散條件成立 |
+| Step 3 | 三個函式各自獨立成檔案，設定抽到 config | 三個函式的內容 | 只改環境變數就能換儲存目標，client 與 transformer 不動 |
+| Step 4 | task 與 producer 分家（crawl 搬檔、build_jobs 誕生） | client、transformer、repository、crawl 的內容 | 輸出與 Step 3 相同，此時仍未使用 Celery |
+| Step 5 | 接上 Celery 與 RabbitMQ | 任務函式的主體 | worker log 出現 task succeeded |
+| Step 6 | Airflow 定時發任務 | 所有爬蟲相關程式 | DAG 的 task 變綠，worker log 出現任務紀錄 |
 
-補充說明六步之外的兩件事：
+補充說明七步之外的兩件事：
 
 - **課程手冊 09 的 APScheduler 沒有出現在這條線上**。APScheduler 與 Airflow 在架構上位於同一個位置，兩者都只回答「誰來呼叫 producer」。這條演進線每個位置只示範一種做法，所以直接用 Airflow。APScheduler 的語法與使用時機仍然在手冊 09 說明。
-- **上雲不是第七步**。六步做完之後，程式碼裡所有連線資訊都已經在 config 讀環境變數，換到雲端要改的是環境變數的值，不是程式碼。這件事在手冊 14、16 說明。
+- **上雲不是第七步**。七步做完之後，程式碼裡所有連線資訊都已經在 config 讀環境變數，換到雲端要改的是環境變數的值，不是程式碼。這件事在手冊 14、16 說明。
 
 ---
 
@@ -80,18 +81,19 @@
 |---|---|
 | `example/evolution/step0_single_file.py` | Step 0，單體版 |
 | `example/evolution/step1_functions.py` | Step 1，同檔三函式版 |
-| `example/evolution/step2_modules/` | Step 2，config、client、transformer、repository、main |
-| `example/evolution/step3_task/` | Step 3，多了 task、producer |
-| `example/evolution/step4_celery/` | Step 4，多了 worker，task 加上裝飾器 |
-| `example/evolution/step5_airflow/` | Step 5，DAG 檔 |
+| `example/evolution/step2_task_function.py` | Step 2，同檔抽出 crawl() 任務函式 |
+| `example/evolution/step3_modules/` | Step 3，config、client、transformer、repository、main |
+| `example/evolution/step4_task/` | Step 4，多了 task、producer |
+| `example/evolution/step5_celery/` | Step 5，多了 worker，task 加上裝飾器 |
+| `example/evolution/step6_airflow/` | Step 6，DAG 檔 |
 
-Step 2 到 Step 4 的資料夾裡都有各自的 `config.py`、`client.py`、`transformer.py`、`repository.py`。內容刻意重複，目的是讓你可以直接用 `diff` 比較兩個步驟之間到底改了什麼：
+Step 3 到 Step 5 的資料夾裡都有各自的 `config.py`、`client.py`、`transformer.py`、`repository.py`。內容刻意重複，目的是讓你可以直接用 `diff` 比較兩個步驟之間到底改了什麼：
 
 ```bash
-diff example/evolution/step2_modules/client.py example/evolution/step3_task/client.py
+diff example/evolution/step3_modules/client.py example/evolution/step4_task/client.py
 # 沒有任何輸出，代表兩個步驟之間 client 完全沒改
 
-diff example/evolution/step3_task/task.py example/evolution/step4_celery/task.py
+diff example/evolution/step4_task/task.py example/evolution/step5_celery/task.py
 # 差異只有裝飾器與 import 的寫法，函式主體相同
 ```
 
@@ -188,7 +190,7 @@ uv run python example/evolution/step0_single_file.py
 
 不修改輸入而是回傳新的 DataFrame，好處是原始資料保持不動，要比對「整理前後差在哪」隨時可以做。
 
-`save()` 保留 Step 0 的儲存行為：CSV 一定寫，`WRITE_MYSQL` 為 `True` 時多寫一份到 MySQL。兩種寫入都在同一個函式裡，Step 2 才會各自獨立。
+`save()` 保留 Step 0 的儲存行為：CSV 一定寫，`WRITE_MYSQL` 為 `True` 時多寫一份到 MySQL。兩種寫入都在同一個函式裡，Step 3 才會各自獨立。
 
 設定值從函式內部搬到模組最上方，成為 `FINMIND_URL`、`STOCK_IDS`、`START_DATE`、`END_DATE`、`WRITE_MYSQL`、`MYSQL_ADDRESS` 等常數。此時設定仍然寫在程式碼裡，但至少集中在一個位置。
 
@@ -223,7 +225,7 @@ uv run python example/evolution/step1_functions.py
 已寫入 MySQL TaiwanStockPrice（2330）
 ```
 
-「要改程式碼才能換儲存方式」正是這一步留下的問題，Step 2 會解決它。
+「要改程式碼才能換儲存方式」正是這一步留下的問題，Step 3 會解決它。
 
 ### 這一步留下的問題
 
@@ -234,7 +236,49 @@ uv run python example/evolution/step1_functions.py
 
 ---
 
-## Step 2：三個函式各自獨立成檔案
+## Step 2：同一支檔案內抽出「一顆任務」
+
+### 這一步的狀態
+
+- 檔案還是一支，三個階段函式一行都沒改。
+- 唯一的變化：main() 迴圈裡「抓 → 整理 → 存」那段流程，抽成 `crawl(stock_id, start_date, end_date)`。
+- 執行結果與 Step 1 相同。
+
+### 為什麼這一步是整條演進線的樞紐
+
+「任務」在這裡誕生。一顆任務要能被切分給多台機器執行，必須滿足三個條件：
+
+1. 所有輸入都由參數帶進來，函式內部沒有寫死的清單。
+2. 不依賴其他任務的執行結果，單獨呼叫就能完成。
+3. 不把結果回傳給呼叫端，結果直接寫進儲存層。
+
+`crawl()` 三個條件都滿足——而此時**完全沒有 Celery**。這三個條件與佇列工具無關，是任務本身的性質；先讓任務成立，之後接任何工具都行。
+
+### 程式檔說明
+
+`step2_task_function.py` 相對 Step 1 只多了一個函式：
+
+| 函式 | 內容 |
+|---|---|
+| `crawl(stock_id, start_date, end_date)` | 把 Step 1 迴圈體的「抓 → 判空 → 整理 → 存」搬進來，輸入全部來自參數 |
+| `main()` | 迴圈只剩一件事：決定要處理哪些股票，逐顆呼叫 `crawl()` |
+
+抽完之後，「處理一支股票」有了明確邊界——之後不管是誰來呼叫（迴圈、排程器、別台機器上的 worker），做的事都一樣。
+
+### 執行方式
+
+```bash
+uv run python example/evolution/step2_task_function.py
+```
+
+預期輸出與 Step 1 相同。
+
+### 這一步留下的問題
+
+- 任務有了邊界，但五顆任務仍在同一個行程裡循序執行，一支慢全部等。
+- 三個階段和任務全擠在同一支檔案，無法單獨替換其中一層。
+
+## Step 3：三個函式各自獨立成檔案
 
 ### 這一步的狀態
 
@@ -243,21 +287,21 @@ uv run python example/evolution/step1_functions.py
 - 設定值改用 `os.environ.get()` 讀環境變數，讀不到才用預設值。
 - CSV 與 MySQL 各自獨立成函式，用環境變數 `STORAGE` 決定要寫哪些。
 
-Step 1 的三個函式與 Step 2 的三支檔案對應如下：
+Step 1 的三個函式與 Step 3 的三支檔案對應如下：
 
-| Step 1 的函式 | Step 2 的檔案 | 這一層負責的事 |
+| Step 1 的函式 | Step 3 的檔案 | 這一層負責的事 |
 |---|---|---|
 | `fetch_stock_price()` | `client.py` | 抓資料 |
 | `transform()` | `transformer.py` | 整理資料 |
 | `save()` | `repository.py` | 存資料 |
 | 模組上方的常數 | `config.py` | 設定值 |
-| `main()` | `main.py` | 決定要抓什麼、串接順序 |
+| `crawl()` 與 `main()` | `main.py` | 一顆任務＋決定要抓什麼 |
 
 ### 一個階段一個模組，不是一個函式一個檔案
 
 上面那張表看起來像「一個函式搬進一個檔案」，這是示範規模小造成的巧合，不是規則。
 
-規則是**一個階段一個模組**。檔案是「改動理由相同的東西的容器」，容器裡放幾個函式由規模決定。這一點在 Step 2 就已經看得到：`repository.py` 裡有 `save_to_csv()`、`save_to_mysql()`、`save()` 三個函式，加上 `SAVERS` 對照表，因為儲存目標是最先變多的東西。
+規則是**一個階段一個模組**。檔案是「改動理由相同的東西的容器」，容器裡放幾個函式由規模決定。這一點在 Step 3 就已經看得到：`repository.py` 裡有 `save_to_csv()`、`save_to_mysql()`、`save()` 三個函式，加上 `SAVERS` 對照表，因為儲存目標是最先變多的東西。
 
 放大到真實專案，每一層都會變成多函式：
 
@@ -332,14 +376,14 @@ repository.py   save_to_csv / save_to_mysql / save_to_bigquery / save
 - 職責：決定要抓什麼，以及串接三個階段的順序。
 - 只有一個 `main()`，本身不含 API 細節、整理細節與儲存細節。
 - 它對儲存層的呼叫只有一行 `repository.save(clean_df, stock_id)`，不需要知道實際存到哪裡、存幾份。
-- 要抓哪些股票仍然寫在這個函式的迴圈裡，Step 3 才會獨立出去。
+- 要抓哪些股票仍然寫在這個函式的迴圈裡，Step 4 才會獨立出去。
 
 ### 執行方式
 
 存成 CSV：
 
 ```bash
-uv run python example/evolution/step2_modules/main.py
+uv run python example/evolution/step3_modules/main.py
 ```
 
 預期輸出：
@@ -356,7 +400,7 @@ uv run python example/evolution/step2_modules/main.py
 
 ```bash
 docker compose -f docker-compose-local.yml up -d mysql
-STORAGE=mysql uv run python example/evolution/step2_modules/main.py
+STORAGE=mysql uv run python example/evolution/step3_modules/main.py
 ```
 
 預期輸出：
@@ -370,7 +414,7 @@ STORAGE=mysql uv run python example/evolution/step2_modules/main.py
 兩邊都寫：
 
 ```bash
-STORAGE=csv,mysql uv run python example/evolution/step2_modules/main.py
+STORAGE=csv,mysql uv run python example/evolution/step3_modules/main.py
 ```
 
 預期輸出，每一支股票都有兩行寫入紀錄：
@@ -410,26 +454,22 @@ docker exec mysql mysql -uroot -p1234 -e "USE mydb; SHOW TABLES; SELECT COUNT(*)
 
 ---
 
-## Step 3：任務參數化
+## Step 4：task 與 producer 分家
 
 ### 這一步的狀態
 
 - `main.py` 拆成兩支檔案：`task.py` 與 `producer.py`。
 - `client.py`、`transformer.py`、`repository.py`、`config.py` 完全沒有改。
-- 執行結果與 Step 2 相同。
+- 執行結果與 Step 3 相同。
 - 此時程式裡仍然沒有任何 Celery 的痕跡。
 
-這一步是整條演進線的樞紐。前面兩步是把「橫向的三個階段」分開，這一步是把「縱向的整批與單顆」分開。
+樞紐（任務的誕生）在 Step 2 已經完成——這一步是純粹的搬家：`crawl()` 搬進 `task.py`、迴圈搬進 `producer.py`，並把「產生任務清單」獨立成 `build_jobs()`。搬完之後，「要做哪些任務」與「一顆任務怎麼做」分屬兩個檔案，各自演進。
 
-### 為什麼這一步是分散式的前提
+### 分家之後，兩個檔案各管一件事
 
-- 任務要能被丟進佇列，前提是它有明確的邊界：輸入是一組參數，輸出是一次完成的工作。
-- 參數還寫在函式內部時，任務沒有邊界。整批處理只能整批搬，不能切分給多台機器。
-- 一顆任務要能被獨立執行，必須滿足三個條件：
-  1. 所有輸入都由參數帶進來，函式內部沒有寫死的清單。
-  2. 不依賴其他任務的執行結果，單獨呼叫就能完成。
-  3. 不把結果回傳給呼叫端，結果直接寫進儲存層。
-- 這三個條件與 Celery 無關，是任務本身的性質。先滿足這三個條件，之後換成任何一種佇列工具都能接。
+- `task.py`：一顆任務怎麼做——改抓取邏輯、改儲存目標的影響半徑到此為止。
+- `producer.py`：這一輪要做哪些任務——改顆粒度、改清單來源只動這裡。
+- 任務可分散的三個條件（見 Step 2）在搬家過程中原封不動，這一步不改變任務的性質。
 
 ### 程式檔說明
 
@@ -437,14 +477,14 @@ docker exec mysql mysql -uroot -p1234 -e "USE mydb; SHOW TABLES; SELECT COUNT(*)
 
 - 職責：處理一顆任務，也就是一組參數對應的一次完整工作。
 - 對外只有一個函式 `crawl(stock_id, start_date, end_date)`。
-- 函式內部依序串接三個階段：`client.fetch_stock_price()`、`transformer.transform()`、`repository.save()`。串接順序與 Step 2 的 `main()` 相同，差別只在少了外層的 for 迴圈。
+- 函式內部依序串接三個階段：`client.fetch_stock_price()`、`transformer.transform()`、`repository.save()`。串接順序與 Step 3 的 `main()` 相同，差別只在少了外層的 for 迴圈。
 - 這個函式此時是一個普通的 Python 函式，可以直接 import 進來單機呼叫。
 - 原始 DataFrame 為空時印出訊息並直接返回，不進行整理與儲存。
 
 #### `producer.py`：派工層
 
 - 職責：決定這一輪要處理哪些任務。
-- 內含 `build_jobs()` 與 `main()`，其中 `build_jobs()` 是這一步新增的。Step 2 是在 `main()` 的迴圈裡直接用 `STOCK_IDS`，這裡把「產生任務清單」獨立成函式。
+- 內含 `build_jobs()` 與 `main()`，其中 `build_jobs()` 是這一步新增的。Step 3 是在 `main()` 的迴圈裡直接用 `STOCK_IDS`，這裡把「產生任務清單」獨立成函式。
 - `build_jobs()` 產生任務清單，每個元素是一顆任務要用的參數。
 - **任務顆粒度在這個函式決定**。目前是「一支股票一顆任務」。要改成「一支股票 × 一天一顆任務」，只需要改這個函式，`task.py` 不用動。
 - `main()` 逐一取出清單裡的參數，呼叫 `task.crawl(**job)`。此時是直接呼叫函式，所以整批仍然循序執行。
@@ -452,7 +492,7 @@ docker exec mysql mysql -uroot -p1234 -e "USE mydb; SHOW TABLES; SELECT COUNT(*)
 ### 執行方式
 
 ```bash
-uv run python example/evolution/step3_task/producer.py
+uv run python example/evolution/step4_task/producer.py
 ```
 
 預期輸出：
@@ -477,7 +517,7 @@ uv run python example/evolution/step3_task/producer.py
 
 ---
 
-## Step 4：接上 Celery 與 RabbitMQ
+## Step 5：接上 Celery 與 RabbitMQ
 
 ### 這一步的狀態
 
@@ -501,9 +541,9 @@ uv run python example/evolution/step3_task/producer.py
 
 ### 為什麼 import 的寫法要改
 
-- Step 2、Step 3 是用 `python 檔案路徑` 執行，Python 會把「檔案所在目錄」加進模組搜尋路徑，所以 `from config import ...` 找得到同目錄的 `config.py`。
-- Step 4 是用 `celery -A example.evolution.step4_celery.worker` 啟動，Celery 以模組路徑載入程式，搜尋路徑是專案根目錄，同目錄那種寫法會找不到檔案。
-- 因此 Step 4 改用完整套件路徑 `from example.evolution.step4_celery.config import ...`，並在每一層資料夾放一個空的 `__init__.py`。
+- Step 3、Step 4 是用 `python 檔案路徑` 執行，Python 會把「檔案所在目錄」加進模組搜尋路徑，所以 `from config import ...` 找得到同目錄的 `config.py`。
+- Step 5 是用 `celery -A example.evolution.step5_celery.worker` 啟動，Celery 以模組路徑載入程式，搜尋路徑是專案根目錄，同目錄那種寫法會找不到檔案。
+- 因此 Step 5 改用完整套件路徑 `from example.evolution.step5_celery.config import ...`，並在每一層資料夾放一個空的 `__init__.py`。
 - 這是 Python 的模組載入規則，與拆解無關。課程正式版 `crawler/` 目錄從第一章開始就用完整套件路徑，原因相同。
 
 ### 程式檔說明
@@ -523,13 +563,13 @@ uv run python example/evolution/step3_task/producer.py
 
 #### `task.py`：任務層
 
-- 函式主體與 Step 3 相同。
+- 函式主體與 Step 4 相同。
 - `@app.task()` 裝飾器不改變函式的行為：`crawl(...)` 直接呼叫時仍然是同步執行的普通函式，`crawl.delay(...)` 才是送進 RabbitMQ。
-- 參數必須是可以被序列化的型別（字串、數字、list、dict）。任務會被轉成訊息送進 RabbitMQ，DataFrame 或資料庫連線物件無法這樣傳遞。這一點反過來說明了 Step 3 的參數設計為什麼要用字串。
+- 參數必須是可以被序列化的型別（字串、數字、list、dict）。任務會被轉成訊息送進 RabbitMQ，DataFrame 或資料庫連線物件無法這樣傳遞。這一點反過來說明了 Step 4 的參數設計為什麼要用字串。
 
 #### `producer.py`：派工層
 
-- `build_jobs()` 與 Step 3 完全相同，因為「要做哪些任務」與「任務由誰執行」是兩件事。
+- `build_jobs()` 與 Step 4 完全相同，因為「要做哪些任務」與「任務由誰執行」是兩件事。
 - `main()` 的迴圈改成呼叫 `.delay()`。`.delay()` 送完就返回，不等待執行結果，所以這支程式會很快結束。
 - 抓資料的過程要看 worker 的 log 或 Flower，不會出現在 producer 的輸出裡。
 
@@ -544,20 +584,20 @@ docker compose -f docker-compose-local.yml up -d rabbitmq
 啟動 worker（另開一個終端機視窗，這個指令會持續執行）：
 
 ```bash
-uv run celery -A example.evolution.step4_celery.worker worker --loglevel=info
+uv run celery -A example.evolution.step5_celery.worker worker --loglevel=info
 ```
 
 worker 啟動後，確認 `[tasks]` 區塊列出了任務：
 
 ```
 [tasks]
-  . example.evolution.step4_celery.task.crawl
+  . example.evolution.step5_celery.task.crawl
 ```
 
 發送任務（回到原本的終端機視窗）：
 
 ```bash
-uv run python -m example.evolution.step4_celery.producer
+uv run python -m example.evolution.step5_celery.producer
 ```
 
 producer 的輸出：
@@ -575,10 +615,10 @@ producer 的輸出：
 worker 視窗的輸出：
 
 ```
-Task example.evolution.step4_celery.task.crawl[...] received
+Task example.evolution.step5_celery.task.crawl[...] received
 2317 取得 107 筆
 已寫入 output/TaiwanStockPrice_2317.csv
-Task example.evolution.step4_celery.task.crawl[...] succeeded in ...
+Task example.evolution.step5_celery.task.crawl[...] succeeded in ...
 ```
 
 ### 這一步的驗收重點
@@ -595,7 +635,7 @@ Task example.evolution.step4_celery.task.crawl[...] succeeded in ...
 
 ---
 
-## Step 5：Airflow 定時發任務
+## Step 6：Airflow 定時發任務
 
 ### 這一步的狀態
 
@@ -605,8 +645,8 @@ Task example.evolution.step4_celery.task.crawl[...] succeeded in ...
 
 ### 這一步只換了一件事
 
-- Step 4：人在終端機下指令發任務。
-- Step 5：Airflow 到排定的時間自動發任務。
+- Step 5：人在終端機下指令發任務。
+- Step 6：Airflow 到排定的時間自動發任務。
 
 換掉的是「誰來呼叫 producer」。爬蟲怎麼抓、資料存到哪裡，完全沒有變。
 
@@ -623,13 +663,13 @@ Task example.evolution.step4_celery.task.crawl[...] succeeded in ...
 
 ### 程式檔說明
 
-`step5_airflow/evolution_producer_dag.py` 的結構：
+`step6_airflow/evolution_producer_dag.py` 的結構：
 
 | 區塊 | 內容 | 說明 |
 |---|---|---|
-| import | `from example.evolution.step4_celery.task import crawl` | 匯入的是任務物件，呼叫 `.delay()` 只是發送訊息 |
+| import | `from example.evolution.step5_celery.task import crawl` | 匯入的是任務物件，呼叫 `.delay()` 只是發送訊息 |
 | `default_args` | owner、start_date、retries、retry_delay | 這裡的 retries 是「發送任務」的重試，不是爬蟲的重試 |
-| `send_one_task()` | 呼叫 `crawl.delay(...)` | DAG 與 Celery 之間的唯一接點，內容與 Step 4 producer 的迴圈主體相同 |
+| `send_one_task()` | 呼叫 `crawl.delay(...)` | DAG 與 Celery 之間的唯一接點，內容與 Step 5 producer 的迴圈主體相同 |
 | `schedule_interval` | `"0 18 * * 1-5"` | 週一到週五 18:00 發送，語法為「分 時 日 月 星期」 |
 | for 迴圈 | 依股票清單產生 PythonOperator | 每個 task 只負責送出一顆任務 |
 
@@ -638,7 +678,7 @@ Task example.evolution.step4_celery.task.crawl[...] succeeded in ...
 ### 部署方式
 
 ```bash
-cp example/evolution/step5_airflow/evolution_producer_dag.py airflow/dags/
+cp example/evolution/step6_airflow/evolution_producer_dag.py airflow/dags/
 ```
 
 Airflow 會自動載入 `airflow/dags/` 目錄下的檔案。啟動與操作方式見手冊 10。
@@ -654,22 +694,22 @@ Airflow 會自動載入 `airflow/dags/` 目錄下的檔案。啟動與操作方�
 
 ---
 
-## 六步與課程正式程式的對照
+## 七步與課程正式程式的對照
 
 示範程式刻意寫得比正式版單純，目的是讓每一步只呈現一個變化。對照表如下：
 
 | 示範檔案 | 課程正式版對應檔案 | 正式版多出來的內容 | 相關章節 |
 |---|---|---|---|
-| `step2_modules/config.py` | `crawler/config.py` | RabbitMQ、MongoDB、GCP 相關設定 | 補充 G |
-| `step2_modules/client.py` | `crawler/tasks_crawler_finmind.py` 的抓取段落 | 正式版尚未把抓取獨立成檔案 | 手冊 02 |
-| `step2_modules/transformer.py` | `crawler/tasks_crawler_finmind.py` 裡的日期轉型 | 正式版只在寫 BigQuery 前轉一次型別，沒有獨立的整理層 | 手冊 15 |
-| `step2_modules/repository.py` | `crawler/tasks_crawler_finmind.py` 的 `upload_data_to_mysql` | 正式版多了 BigQuery 與 Spanner 的寫入 | 手冊 05、15 |
-| `step3_task/task.py` | `crawler/tasks_crawler_finmind.py` 的 `crawler_finmind` | 正式版多了 CSV 備份與雙寫 | 手冊 05 |
-| `step4_celery/worker.py` | `crawler/worker.py` | 正式版 include 了多個 task 模組 | 手冊 01 |
-| `step4_celery/producer.py` | `crawler/producer_crawler_finmind.py` | 正式版有多佇列版本 `producer_multi_queue.py` | 手冊 02、03 |
-| `step5_airflow/evolution_producer_dag.py` | `airflow/dags/stock_crawler_producer_dag.py` | 正式版多了交易日分支判斷與指定佇列 | 手冊 12 |
+| `step3_modules/config.py` | `crawler/config.py` | RabbitMQ、MongoDB、GCP 相關設定 | 補充 G |
+| `step3_modules/client.py` | `crawler/tasks_crawler_finmind.py` 的抓取段落 | 正式版尚未把抓取獨立成檔案 | 手冊 02 |
+| `step3_modules/transformer.py` | `crawler/tasks_crawler_finmind.py` 裡的日期轉型 | 正式版只在寫 BigQuery 前轉一次型別，沒有獨立的整理層 | 手冊 15 |
+| `step3_modules/repository.py` | `crawler/tasks_crawler_finmind.py` 的 `upload_data_to_mysql` | 正式版多了 BigQuery 與 Spanner 的寫入 | 手冊 05、15 |
+| `step4_task/task.py` | `crawler/tasks_crawler_finmind.py` 的 `crawler_finmind` | 正式版多了 CSV 備份與雙寫 | 手冊 05 |
+| `step5_celery/worker.py` | `crawler/worker.py` | 正式版 include 了多個 task 模組 | 手冊 01 |
+| `step5_celery/producer.py` | `crawler/producer_crawler_finmind.py` | 正式版有多佇列版本 `producer_multi_queue.py` | 手冊 02、03 |
+| `step6_airflow/evolution_producer_dag.py` | `airflow/dags/stock_crawler_producer_dag.py` | 正式版多了交易日分支判斷與指定佇列 | 手冊 12 |
 
-正式版的 `crawler/tasks_crawler_finmind.py` 目前是把抓取、整理與儲存放在同一支檔案的狀態，相當於本篇的 Step 1 到 Step 2 之間。這是實務上常見的取捨：檔案數量少、閱讀成本低，代價是儲存目標增加時這支檔案會持續變長。要判斷什麼時候該拆，回到判準一：這支檔案是不是已經為了三種以上不同的理由被修改過。
+正式版的 `crawler/tasks_crawler_finmind.py` 目前是把抓取、整理與儲存放在同一支檔案的狀態，相當於本篇的 Step 1 到 Step 3 之間。這是實務上常見的取捨：檔案數量少、閱讀成本低，代價是儲存目標增加時這支檔案會持續變長。要判斷什麼時候該拆，回到判準一：這支檔案是不是已經為了三種以上不同的理由被修改過。
 
 正式版的整理動作也值得對照著看：它把 `date` 轉型別的那一行放在寫 BigQuery 的函式裡，因為 MySQL 那條路用字串也能寫進去。這種寫法的代價是，之後再加第三個儲存目標時，同樣的轉型可能要再寫一次。把整理獨立成一層，就是為了讓這件事只做一次。
 
@@ -679,11 +719,11 @@ Airflow 會自動載入 `airflow/dags/` 目錄下的檔案。啟動與操作方�
 
 **問：可以跳過 Step 1，直接從 Step 0 拆成三個檔案嗎？**
 
-可以，但不建議在第一次拆解時這樣做。Step 1 的作用是先確認邊界劃對了，這件事在同一支檔案裡驗證最快。邊界劃錯時，Step 1 只要搬幾行程式碼就能修正，Step 2 之後要改的是檔案之間的依賴關係。
+可以，但不建議在第一次拆解時這樣做。Step 1 的作用是先確認邊界劃對了，這件事在同一支檔案裡驗證最快。邊界劃錯時，Step 1 只要搬幾行程式碼就能修正，Step 3 之後要改的是檔案之間的依賴關係。
 
 **問：是不是每個函式都要獨立成一支檔案？**
 
-不是。示範裡 client 與 transformer 各只有一個函式，是因為只處理一個資料集、一種整理規則。同一份程式裡的 `repository.py` 已經有三個函式，因為儲存目標最先變多。判斷依據是改動理由，不是函式數量，詳細說明見 Step 2 的「一個階段一個模組，不是一個函式一個檔案」。
+不是。示範裡 client 與 transformer 各只有一個函式，是因為只處理一個資料集、一種整理規則。同一份程式裡的 `repository.py` 已經有三個函式，因為儲存目標最先變多。判斷依據是改動理由，不是函式數量，詳細說明見 Step 3 的「一個階段一個模組，不是一個函式一個檔案」。
 
 **問：整理的動作放在 client 或 repository 裡不行嗎？**
 
@@ -694,13 +734,13 @@ Airflow 會自動載入 `airflow/dags/` 目錄下的檔案。啟動與操作方�
 
 整理獨立成一層，抓取與儲存都不必知道資料被整理過什麼，換掉任何一邊都不影響另一邊。
 
-**問：Step 3 看起來只是把迴圈搬到另一支檔案，為什麼說它是樞紐？**
+**問：Step 2 看起來只是把迴圈內容包成一個函式，為什麼說它是樞紐？**
 
-搬動的位置不是重點，重點是搬完之後 `task.crawl()` 的所有輸入都來自參數。這代表任務可以被任何呼叫者用任何參數執行，包括另一台機器上的 worker。參數化之前，任務只能被那一支寫死清單的程式執行。
+包成函式的動作不是重點，重點是包完之後 `crawl()` 的所有輸入都來自參數。這代表任務可以被任何呼叫者用任何參數執行，包括另一台機器上的 worker。參數化之前，「處理一支股票」這件事只存在於那個寫死清單的迴圈裡，沒有邊界、無法切分。
 
 **問：一定要用 RabbitMQ 嗎？**
 
-Celery 支援多種 broker，RabbitMQ 只是其中一種。Step 3 完成之後，換 broker 只要改 `worker.py` 的 `broker` 字串。這也是 Step 3 排在 Step 4 前面的好處：任務的定義與傳遞任務的工具是分開的。
+Celery 支援多種 broker，RabbitMQ 只是其中一種。Step 4 完成之後，換 broker 只要改 `worker.py` 的 `broker` 字串。這也是 Step 4 排在 Step 5 前面的好處：任務的定義與傳遞任務的工具是分開的。
 
 **問：任務顆粒度要怎麼決定？**
 
@@ -728,12 +768,12 @@ Celery 支援多種 broker，RabbitMQ 只是其中一種。Step 3 完成之後�
 ## 檢查你是不是真的做到了
 
 - [ ] 你能在自己的爬蟲程式裡，指出「抓資料」「整理資料」「存資料」三段程式碼各自的位置。
-- [ ] 你執行了 Step 0 到 Step 3，四步都能跑完並產生 CSV。
-- [ ] 你用 `STORAGE=csv,mysql` 執行 Step 2，且沒有修改 `client.py` 與 `transformer.py` 任何一行。
+- [ ] 你執行了 Step 0 到 Step 4，五步都能跑完並產生 CSV。
+- [ ] 你用 `STORAGE=csv,mysql` 執行 Step 3，且沒有修改 `client.py` 與 `transformer.py` 任何一行。
 - [ ] 你進資料庫確認過資料表存在、裡面有資料，而且 `date` 欄位的型別是 `date`。
-- [ ] 你啟動了 Step 4 的 worker，`[tasks]` 區塊有列出 `crawl`。
+- [ ] 你啟動了 Step 5 的 worker，`[tasks]` 區塊有列出 `crawl`。
 - [ ] 你在 worker log 看到 `succeeded`，不只是 `received`。
-- [ ] 你能說出 Step 4 相對於 Step 3 一共改了哪三個地方。
+- [ ] 你能說出 Step 5 相對於 Step 4 一共改了哪三個地方。
 - [ ] 你能說出整理的動作為什麼不放在 client 或 repository 裡。
 - [ ] 你能說出 DAG 裡為什麼不直接放爬蟲程式。
 
@@ -741,11 +781,11 @@ Celery 支援多種 broker，RabbitMQ 只是其中一種。Step 3 完成之後�
 
 ## 換你試試看
 
-1. **改任務顆粒度**：修改 `step3_task/producer.py` 的 `build_jobs()`，把「一支股票一顆任務」改成「一支股票 × 一個月一顆任務」。完成後確認 `task.py`、`client.py`、`transformer.py`、`repository.py` 都不需要修改。
-2. **加第三種儲存方式**：在 `step2_modules/repository.py` 新增 `save_to_json()`，加進 `SAVERS` 對照表，並讓 `STORAGE=csv,json` 能夠使用它。完成後確認 `main.py` 不需要修改。
-3. **改整理規則**：在 `step2_modules/transformer.py` 的 `COLUMNS` 拿掉 `spread` 欄位，並加一個欄位記錄抓取當下的日期。完成後確認 `client.py` 與 `repository.py` 都不需要修改，再進資料庫看資料表的欄位有沒有跟著變。
-4. **換資料集**：把 `FINMIND_DATASET` 改成 `TaiwanStockNews`，執行 Step 2。這一步會失敗，因為 `COLUMNS` 是照股價欄位寫的。修好它，並回答：這份資料要用哪些欄位判斷重複。
-5. **反向驗證**：複製一份 `step4_celery/`，把 `@app.task()` 與 `.delay` 拿掉，確認程式仍然可以單機執行。
+1. **改任務顆粒度**：修改 `step4_task/producer.py` 的 `build_jobs()`，把「一支股票一顆任務」改成「一支股票 × 一個月一顆任務」。完成後確認 `task.py`、`client.py`、`transformer.py`、`repository.py` 都不需要修改。
+2. **加第三種儲存方式**：在 `step3_modules/repository.py` 新增 `save_to_json()`，加進 `SAVERS` 對照表，並讓 `STORAGE=csv,json` 能夠使用它。完成後確認 `main.py` 不需要修改。
+3. **改整理規則**：在 `step3_modules/transformer.py` 的 `COLUMNS` 拿掉 `spread` 欄位，並加一個欄位記錄抓取當下的日期。完成後確認 `client.py` 與 `repository.py` 都不需要修改，再進資料庫看資料表的欄位有沒有跟著變。
+4. **換資料集**：把 `FINMIND_DATASET` 改成 `TaiwanStockNews`，執行 Step 3。這一步會失敗，因為 `COLUMNS` 是照股價欄位寫的。修好它，並回答：這份資料要用哪些欄位判斷重複。
+5. **反向驗證**：複製一份 `step5_celery/`，把 `@app.task()` 與 `.delay` 拿掉，確認程式仍然可以單機執行。
 6. **接上正式版**：對照 `crawler/tasks_crawler_finmind.py`，用本篇的判準把它拆成 client、transformer、repository 三個檔案，並確認 `crawler/producer_crawler_finmind.py` 不需要修改。
 
 ---
@@ -760,4 +800,4 @@ Celery 支援多種 broker，RabbitMQ 只是其中一種。Step 3 完成之後�
 - 任務參數化是分散式的前提，這一步與 Celery 無關，做完之後任何佇列工具都能接。
 - Celery 換掉的是「誰來執行、在哪裡執行」，不是「執行什麼」，所以接上它時爬蟲邏輯的改動量是零。
 - Airflow 換掉的是「誰來呼叫 producer」，DAG 內不搬運資料，爬取工作留在 worker。
-- 六步做完之後，所有連線資訊都在 config 讀環境變數，換環境要改的是環境變數的值。
+- 七步做完之後，所有連線資訊都在 config 讀環境變數，換環境要改的是環境變數的值。

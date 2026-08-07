@@ -1,10 +1,10 @@
 """
-Step 3 的任務層: 一次呼叫只處理「一顆任務」。
+Step 4 的任務層: 一次呼叫只處理「一顆任務」。
 
-Step 2 的 main() 裡有一個 for 迴圈, 一次跑完整批。
-Step 3 把迴圈搬到 producer.py, 這個檔案只留下「處理一組參數」的邏輯。
+Step 3 的 main() 裡有一個 for 迴圈, 一次跑完整批。
+Step 4 把迴圈搬到 producer.py, 這個檔案只留下「處理一組參數」的邏輯。
 
-三個階段的串接順序與 Step 2 的 main() 完全相同, 抓資料 → 整理資料 → 存資料,
+三個階段的串接順序與 Step 3 的 main() 完全相同, 抓資料 → 整理資料 → 存資料,
 client.py、transformer.py、repository.py 三支檔案一行都沒有改。
 
 這一步是整條演進線的樞紐, 理由:
@@ -12,7 +12,7 @@ client.py、transformer.py、repository.py 三支檔案一行都沒有改。
     參數還寫在函式內部時, 任務沒有邊界, 無法被切分給多個 worker。
 
 這個檔案此時還沒有任何 Celery 的痕跡, 它就是一個普通的 Python 函式,
-可以直接 import 進來單機呼叫。Step 4 會在這個函式上加一行 @app.task。
+可以直接 import 進來單機呼叫。Step 5 會在這個函式上加一行 @app.task。
 """
 import client
 import repository
