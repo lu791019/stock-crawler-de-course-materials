@@ -605,6 +605,15 @@ gcloud compute firewall-rules create allow-composer-rabbitmq \
 
 > 重新觸發之後如果讀到的還是上一次的結果，是 Cloud Logging 還沒收到新 log。`--freshness` 縮短到 `2m` 再讀一次，或等一分鐘。
 
+**真實系統不玩「猜 IP」——Cloud SQL 這扇門有標準解法。** 業界連 Cloud SQL 的標準做法是 **Cloud SQL Connector**（Python 是 `cloud-sql-python-connector` 套件）或 Cloud SQL Auth Proxy：程式改連「執行個體連線名稱」（`專案:區域:實例`），由 Google 端的代理端點驗 **IAM 身分**、走 TLS 加密——**授權網路、防火牆、SSL 憑證三樣全都不用管**，從哪個 IP 連過來都無所謂。Airflow 還有官方的 `CloudSQLExecuteQueryOperator`（`gcpcloudsql://` 連線），Hook 會自動起一個臨時 proxy。
+
+那課程為什麼還用 IP 白名單？兩個理由：
+
+1. **程式碼一行不改的原則**：整門課的 `crawler/` 都用「host:port 連線字串」，換 Connector 要改連線建立方式、加裝套件——為了示範環境動主線程式碼不划算。真實系統從第一天就用 Connector，就沒有這個包袱。
+2. **RabbitMQ 那扇門沒有等效品**：Connector 只救 Cloud SQL——RabbitMQ 是你自己 VM 上的服務，Composer 要連它，防火牆白名單躲不掉，探測 DAG 問 IP 這一步仍然需要。
+
+一句話的取捨表：**只連 Cloud SQL → 用 Connector，整個 C-6 的 IP 功課消失；還要連自家 VM 上的服務（本課程的 RabbitMQ）→ IP 白名單跑不掉**。
+
 #### C-7 觸發並驗證
 
 ```bash
