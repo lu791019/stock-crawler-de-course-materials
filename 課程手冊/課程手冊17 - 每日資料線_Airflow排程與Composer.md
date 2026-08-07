@@ -71,7 +71,40 @@ flowchart TD
 
 先講結論，Part C 會逐步驗證：編排邏輯在兩邊通用，要各自準備的是執行環境——程式碼怎麼進去、套件怎麼裝、連線設定怎麼給。
 
+### 兩個版本軸：Composer 世代 vs Airflow 版本
+
+Composer 的版本有**兩個獨立的軸**，選版本時最容易在這裡混淆：
+
+- **Composer 世代**（第 2 代 / 第 3 代）：講的是 Google 那側的**基礎設施**怎麼架。
+- **Airflow 版本**（2 / 3）：講的是環境裡跑的**軟體**是哪一版。
+
+| | 代管 Airflow 第 2 代（Composer 2） | 代管 Airflow 第 3 代（Composer 3） |
+|---|---|---|
+| 可跑的 Airflow | 只有 Airflow 2 | **Airflow 2 或 Airflow 3**（映像檔版本決定） |
+| 基礎設施 | 跑在你專案看得到的 GKE 上 | GKE 完全由 Google 代管，你的專案裡看不到 |
+| 任務 log | 存 bucket | 送 **Cloud Logging**（C-6 讀 log 的方式因此不同） |
+| 課程用哪個 | — | 這個，映像選 `composer-3-airflow-2` |
+
+順帶一提名稱：這個產品在 Console 上已改名「**Managed Service for Apache Airflow（原為 Cloud Composer）**」，左側選單叫「代管 Airflow」——文件和指令（`gcloud composer ...`）仍沿用 Composer 這個名字，搜尋時兩個名稱都認得就好。更早還有一個 Composer 1，已淘汰，建立選單上看不到了。
+
+**課程選「第 3 代 + Airflow 2」**：世代選 3 是要新的基礎設施；Airflow 選 2 是因為**自架環境跑的就是 Airflow 2**，同一支 DAG 兩邊通用的前提是軟體同版。建立表單的映像檔版本下拉裡，**Airflow 3 的映像排在最上面**（例如 `composer-3-airflow-3.2.2`），認明 `composer-3-airflow-2` 開頭的才選——選到 Airflow 3，課程的 DAG 一上傳就會 import error。
+
+### Airflow 2 與 Airflow 3 差在哪（為什麼課程的 DAG 在 3 上會壞）
+
+Airflow 3 是 2025 年的大版本，重點放在架構重整，對 DAG 程式碼有**不相容的改動**。跟課程直接相關的四條：
+
+| 改動 | Airflow 2 的寫法（課程用的） | Airflow 3 |
+|---|---|---|
+| 排程參數 | `schedule_interval="0 20 * * 1-5"` | 參數改名 `schedule`，舊名移除 |
+| Operator import 路徑 | `from airflow.operators.python_operator import PythonOperator`（1.x 相容路徑） | 相容路徑移除，DAG 直接 import error |
+| 時間語意 | context 裡的 `execution_date` | 改名 `logical_date`，舊名移除 |
+| 任務讀資料庫 | task 行程可直連 Airflow 的 metadata DB | 拆掉直連，worker 一律走 API——自訂程式碼碰過 metadata DB 的都要改 |
+
+除了不相容改動，3 還帶來新東西：全新的 React 介面、DAG 版本管理（UI 上看得到每次部署的差異）、事件驅動排程（Dataset 改名 Asset 並擴充）。**判斷句是：新專案從 Airflow 3 開始沒問題；既有的 Airflow 2 專案（例如本課程）升級前要先盤點上表四條**——這也是為什麼 Composer 3 同時供應兩種映像，讓存量的 Airflow 2 用戶不被逼著升級。
+
 ## 一步一步
+
+> 指令裡的 `{...}` 是佔位符，換值時大括號要一起刪（第 16 章開工段的同一條慣例）。本章 C-6 的探測 DAG 是 Python 檔，裡面的佔位符同樣要換乾淨再上傳。
 
 開工前先喚醒系統。照第 16 章收工段的 SOP，外加一步驗證：
 
@@ -204,6 +237,10 @@ bq query --nouse_legacy_sql \
    WHERE ma20 IS NOT NULL ORDER BY trade_date DESC LIMIT 4"
 ```
 
+第二段查詢的輸出長這樣——每列都有 ma5、ma20 的數值，就是 `create_app_layer` 剛重算出來的成品：
+
+![排程後 app 層 MA 值查詢結果](images/ch17/01-BQ-排程後MA5MA20查詢結果.jpg)
+
 判讀：raw 的筆數比觸發前多（worker 雙寫進來的新一輪 append）；stage 的筆數**不隨重跑膨脹**（去重 view 的效果——同一天的重複列被折疊）；app 兩張表是剛剛 `create_app_layer` 重算出來的最新版。Cloud SQL 那半邊照第 16 章 Part F 的方式驗，筆數同步增加。
 
 到這裡完整資料線就串起來了：**排程發任務 → worker 雙寫（Cloud SQL＋raw）→ transform 重算（stage／app）**，第 15 章接好的 Looker Studio 儀表板下次重新整理就會顯示新資料。這條線之後每個交易日 20:00 自動執行，前提是 VM1 開著。
@@ -225,6 +262,8 @@ gcloud projects add-iam-policy-binding {你的專案ID} \
   --member="serviceAccount:{專案編號}-compute@developer.gserviceaccount.com" \
   --role="roles/composer.worker"
 ```
+
+同一件事的 Console 版：「≡ → API 和服務 → 程式庫」分別搜尋 **Cloud Composer API** 與 **IAM Service Account Credentials API**，各按一次「啟用」（跟第 16 章 C-1 啟用 SQL Admin API 同一個頁面與流程）。
 
 Composer 除了自己的 API，還相依 `iamcredentials.googleapis.com`。只開前者，建立環境時會被擋下來：
 
@@ -252,7 +291,27 @@ gcloud composer environments create stock-composer \
 gcloud composer environments list --locations=asia-east1
 ```
 
-STATE 從 `CREATING` 變成 `RUNNING` 才算建好。建好之後 Console 上（≡ →「Composer」，選單裡的名稱是「**代管 Airflow**」）看得到這一列——服務版本 3、Airflow 版本、以及右邊三個入口：**Airflow 網頁伺服器**（C-3 那個網址）、**DAG 清單**、**DAGs 資料夾**（就是下一步要上傳的那個 bucket）：
+**同一件事的 Console 版**（表單看懂欄位、實際建立擇一即可）：≡ →「代管 Airflow」→「**建立環境**」下拉，先選**世代**——「代管 Airflow 第 3 代」（「先搞懂」版本軸小節的 Composer 3）：
+
+![建立環境入口兩代選單](images/ch17/12-Console建立環境入口兩代選單.jpg)
+
+表單的預設值與要改的欄位（對照 CLI 參數）：
+
+| 表單欄位 | 預設值 | 要改成 | 對應 CLI 參數 |
+|---------|--------|--------|--------------|
+| 名稱 | 空 | `stock-composer` | 第一個參數 |
+| 位置 | us-central1 | **asia-east1** | `--location` |
+| 映像檔版本 | `composer-3-airflow-2.x`（安全） | 保持 **airflow-2** 開頭的 | `--image-version` |
+| 服務帳戶 | 需選擇 | Compute Engine 預設服務帳戶 | `--service-account` |
+| 環境資源 | 小 | 保持「小」 | `--environment-size=small` |
+
+**映像檔版本下拉是本表單最大的坑**：Airflow 3 的映像排在最上面，預設值雖然是 airflow-2，手滑選到 airflow-3 課程 DAG 一上傳就 import error（「先搞懂」的 Airflow 2/3 對照表）：
+
+![映像版本下拉](images/ch17/13-Console映像版本下拉Airflow3陷阱.jpg)
+
+![表單填好的樣子](images/ch17/14-Console建立表單填好.jpg)
+
+STATE 從 `CREATING` 變成 `RUNNING` 才算建好。建好之後 Console 上（≡ →「代管 Airflow」）看得到這一列——服務版本 3、Airflow 版本、以及右邊三個入口：**Airflow 網頁伺服器**（C-3 那個網址）、**DAG 清單**、**DAGs 資料夾**（就是下一步要上傳的那個 bucket）：
 
 ![Composer 環境清單](images/ch17/09-Composer環境清單.jpg)
 
@@ -300,7 +359,9 @@ gcloud storage cp airflow/dags/stock_crawler_etl_bigquery_dag.py $BUCKET/
 gcloud storage cp -r crawler $BUCKET/
 ```
 
-上傳的 `crawler/` 就是你本機這一份，不需要任何修改——所有環境相關的值（專案 ID、主機位址）都走環境變數，下一步在 Composer 上設定。
+上傳的 `crawler/` 就是你本機這一份，不需要任何修改——所有環境相關的值（專案 ID、主機位址）都走環境變數，下一步在 Composer 上設定。上傳結果在 Console 也看得到：環境清單那一列的「DAGs 資料夾」連結會開到 bucket 的 `dags/`，DAG 檔和 `crawler/` 目錄並排躺在裡面：
+
+![DAGs 資料夾內容](images/ch17/17-Console-DAGs資料夾bucket.jpg)
 
 Composer 大約一到兩分鐘同步一次 bucket，再由 Airflow 解析。等 DAG 出現：
 
@@ -316,7 +377,7 @@ gcloud composer environments run stock-composer --location=asia-east1 dags list-
 
 ```
 /home/airflow/gcs/dags/stock_crawler_etl_bigquery_dag.py | Traceback (most recent call last):
-|   File "/home/airflow/gcs/dags/crawler/tasks_crawler_finmind.py", line 12, in <module>
+|   File "/home/airflow/gcs/dags/crawler/tasks_crawler_finmind.py", line 15, in <module>
 |     from crawler.worker import app
 |   File "/home/airflow/gcs/dags/crawler/worker.py", line 6, in <module>
 |     from loguru import logger
@@ -342,18 +403,33 @@ gcloud composer environments update stock-composer --location=asia-east1 \
 
 補套件為什麼要等這麼久：Composer 3 的環境跑在 GKE 上，加一個套件等於重建映像再滾動更新所有元件，跟自架環境改一行 `pyproject.toml` 重 build 的量級完全不同。指令跑完前 `environments describe` 的 STATE 會停在 `UPDATING`。
 
+同一件事的 Console 版：環境詳情頁的「**PyPi 套件**」分頁——「編輯」加一列 `loguru`、儲存，等的還是同一次環境更新：
+
+![PyPI 套件分頁](images/ch17/16-ConsolePyPI套件分頁.jpg)
+
 更新完成後重跑 `dags list`，`stock_bigquery_etl_dag` 出現，代表 `crawler` 匯入成功。這一步是託管環境的第一課：**「環境裡有什麼套件」不再由你的 Dockerfile 決定**——先查清單、缺的用它的介面補、每補一次等一次更新。
 
 #### C-5 套用環境變數
 
-DAG 要發任務到 RabbitMQ、連 Cloud SQL、知道 BigQuery 專案，這些值在自架環境是 `.env` 給的，在 Composer 是環境設定的一部分（`RABBITMQ_HOST` 要填 VM1 的**外部** IP——Composer 不在你的 VPC 裡，內部 IP 對它不通）：
+DAG 要發任務到 RabbitMQ、連 Cloud SQL、知道 BigQuery 專案，這些值在自架環境是 `.env` 給的，在 Composer 是環境設定的一部分。四個值照第 16 章 Part E 的紀律**全部用指令查、不手抄**——先取進 shell 變數（只存在這個終端機、不落地成檔案），再一次餵給 update：
 
 ```bash
+# RABBITMQ_HOST 要的是 VM1 的「外部」IP——Composer 不在你的 VPC 裡，內部 IP 對它不通
+# （natIP 就是外部那顆；這點跟第 16 章 VM2 用內部 IP 相反，網路位置不同）
+VM1_IP=$(gcloud compute instances describe stock-crawler-vm --zone=asia-east1-b --format='value(networkInterfaces[0].accessConfigs[0].natIP)')
+SQL_IP=$(gcloud sql instances describe stock-mysql --format='value(ipAddresses[0].ipAddress)')
+DB_PW=$(gcloud secrets versions access latest --secret=mysql-password)
+PROJ=$(gcloud config get-value project)
+
 gcloud composer environments update stock-composer --location=asia-east1 \
-  --update-env-variables=RABBITMQ_HOST={VM1外部IP},MYSQL_HOST={CloudSQL IP},MYSQL_ACCOUNT=root,MYSQL_PASSWORD=1234,MYSQL_PORT=3306,GCP_PROJECT_ID={你的專案ID}
+  --update-env-variables=RABBITMQ_HOST=$VM1_IP,MYSQL_HOST=$SQL_IP,MYSQL_ACCOUNT=root,MYSQL_PASSWORD=$DB_PW,MYSQL_PORT=3306,GCP_PROJECT_ID=$PROJ
 ```
 
-這是一次環境更新，要等幾分鐘，不是改完立刻生效。
+密碼向 Secret Manager 取（第 16 章 D-4 的同一個來源），不寫死在指令裡。順帶一個提醒：`--update-env-variables` 用逗號分隔多個變數——密碼含逗號或等號會把這個參數切壞，這是「密碼只用大小寫英數字」規範的又一個理由。
+
+這是一次環境更新，要等幾分鐘，不是改完立刻生效。設定結果在環境詳情頁的「**環境變數**」分頁看得到（在這頁用「編輯」改也等效，一樣觸發環境更新）：
+
+![環境變數分頁](images/ch17/15-Console環境變數分頁.jpg)
 
 漏掉 `GCP_PROJECT_ID` 的話，`config.py` 拿到空字串，兩個 transform task 會因為表名少了專案段（`` `.stage.stock_price_daily` ``）而報 SQL 語法錯誤——task 紅掉，補上環境變數重觸發即可。（雙寫那半邊不受 Composer 的變數影響：實際寫入的是 VM2 的 worker，它讀的是自己 `.env` 裡的專案 ID。）
 
@@ -409,6 +485,10 @@ with DAG("probe_network_dag", start_date=datetime(2024, 1, 1),
 ```
 
 兩個 try 都只做 TCP 連線測試，不需要帳號密碼——連得上代表網路層通了，連不上會是逾時。把網路問題跟帳號密碼問題分開驗證，排錯時才知道是哪一層出事。
+
+注意這支 DAG 的設計：**連線失敗 task 也不會紅**——`_probe` 把結果印進 log 而不是丟例外，所以 UI 上兩次 run 都是綠的，`FAIL` 或 `OK` 要到 log 裡看（下面的 `gcloud logging read`）。它是量測工具，不是驗收關卡：
+
+![探測 DAG 頁面](images/ch17/18-Composer探測DAG頁.jpg)
 
 上傳、觸發，然後讀 log。**Composer 3 的任務 log 送到 Cloud Logging，不放在 bucket 裡**：
 
@@ -630,6 +710,7 @@ sudo docker exec airflow-webserver airflow users list
 | Composer 建立回報 `FAILED_PRECONDITION: Please enable all APIs` | 只開了 `composer.googleapis.com`，還相依 `iamcredentials.googleapis.com` | 兩個一起 enable 後重下建立指令 |
 | Composer 環境刪不掉，回報 `Cannot delete environment in state CREATING` | 建立中的環境不能刪 | 等 STATE 變成 `RUNNING` 再刪；建立那 20-30 分鐘的費用無法迴避 |
 | DAG 上傳了但 `dags list` 看不到 | DAG import 失敗——`crawler` 模組沒一起上傳，或用到映像沒有的套件（例如 loguru） | `dags list-import-errors` 看 traceback；缺模組就 `gcloud storage cp -r crawler {bucket}/dags/`、缺套件就 `--update-pypi-package` 補裝（C-4 的流程） |
+| import error 指向 `airflow.operators.python_operator` 這類路徑 | 環境映像選到 **Airflow 3**（建立表單下拉最上面就是 airflow-3 的映像），1.x 相容 import 路徑在 3 已移除 | Airflow 大版本不能原地換——刪掉環境重建，映像認明 `composer-3-airflow-2` 開頭（「先搞懂」的版本軸小節） |
 | Composer 上任務報 `Access Denied: Project your-project-id` | 沒設 `GCP_PROJECT_ID` 環境變數，`config.py` 退回預設值 | `environments update --update-env-variables=GCP_PROJECT_ID=...` |
 | Composer 上連 Cloud SQL 逾時 | 授權網路沒有 Composer 的對外 IP | 用探測 DAG 查出對外 IP（C-6），加進 `authorized-networks` |
 | Composer 上 `send_crawler_tasks` 連 RabbitMQ 逾時 | 5672 防火牆規則沒開，或 `RABBITMQ_HOST` 填了內部 IP（Composer 不在你的 VPC 裡） | 照 C-6 開 `allow-composer-rabbitmq`（來源限 Composer IP）；環境變數改 VM1 外部 IP |
