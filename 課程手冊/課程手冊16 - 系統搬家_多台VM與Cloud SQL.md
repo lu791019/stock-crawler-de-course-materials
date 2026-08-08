@@ -224,12 +224,26 @@ gcloud sql instances create stock-mysql \
 | 可用區可用性 | 多可用區 | **單一可用區** | （課程規格不支援多可用區） |
 | 機器設定 → 機器家族 | 一般用途 - 專屬核心 | **一般用途 - 共用核心** | `--tier` |
 | 機器規格 | 1 vCPU，1.7 GB | **1 vCPU，0.614 GB** | `--tier=db-f1-micro` |
+| 連線 → SSL 模式 | 依表單版本而異 | **允許未加密和加密的流量** | （CLI 預設即此） |
+| 密碼政策 | 未啟用 | **保持未啟用** | （CLI 預設即此） |
 
 ![表單上半：版本選擇與資料庫版本](images/ch16/23-Console建立表單版本選擇.jpg)
 
 **資料庫版本必須改回 MySQL 8.0，這不是喜好問題**：8.4 的 root 帳號用 `caching_sha2_password` 認證外掛，worker 的 pymysql 走非加密連線時會直接被拒（`Access denied`）——而且用 mysql 官方 client 測試會通（它預設走 TLS），兩邊結果矛盾，非常難排查。8.0 的 root 是 `mysql_native_password`，課程整條非加密連線路徑都以它為前提。
 
-兩個表單才看得到的地方：
+表單才看得到、而且**會讓 worker 全滅**的兩顆地雷：
+
+- **SSL 模式**：表單「連線」區塊如果設成「僅允許 SSL 連線」（`ENCRYPTED_ONLY`），worker 的 pymysql 走未加密連線，**不管帳號密碼對不對一律回 `1045 Access denied`**——而你手動用 mysql client 測試永遠是通的（它自動走 TLS），兩邊矛盾極難排查。事後檢查與放寬：
+
+```bash
+gcloud sql instances describe stock-mysql --format="value(settings.ipConfiguration.sslMode)"
+# 看到 ENCRYPTED_ONLY 就放寬：
+gcloud sql instances patch stock-mysql --ssl-mode=ALLOW_UNENCRYPTED_AND_ENCRYPTED
+```
+
+- **密碼政策**：啟用後，之後所有 `set-password`（包括 D-4 輪替）都要過它的長度與複雜度檢查，教學環境徒增變數——不要開。
+
+其餘兩個表單才看得到的地方：
 
 - **密碼欄的政策提示**：表單要求至少 8 個字元、含大小寫英文字母、數字和非英數字元——填課程的 `1234` 會出現紅字。這是表單的前端檢查，`gcloud` 的 `--root-password` 沒有這一關（課程主線用 CLI 就是 `1234`）。用表單建立的話**不要按「產生」**——產生的密碼常含 `@`、`:`、`%`、`$` 這類符號，`@` 和 `:` 是資料庫連線字串的分隔符、`$` 會被 compose 的插值展開，兩邊都會出問題。自己輸入一組**只含大小寫英文字母和數字**的長密碼（例如 16 碼英數字，長度補足強度），再照 Part D 的做法交給 Secret Manager 保管。
 - **右側「摘要」與「費用估算」即時更新**：每改一個欄位，右側的機型、區域和每小時費用馬上跟著變——這就是第 14 章說的「介面能看到所有選項和即時費用」。全部照表改完，摘要的「機型」列會顯示 `db-f1-micro`，每小時費用估算約 US$0.07：
@@ -375,7 +389,7 @@ sudo docker run --rm mysql:8.0 mysql -h{CloudSQL IP} -uroot \
 # 1
 ```
 
-回 `1` 就是閉環了。回 `Access denied` 代表兩邊的值不同——用一條指令把資料庫端改成 secret 的值對齊（以 secret 為準，因為 `.env` 之後都從它取）：
+回 `1` 就是閉環了。但注意這個驗證的極限：**mysql client 自動走 TLS，worker 的 pymysql 走未加密**——兩者不是同一條路。如果實例的 SSL 模式是「僅允許 SSL」，這裡會通、worker 卻全部 `1045`；被這個矛盾卡住時，回 C-2 檢查 SSL 模式。回 `Access denied` 代表兩邊的值不同——用一條指令把資料庫端改成 secret 的值對齊（以 secret 為準，因為 `.env` 之後都從它取）：
 
 ```bash
 gcloud sql users set-password root --host=% --instance=stock-mysql \
