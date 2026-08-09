@@ -241,7 +241,7 @@ gcloud sql instances describe stock-mysql --format="value(settings.ipConfigurati
 gcloud sql instances patch stock-mysql --ssl-mode=ALLOW_UNENCRYPTED_AND_ENCRYPTED
 ```
 
-- **密碼政策**：啟用後，之後所有 `set-password`（包括 D-4 輪替）都要過它的長度與複雜度檢查，教學環境徒增變數——不要開。
+- **密碼政策**：啟用後，之後所有 `set-password`（包括 D-5 輪替）都要過它的長度與複雜度檢查，教學環境徒增變數——不要開。
 
 保持「允許未加密」後，Console 會顯示「傳輸中的資料不會經過加密…」的警告——**課程接受這個取捨**：流量走 VM 與 Cloud SQL 之間的 Google 網路、來源又被授權網路鎖到兩顆 /32，教學資料的風險可控。但要知道**正式環境的正統做法**，兩條路擇一，警告自然消失：
 
@@ -332,7 +332,7 @@ printf "1234" | gcloud secrets create mysql-password \
 
 ![Secret Manager 密鑰清單](images/ch16/13-SecretManager密鑰清單.jpg)
 
-點進去的「版本」分頁此時只有版本 1（D-4 之後這頁會累積出輪替軌跡，見後面的版本清單截圖）。
+點進去的「版本」分頁此時只有版本 1（D-5 換過密碼後這頁會累積出輪替軌跡，見後面的版本清單截圖）。
 
 **D-2 授權兩台 VM 讀取這顆 secret**：
 
@@ -431,7 +431,11 @@ sudo docker compose -f docker-compose-local.yml up -d --no-deps worker_twse work
 
 這個做法的分工：**Secret Manager 是密碼的唯一真實來源，`.env` 是部署那一刻取出的落地值**。程式一行不改、不裝任何 SDK；取出動作用的是「執行指令的機器」的身分——在 VM 上就是 D-2 授權的服務帳戶。整個流程你**沒有手打過密碼**：不經鍵盤、不經聊天室，指令歷史裡也只有 `$(...)` 這串文字，不是密碼的值。`.env` 本身在 `.gitignore` 裡（第 14 章步驟 6 的規矩），不會進 repo。
 
-**換密碼＝改三個地方：secret、資料庫本身、容器。** 團隊環境密碼會需要輪替（組員退出專題、密碼外流）。三個地方缺一不可——secret 是保管處、資料庫是驗證方、容器是使用方，只改其中一兩個，worker 寫資料庫就會 `Access denied`。流程三步，**注意在不同機器執行**：
+> 補充：`crawler/config.py` 裡有一段註解掉的 Secret Manager 讀取程式碼（程式執行時自己去讀 secret、失敗就 fallback 回預設值）。那是另一種做法，代價是程式要裝 SDK、且失敗時靜默改用預設密碼不報錯——課程採用部署時注入，把密碼問題留在部署層、程式保持乾淨。
+
+**D-5 換密碼＝改三個地方：secret、資料庫本身、容器**：
+
+D-4 的取出寫入不是一次性動作——**密碼有需要更換的時候**（把課程預設換成強密碼、密碼疑似外流、團隊成員異動），就把這條路再走一次。三個地方缺一不可——secret 是保管處、資料庫是驗證方、容器是使用方，只改其中一兩個，worker 寫資料庫就會 `Access denied`。流程三步，**注意在不同機器執行**：
 
 **（在你自己的電腦）第一步**：新增 secret 版本——`versions add` 是新增版本，`latest` 會自動指向最新這一版。新密碼**只用大小寫英文字母和數字**（用長度補強度，例如 16 碼）：`@` 和 `:` 是連線字串的分隔符、`$` 會被 compose 插值展開，密碼裡帶著它們，worker 一寫資料庫就會噴連線字串解析錯誤：
 
@@ -465,7 +469,6 @@ Console 上可以看到累積的所有版本（≡ → 安全性 → Secret Mana
 
 ![Secret Manager 版本清單](images/ch16/06-SecretManager版本清單.jpg)
 
-> 補充：`crawler/config.py` 裡有一段註解掉的 Secret Manager 讀取程式碼（程式執行時自己去讀 secret、失敗就 fallback 回預設值）。那是另一種做法，代價是程式要裝 SDK、且失敗時靜默改用預設密碼不報錯——課程採用部署時注入，把密碼問題留在部署層、程式保持乾淨。
 
 ### Part E：`.env` 接線——「只改三行」的實作
 
@@ -543,7 +546,7 @@ sudo docker exec crawler_twse env | grep MYSQL_PASSWORD
 
 這裡看到的值如果**跟 `.env` 對不上**，代表容器是用舊版 `.env` 建的（環境變數在容器建立那一刻凍結，之後改 `.env` 不會自己生效，`docker restart` 也不會）——回去重跑上面的 `up -d`，compose 會偵測到值變了、自動重建容器。
 
-secret 的值跟預設一樣是 1234 時看不出來源——照 D-4 的輪替**三步**（新增版本 `sm-test-42` → 資料庫 set-password 同步換 → 重跑 ①②③）走一輪，再看一次 env，值變了就證明是 Secret Manager 來的。注意三步要走完整：只換 secret 不換資料庫，測試期間 worker 寫資料庫會 `Access denied`。測完照同一套三步把密碼換回 1234。
+secret 的值跟預設一樣是 1234 時看不出來源——照 D-5 的輪替**三步**（新增版本 `sm-test-42` → 資料庫 set-password 同步換 → 重跑 ①②③）走一輪，再看一次 env，值變了就證明是 Secret Manager 來的。注意三步要走完整：只換 secret 不換資料庫，測試期間 worker 寫資料庫會 `Access denied`。測完照同一套三步把密碼換回 1234。
 
 > 對照：第 12 章教過「compose 檔 `environment:` 寫死的值會蓋過 env_file」——當時的結論是 environment 優先。現在 environment 這一側自己變成了插值，值的來源反轉成「`.env` → 插值 → 容器」，這正是插值跟 env_file 的差別：env_file 是「另一個給值的來源（會被 environment 蓋掉）」，插值是「environment 自己開的洞」。
 
@@ -809,7 +812,7 @@ gcloud spanner instances update stock-spanner-trial --processing-units=200
 1. **Cloud SQL 的密碼還能用 1234 嗎？**——不能。第 14 章步驟 6 講過弱密碼的前提在團隊環境被稀釋，資料庫是全組資產，建實例時就用強密碼 →（T-1）
 2. **組員的電腦要加進 Cloud SQL 授權網路嗎？**——不用。白名單越短越好，組員查資料走 VM 或 Cloud SQL Studio →（T-2）
 3. **Secret Manager 要授權給每位組員嗎？**——不用。讀 secret 的是程式不是人，授權綁 VM 的服務帳戶、一次涵蓋全組——跟第 15 章 T-1 同一個道理 →（T-3）
-4. **之後要換密碼怎麼辦？**——組員退出專題、密碼疑似外流時會需要。Secret Manager 的版本機制讓換密碼變成兩條指令 →（T-4）
+4. **之後要換密碼怎麼辦？**——組員退出專題、密碼疑似外流時會需要。Secret Manager 的版本機制讓換密碼變成固定三步（D-5）→（T-4）
 
 歸納起來就兩件事：**密碼的值要升級（T-1、T-4），授權的範圍不用擴大（T-2、T-3）**。
 
