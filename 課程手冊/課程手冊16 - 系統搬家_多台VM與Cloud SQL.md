@@ -248,6 +248,33 @@ gcloud sql instances patch stock-mysql --ssl-mode=ALLOW_UNENCRYPTED_AND_ENCRYPTE
 1. **Cloud SQL Connector**（Python 是 `cloud-sql-python-connector` 套件）或 **Cloud SQL Auth Proxy**：自動 TLS 1.3 加密＋IAM 身分授權，程式改連「執行個體連線名稱」，連授權網路都不用設——第 17 章 C-6 附註有完整說明。
 2. **Private IP**：實例只給內部 IP，流量不出 VPC。
 
+其中做法 1 的程式碼長什麼樣，具體給出來（對照 `tasks_crawler_finmind.py` 的 `upload_data_to_mysql`）：
+
+```python
+# 需先安裝：uv add cloud-sql-python-connector[pymysql]
+from google.cloud.sql.connector import Connector
+
+connector = Connector()
+
+def getconn():
+    # 連的是「執行個體連線名稱」（專案:區域:實例）, 不是 IP——
+    # Connector 向 Google 端點驗 IAM 身分、建 TLS 1.3 加密通道, 憑證自動輪替
+    return connector.connect(
+        "{專案ID}:asia-east1:stock-mysql",
+        "pymysql",
+        user="root",
+        password=MYSQL_PASSWORD,
+        db="mydb",
+    )
+
+engine = create_engine("mysql+pymysql://", creator=getconn)
+# 之後的 df.to_sql(...) 一行都不用改
+```
+
+改動的本質：**連線的建立交給 Connector，SQLAlchemy 只負責用**。換上它之後，授權網路、SSL 模式、IP 白名單三件事全部退場——VM 重開換 IP 也不用重跑 patch（第 16 章排錯表第一名的坑直接消失）。代價是多裝一個套件、身分要有 `roles/cloudsql.client`（課程 VM 的 Editor 已涵蓋）。
+
+介於兩者之間還有一條傳統路——**保留 `ENCRYPTED_ONLY`、程式端用伺服器 CA 憑證驗完整 TLS**：Console 的「連線」頁下載 `server-ca.pem` 放上 VM，`create_engine(address, connect_args={"ssl": {"ca": "/path/server-ca.pem"}})`。加密與身分驗證都完整，但憑證檔要自己發布到每台機器、到期要自己換——正是 Connector 幫你自動化掉的那些事，所以實務上直接用 Connector 的人居多。
+
 （至於「保留 ENCRYPTED_ONLY、程式端自己加 `connect_args={"ssl": ...}`」的寫法：不驗伺服器憑證等於只防竊聽不防偽裝，驗憑證又要自己管 CA 檔——兩頭不討好，正式環境直接用 Connector，不要走這條。）
 
 其餘兩個表單才看得到的地方：
