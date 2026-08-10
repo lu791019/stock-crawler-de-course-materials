@@ -548,10 +548,12 @@ with DAG("probe_network_dag", start_date=datetime(2024, 1, 1),
 
 只做 TCP 連線測試、不帶帳號密碼——把「網路通不通」跟「帳密對不對」分開驗證。注意它**連線失敗 task 也不會紅**（結果印進 log，不丟例外），`OK` 或 `FAIL` 要到 log 裡看。
 
+這支檔案課程 repo 已附好：**`gcp/probe_network_dag.py`**——把裡面的 `{VM1內部IP}` 換成你的值即可，不用手打整支程式。它刻意不放 `airflow/dags/`（那個目錄掛載進自架 Airflow，放了會讓兩邊都看到這支 Composer 專用工具）。
+
 上傳、觸發、讀 log。**Composer 3 的任務 log 送到 Cloud Logging，不放在 bucket 裡**：
 
 ```bash
-gcloud storage cp probe_network_dag.py {你的DAGs bucket}/
+gcloud storage cp gcp/probe_network_dag.py {你的DAGs bucket}/
 
 gcloud composer environments run stock-composer --location=asia-east1 \
   dags trigger -- probe_network_dag
