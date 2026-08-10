@@ -57,6 +57,7 @@ Step 5（Celery）與 Step 6（Airflow）的啟動方式見各資料夾 README�
 ## diff 對照（每一步只改一件事的證據）
 
 ```bash
+cd example/evolution   # diff 用的是本目錄內的相對路徑，先進來（上面的執行指令則是在專案根目錄）
 diff step3_modules/client.py step4_task/client.py       # 無輸出＝分家沒動三層
 diff step4_task/task.py step5_celery/task.py            # 差異只有裝飾器與 import
 diff step4_task/producer.py step5_celery/producer.py    # 差異只有 .delay()
