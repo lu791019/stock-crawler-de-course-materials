@@ -273,7 +273,7 @@ engine = create_engine("mysql+pymysql://", creator=getconn)
 
 改動的本質：**連線的建立交給 Connector，SQLAlchemy 只負責用**。換上它之後，授權網路、SSL 模式、IP 白名單三件事全部退場——VM 重開換 IP 也不用重跑 patch（第 16 章排錯表第一名的坑直接消失）。代價是多裝一個套件、身分要有 `roles/cloudsql.client`（課程 VM 的 Editor 已涵蓋）。
 
-介於兩者之間還有一條傳統路——**保留 `ENCRYPTED_ONLY`、程式端用伺服器 CA 憑證驗完整 TLS**：Console 的「連線」頁下載 `server-ca.pem` 放上 VM，`create_engine(address, connect_args={"ssl": {"ca": "/path/server-ca.pem"}})`。加密與身分驗證都完整，但憑證檔要自己發布到每台機器、到期要自己換——正是 Connector 幫你自動化掉的那些事，所以實務上直接用 Connector 的人居多。
+介於兩者之間還有一條傳統路——**保留 `ENCRYPTED_ONLY`、程式端用伺服器 CA 憑證驗完整 TLS**：Console 的「連線」頁下載 `server-ca.pem` 放上 VM，然後改的是 `upload_data_to_mysql` 裡**同一行 `create_engine`**——連線字串不動，多帶一個 `connect_args` 參數：`create_engine(address, connect_args={"ssl": {"ca": "/path/server-ca.pem"}})`。（順帶一提：網路上常見 `{"check_hostname": False}` 的寫法也是塞在同一個參數位置——那是「加密但不驗伺服器身分」的半套，防竊聽不防偽裝，不要用。）加密與身分驗證都完整，但憑證檔要自己發布到每台機器、到期要自己換——正是 Connector 幫你自動化掉的那些事，所以實務上直接用 Connector 的人居多。
 
 （至於「保留 ENCRYPTED_ONLY、程式端自己加 `connect_args={"ssl": ...}`」的寫法：不驗伺服器憑證等於只防竊聽不防偽裝，驗憑證又要自己管 CA 檔——兩頭不討好，正式環境直接用 Connector，不要走這條。）
 
