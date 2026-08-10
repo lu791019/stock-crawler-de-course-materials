@@ -242,14 +242,27 @@ SELECT
     PARTITION BY stock_id ORDER BY trade_date
     ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
   ) AS ma20
-FROM vw_stock_price_daily
+FROM stage.stock_price_daily
 ```
 
-白話：
+逐句拆開讀：
 
-- `PARTITION BY stock_id ORDER BY trade_date`：對「每一支股票、按日期排序」分別計算。
-- `LAG(close)`：抓「上一列（昨天）」的收盤價，用來算漲跌。
-- `AVG(close) OVER (... ROWS BETWEEN 4 PRECEDING AND CURRENT ROW)`：算「今天往前含 4 天」共 5 天的平均，也就是股市常說的 **5 日均線（MA5）**；20 天就是 MA20。
+- **`OVER (...)` 的兩個零件**（三個計算欄位共用同一套）：
+  - `PARTITION BY stock_id`——把資料**按股票分組**，每支股票自成一個視窗，2330 的計算絕不會摻到 0050 的列。功能像 GROUP BY，但**不壓縮列數**：GROUP BY 把每組壓成一列回答「每組的總結」，視窗函數每列都保留、讓每一列「看得到自己組內的鄰居」。
+  - `ORDER BY trade_date`——組內按日期排序，這樣「前一列」「往前推 4 列」才有意義。
+- **`LAG(close)`**：取排序後**前一列**的 close——「這支股票前一個交易日的收盤價」。第一天沒有前一列，值是 NULL。有了 `prev_close`，算漲跌就是一個減法。
+- **`ROWS BETWEEN 4 PRECEDING AND CURRENT ROW`**：視窗**框架**——計算範圍是「往前 4 列＋自己」共 5 列，`AVG(close)` 對這 5 列取平均就是 **5 日均線（MA5）**。框架是滑動的：
+
+```
+day1  day2  day3  day4  [day5]   ← 算 day5 的 ma5 時
+ └────── 4 PRECEDING ─────┘└ CURRENT ROW（這 5 個 close 取平均）
+```
+
+  算 day6 時框架自動滑成 day2～day6。開頭不足 5 列時有幾列算幾列——所以前 4 天的 ma5 其實是「不滿 5 日的平均」，這就是熱身期，驗證查詢常用 `WHERE ma20 IS NOT NULL` 過濾它。
+- **`19 PRECEDING`**：同一招放大成 20 列＝ **MA20**。MA5 與 MA20 的相對位置（黃金交叉／死亡交叉）就是這張表的下游用途。
+- **`FROM stage.stock_price_daily`**：來源刻意是 stage 的**去重 view**而不是 raw——raw 重跑會有重複列，重複列會讓「往前推 4 列」推到同一天兩次，MA 直接算錯。**先去重、再算指標**，這是 stage 排在 app 前面的理由。
+
+Step 4 會把這段 SELECT 包上 `CREATE OR REPLACE TABLE app.stock_trend_analysis AS ...` 物化成實體表——`OR REPLACE` 讓每天的排程重算冪等：整張換掉，不疊加、不報「已存在」。
 
 這種「一整支股票的時間序列分析」正是 OLAP 的強項，也是為什麼要把資料搬進 BigQuery——在 MySQL 上對整個歷史做這種計算會很吃力。
 
