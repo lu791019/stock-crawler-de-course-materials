@@ -358,6 +358,14 @@ gcloud composer environments create stock-composer \
 
 `--network=default --subnetwork=default` 是本章的關鍵參數：**把環境掛進你的 VPC**（Composer 會在你的專案建立一個 network attachment，並在子網路裡保留 4 個 IP）。掛上之後，DAG 連你 VPC 裡的服務（VM1 的 RabbitMQ）走**內部網路**，跟 VM2 連 VM1 是同一條路——這讓 C-6 的網路功課幾乎消失。不帶這兩個參數的話，Composer 從公網連進來、來源 IP 是 Google 自動配發且查不到的值，就得走「探測 IP＋開防火牆白名單」的繞路（C-6 附註）。
 
+建立時忘了帶網路參數也不用重建——Composer 3 允許對現有環境**事後補掛**（一次約 5-10 分鐘的環境更新）。注意 `update` 跟 `create` 不同，**必須用完整資源路徑**，短名會報 `Failed to parse subnetwork`：
+
+```bash
+gcloud composer environments update stock-composer --location=asia-east1 \
+  --network=projects/{你的專案ID}/global/networks/default \
+  --subnetwork=projects/{你的專案ID}/regions/asia-east1/subnetworks/default
+```
+
 `--async` 讓指令立刻返回，環境在背景建立，需要 20-30 分鐘——它在準備一整套跑在 GKE 上的 Airflow。查進度：
 
 ```bash
