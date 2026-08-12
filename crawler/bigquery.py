@@ -11,9 +11,10 @@ from google.cloud.bigquery import SchemaField, LoadJobConfig, WriteDisposition
 
 from crawler.config import GCP_PROJECT_ID as PROJECT_ID
 
-# 同步落地的 dataset：手冊15 主線設 BQ_DATASET=raw（三層的入口）；
-# 不設就用 stock（手冊17 排程 DAG 沿用）
-DATASET_ID = os.environ.get("BQ_DATASET", "stock")
+# 同步/回填落地的 dataset：預設 raw（三層的入口, 與雙寫落點一致）。
+# 歷史註記: 舊版課程預設 "stock"（單一 dataset 時代）, 曾造成裸跑 sync 把資料
+# 靜默寫進三層之外的 stock dataset——預設值已對齊現行架構, 要去別處請明講 BQ_DATASET。
+DATASET_ID = os.environ.get("BQ_DATASET", "raw")
 
 
 def get_bigquery_client():

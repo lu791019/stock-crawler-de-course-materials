@@ -822,7 +822,7 @@ worker log（或上面指令的輸出）會出現「資料已上傳到 BigQuery 
 
 > 這個版本順便說明了金鑰的本質：`GOOGLE_APPLICATION_CREDENTIALS` 帶著金鑰，程式在 GCP 外面拿到的身分跟在 GCP 裡面用機器身分是同一套 ADC 機制的兩條路——程式碼一行都不用改。
 >
-> 開始雙寫之前累積的歷史資料想補進 BigQuery？repo 的 `stock_sync_mysql_to_bigquery.py` 就是做這件事的回填工具（設 `BQ_DATASET=raw` 跑一次即可），不在本章主線內。
+> 開始雙寫之前累積的歷史資料想補進 BigQuery？repo 的 `stock_sync_mysql_to_bigquery.py` 就是做這件事的回填工具（設 `BQ_DATASET=raw` 跑一次即可），不在本章主線內。它與金鑰、身分邊界的完整脈絡——「雲地混合」這個業界常見架構——見**補充L**。
 
 ## 本章總結
 
