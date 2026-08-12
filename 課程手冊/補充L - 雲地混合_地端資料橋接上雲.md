@@ -32,7 +32,7 @@
 | 需要帶什麼 | 什麼都不用 | **金鑰檔**（`GOOGLE_APPLICATION_CREDENTIALS` 指向它） |
 | 手冊出處 | 手冊 15 Step 1 的兩道閘門 | 手冊 15〈補充：在本機雙寫（金鑰用法）〉 |
 
-兩者其實是同一套 ADC（Application Default Credentials）機制的兩條路：程式呼叫 `google.auth.default()` 時依序找「環境變數指的金鑰 → gcloud 的本機憑證 → metadata server」，全部落空就丟 `DefaultCredentialsError`——本機看到這個錯誤，第一反應就是查金鑰環境變數。
+兩者其實是同一套 ADC（Application Default Credentials）機制的兩條路：程式呼叫 `google.auth.default()` 時依序找「環境變數指的金鑰 → gcloud 的本機憑證 → metadata server」，全部落空就丟 `DefaultCredentialsError`——這個錯誤的意思就是**站在邊界上沒帶護照**；本機看到它，第一反應就是查金鑰環境變數。
 
 ## 課程的演進，就是一次「混合 → 全雲」的遷移
 
